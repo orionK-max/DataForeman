@@ -1,0 +1,6 @@
+{
+  "schema": "connectivity.config@v1",
+  "ts": "2025-01-01T00:00:05.000Z",
+  "op": "delete",
+  "id": "opc1"
+}

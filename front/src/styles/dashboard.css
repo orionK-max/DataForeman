@@ -1,0 +1,248 @@
+/* Dashboard Grid Styles */
+
+/* Import react-grid-layout styles */
+.react-grid-layout {
+  position: relative;
+  transition: height 200ms ease;
+}
+
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top, width, height;
+}
+
+.react-grid-item img {
+  pointer-events: none;
+  user-select: none;
+}
+
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 2px solid rgba(0, 0, 0, 0.4);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+}
+
+.react-resizable-hide > .react-resizable-handle {
+  display: none;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
+  bottom: 0;
+  left: 0;
+  cursor: sw-resize;
+  transform: rotate(90deg);
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-nw {
+  top: 0;
+  left: 0;
+  cursor: nw-resize;
+  transform: rotate(180deg);
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-ne {
+  top: 0;
+  right: 0;
+  cursor: ne-resize;
+  transform: rotate(270deg);
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-w,
+.react-grid-item > .react-resizable-handle.react-resizable-handle-e {
+  top: 50%;
+  margin-top: -10px;
+  cursor: ew-resize;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-w {
+  left: 0;
+  transform: rotate(135deg);
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-e {
+  right: 0;
+  transform: rotate(315deg);
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-n,
+.react-grid-item > .react-resizable-handle.react-resizable-handle-s {
+  left: 50%;
+  margin-left: -10px;
+  cursor: ns-resize;
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-n {
+  top: 0;
+  transform: rotate(225deg);
+}
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-s {
+  bottom: 0;
+  transform: rotate(45deg);
+}
+
+/* Dashboard specific styles */
+.dashboard-grid {
+  background: transparent;
+  min-height: 400px;
+}
+
+.dashboard-grid.edit-mode {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 79px,
+    rgba(100, 100, 100, 0.1) 79px,
+    rgba(100, 100, 100, 0.1) 80px
+  );
+}
+
+.dashboard-widget {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.dashboard-widget:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.dashboard-widget.selected {
+  border: 2px solid #1976d2;
+  box-shadow: 0 4px 12px rgba(25, 118, 210, 0.3);
+}
+
+.dashboard-widget.synced-group-0 {
+  border-left: 4px solid #f44336;
+}
+
+.dashboard-widget.synced-group-1 {
+  border-left: 4px solid #2196f3;
+}
+
+.dashboard-widget.synced-group-2 {
+  border-left: 4px solid #4caf50;
+}
+
+.dashboard-widget.synced-group-3 {
+  border-left: 4px solid #ff9800;
+}
+
+.dashboard-widget.synced-group-4 {
+  border-left: 4px solid #9c27b0;
+}
+
+.dashboard-widget.synced-group-5 {
+  border-left: 4px solid #00bcd4;
+}
+
+.widget-header {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.widget-header .drag-handle {
+  cursor: move;
+  color: #666;
+  display: flex;
+  align-items: center;
+}
+
+.widget-header .drag-handle:hover {
+  color: #333;
+}
+
+.widget-title {
+  flex: 1;
+  font-weight: 500;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.widget-content {
+  position: relative;
+  height: calc(100% - 32px);
+  overflow: hidden;
+}
+
+.widget-loading-overlay,
+.widget-error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.9);
+  z-index: 10;
+}
+
+.widget-error-overlay {
+  flex-direction: column;
+  color: #d32f2f;
+}
+
+/* TV Mode */
+.tv-mode-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #000;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+}
+
+.tv-mode-header {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tv-mode-content {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+/* Export mode */
+.export-mode .widget-header {
+  background: #fff;
+  border: none;
+}
+
+.export-mode .dashboard-widget {
+  box-shadow: none;
+  border: 1px solid #e0e0e0;
+}

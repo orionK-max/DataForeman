@@ -1,0 +1,15 @@
+{
+  "schema": "connectivity.config@v1",
+  "ts": "2025-01-01T00:00:00.000Z",
+  "op": "upsert",
+  "conn": {
+    "id": "opc1",
+    "type": "opcua-client",
+    "enabled": true,
+    "endpoint": "opc.tcp://localhost:4840",
+    "poll_ms": 200,
+    "subscribe": [1001, 1002],
+    "write_acl": [1002],
+    "driver_opts": { "securityMode": "None" }
+  }
+}

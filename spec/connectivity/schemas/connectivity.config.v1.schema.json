@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "connectivity.config@v1",
+  "title": "Connectivity Config Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "connectivity.config@v1" },
+    "ts": { "type": "string", "format": "date-time" },
+    "op": { "type": "string", "enum": ["upsert", "delete"] },
+    "conn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["opcua-client", "opcua-server", "s7", "eip", "pycomm3"] },
+        "enabled": { "type": "boolean" },
+        "endpoint": { "type": "string" },
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "slot": { "type": "integer", "minimum": 0 },
+        "rack": { "type": "integer", "minimum": 0 },
+        "timeoutMs": { "type": "integer", "minimum": 0 },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": { "type": "string" },
+            "pass": { "type": "string" },
+            "cert": { "type": "string" },
+            "key": { "type": "string" },
+            "ca": { "type": "string" }
+          }
+        },
+        "poll_ms": { "type": "integer", "minimum": 0 },
+        "subscribe": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "write_acl": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "driver_opts": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["id", "type", "enabled"]
+    },
+    "id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["schema", "ts", "op"],
+  "allOf": [
+    {
+      "if": { "properties": { "op": { "const": "upsert" } } },
+      "then": { "required": ["conn"] }
+    },
+    {
+      "if": { "properties": { "op": { "const": "delete" } } },
+      "then": { "required": ["id"] }
+    }
+  ]
+}

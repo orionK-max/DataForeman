@@ -1,0 +1,243 @@
+/**
+ * FolderTree Component
+ * 
+ * Reusable collapsible tree view for folders (dashboards or charts)
+ */
+
+import React, { useState } from 'react';
+import {
+  Box,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Collapse,
+  IconButton,
+  Typography,
+  Tooltip,
+} from '@mui/material';
+import {
+  Folder as FolderIcon,
+  FolderOpen as FolderOpenIcon,
+  ExpandMore as ExpandMoreIcon,
+  ChevronRight as ChevronRightIcon,
+  CreateNewFolder as CreateNewFolderIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Home as HomeIcon,
+} from '@mui/icons-material';
+
+/**
+ * Single folder tree node
+ */
+function FolderNode({ 
+  folder, 
+  level = 0, 
+  selectedId, 
+  onSelect, 
+  onEdit,
+  onDelete,
+  onCreateSubfolder,
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = folder.children && folder.children.length > 0;
+  const isSelected = selectedId === folder.id;
+
+  const handleToggle = (e) => {
+    e.stopPropagation();
+    setExpanded(!expanded);
+  };
+
+  const handleSelect = () => {
+    onSelect(folder.id);
+  };
+
+  const handleEdit = (e) => {
+    e.stopPropagation();
+    onEdit(folder);
+  };
+
+  const handleDelete = (e) => {
+    e.stopPropagation();
+    onDelete(folder);
+  };
+
+  const handleCreateSubfolder = (e) => {
+    e.stopPropagation();
+    onCreateSubfolder(folder);
+  };
+
+  return (
+    <>
+      <ListItem
+        disablePadding
+        sx={{ 
+          pl: level * 2,
+          bgcolor: isSelected ? 'action.selected' : 'transparent',
+          '&:hover .folder-actions': {
+            opacity: 1,
+          },
+        }}
+        secondaryAction={
+          <Box 
+            className="folder-actions"
+            sx={{ 
+              display: 'flex', 
+              gap: 0.5,
+              opacity: 0,
+              transition: 'opacity 0.2s',
+            }}
+          >
+            <Tooltip title="New subfolder">
+              <IconButton size="small" onClick={handleCreateSubfolder}>
+                <CreateNewFolderIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Edit folder">
+              <IconButton size="small" onClick={handleEdit}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete folder">
+              <IconButton size="small" onClick={handleDelete}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        }
+      >
+        <ListItemButton onClick={handleSelect} sx={{ py: 0.5 }}>
+          <ListItemIcon sx={{ minWidth: 32 }}>
+            {hasChildren && (
+              <IconButton size="small" onClick={handleToggle} sx={{ p: 0, mr: 0.5 }}>
+                {expanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+              </IconButton>
+            )}
+            {!hasChildren && <Box sx={{ width: 20 }} />}
+            {expanded ? 
+              <FolderOpenIcon fontSize="small" color={isSelected ? 'primary' : 'action'} /> : 
+              <FolderIcon fontSize="small" color={isSelected ? 'primary' : 'action'} />
+            }
+          </ListItemIcon>
+          <ListItemText 
+            primary={folder.name}
+            primaryTypographyProps={{
+              variant: 'body2',
+              fontWeight: isSelected ? 600 : 400,
+            }}
+          />
+        </ListItemButton>
+      </ListItem>
+
+      {hasChildren && (
+        <Collapse in={expanded} timeout="auto" unmountOnExit>
+          <List component="div" disablePadding>
+            {folder.children.map(child => (
+              <FolderNode
+                key={child.id}
+                folder={child}
+                level={level + 1}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onCreateSubfolder={onCreateSubfolder}
+              />
+            ))}
+          </List>
+        </Collapse>
+      )}
+    </>
+  );
+}
+
+/**
+ * FolderTree Component
+ */
+export default function FolderTree({
+  folders = [],
+  selectedFolderId = null,
+  onSelectFolder,
+  onCreateFolder,
+  onEditFolder,
+  onDeleteFolder,
+  showRootOption = true,
+  emptyMessage = 'No folders yet',
+}) {
+  const handleSelectRoot = () => {
+    onSelectFolder(null);
+  };
+
+  const handleCreateRootFolder = () => {
+    onCreateFolder(null); // null parent = root folder
+  };
+
+  return (
+    <Box sx={{ width: '100%', bgcolor: 'background.paper' }}>
+      {/* Root/All Items Option */}
+      {showRootOption && (
+        <ListItem
+          disablePadding
+          sx={{
+            bgcolor: selectedFolderId === null ? 'action.selected' : 'transparent',
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
+          <ListItemButton onClick={handleSelectRoot} sx={{ py: 1 }}>
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              <HomeIcon color={selectedFolderId === null ? 'primary' : 'action'} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="All Items"
+              primaryTypographyProps={{
+                variant: 'body2',
+                fontWeight: selectedFolderId === null ? 600 : 400,
+              }}
+            />
+          </ListItemButton>
+        </ListItem>
+      )}
+
+      {/* Folder Tree */}
+      {folders.length > 0 ? (
+        <List component="nav" disablePadding>
+          {folders.map(folder => (
+            <FolderNode
+              key={folder.id}
+              folder={folder}
+              selectedId={selectedFolderId}
+              onSelect={onSelectFolder}
+              onEdit={onEditFolder}
+              onDelete={onDeleteFolder}
+              onCreateSubfolder={(parent) => onCreateFolder(parent.id)}
+            />
+          ))}
+        </List>
+      ) : (
+        <Box sx={{ p: 2, textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">
+            {emptyMessage}
+          </Typography>
+        </Box>
+      )}
+
+      {/* Create Root Folder Button */}
+      <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
+        <ListItemButton onClick={handleCreateRootFolder} sx={{ borderRadius: 1 }}>
+          <ListItemIcon sx={{ minWidth: 40 }}>
+            <CreateNewFolderIcon color="primary" />
+          </ListItemIcon>
+          <ListItemText 
+            primary="New Folder"
+            primaryTypographyProps={{
+              variant: 'body2',
+              color: 'primary',
+            }}
+          />
+        </ListItemButton>
+      </Box>
+    </Box>
+  );
+}

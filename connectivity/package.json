@@ -1,0 +1,26 @@
+{
+  "name": "@dataforeman/connectivity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DataForeman Connectivity service (skeleton) — listens to config/write subjects and publishes status",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "nats": "^2.19.0",
+    "node-opcua": "^2.112.0",
+    "pino": "^9.3.2",
+    "node-snap7": "^1.0.3",
+    "dateformat": "^3.0.3",
+    "deep-equal": "^1.1.1",
+    "int64-buffer": "^0.99.1007",
+    "task-easy": "^0.2.0",
+    "pg": "^8.11.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

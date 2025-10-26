@@ -1,0 +1,43 @@
+{
+  "name": "dataforeman",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "DataForeman monorepo (Core + Front + Ops)",
+  "workspaces": [
+    "core",
+    "front",
+    "connectivity",
+    "ingestor",
+    "ops"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "lint": "eslint . --ext js,jsx",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "postinstall": "echo 'Root postinstall complete'",
+    "start": "bash ops/dev-front.sh",
+    "start:rebuild": "bash ops/start-rebuild-front.sh",
+    "start:local": "bash ops/start.sh --local-core",
+    "start:caddy": "bash ops/start.sh --with-caddy",
+    "dev": "bash ops/dev-front.sh",
+    "dev:front": "cd front && npm run dev",
+    "dev:core": "node core/src/server.js",
+    "dev:ops:seed": "ops/bin/log-run.sh ops node ops/scripts/seed.js"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@eslint/js": "^9.37.0",
+    "concurrently": "^9.1.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react": "^7.37.5",
+    "prettier": "^3.3.3"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}

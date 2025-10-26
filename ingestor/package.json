@@ -1,0 +1,17 @@
+{
+  "name": "@dataforeman/ingestor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "nats": "^2.19.0",
+  "pg": "^8.12.0",
+  "pg-copy-streams": "^6.0.5",
+    "pino": "^9.3.2"
+  }
+}

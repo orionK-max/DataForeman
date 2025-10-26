@@ -1,0 +1,7 @@
+{
+  "schema": "telemetry.write@v1",
+  "ts": "2025-01-01T00:00:12.000Z",
+  "requests": [
+    { "tag_id": 1002, "v": false }
+  ]
+}

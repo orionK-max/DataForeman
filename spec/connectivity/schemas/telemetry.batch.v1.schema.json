@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "telemetry.batch@v1",
+  "title": "Telemetry Batch v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "telemetry.batch@v1" },
+    "ts": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": { "type": "string", "minLength": 1 },
+        "driver": { "type": "string", "enum": ["opcua-client", "opcua-server", "s7", "eip"] },
+        "version": { "type": "string" }
+      },
+      "required": ["connection_id", "driver"]
+    },
+    "points": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tag_id": { "type": "integer", "minimum": 0 },
+          "ts": { "type": "string", "format": "date-time" },
+          "v": { "type": ["number", "string", "boolean"] },
+          "q": { "type": "integer" },
+          "src_ts": { "type": "string", "format": "date-time" }
+        },
+        "required": ["tag_id", "ts", "v"]
+      }
+    }
+  },
+  "required": ["schema", "ts", "source", "points"]
+}

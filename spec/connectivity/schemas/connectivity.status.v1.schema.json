@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "connectivity.status@v1",
+  "title": "Connectivity Status v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "connectivity.status@v1" },
+    "ts": { "type": "string", "format": "date-time" },
+    "id": { "type": "string", "minLength": 1 },
+    "state": { "type": "string", "enum": ["disconnected", "connecting", "connected", "error"] },
+    "reason": { "type": "string" },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uptime_s": { "type": "number", "minimum": 0 },
+        "rps": { "type": "number", "minimum": 0 },
+        "errors": { "type": "number", "minimum": 0 },
+        "reconnects": { "type": "number", "minimum": 0 },
+        "last_seen_ts": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "required": ["schema", "ts", "id", "state"]
+}

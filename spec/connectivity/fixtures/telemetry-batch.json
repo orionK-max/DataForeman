@@ -1,0 +1,9 @@
+{
+  "schema": "telemetry.batch@v1",
+  "ts": "2025-01-01T00:00:11.000Z",
+  "source": { "connection_id": "opc1", "driver": "opcua-client", "version": "0.1.0" },
+  "points": [
+    { "tag_id": 1001, "ts": "2025-01-01T00:00:11.000Z", "v": 12.34, "q": 0 },
+    { "tag_id": 1002, "ts": "2025-01-01T00:00:11.010Z", "v": true }
+  ]
+}

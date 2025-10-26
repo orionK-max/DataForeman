@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "telemetry.write@v1",
+  "title": "Telemetry Write v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "telemetry.write@v1" },
+    "ts": { "type": "string", "format": "date-time" },
+    "requests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tag_id": { "type": "integer", "minimum": 0 },
+          "v": { "type": ["number", "string", "boolean"] },
+          "ts": { "type": "string", "format": "date-time" }
+        },
+        "required": ["tag_id", "v"]
+      }
+    }
+  },
+  "required": ["schema", "ts", "requests"]
+}

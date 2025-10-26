@@ -1,0 +1,330 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          echo "Generating release notes for $VERSION"
+          
+          # Get previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          # Generate changelog
+          if [ -n "$PREV_TAG" ]; then
+            echo "## Changes since $PREV_TAG" > release_notes.md
+            echo "" >> release_notes.md
+            git log $PREV_TAG..HEAD --pretty=format:"- %s (%h)" >> release_notes.md
+          else
+            echo "## Initial Release" > release_notes.md
+          fi
+          
+          # Add installation instructions
+          cat >> release_notes.md << 'EOF'
+          
+          ## Installation
+          
+          ### Windows
+          1. Download `DataForeman-Setup-{VERSION}.exe`
+          2. Run the installer (requires Administrator privileges)
+          3. Follow the installation wizard
+          4. Start DataForeman from the Start Menu or desktop shortcut
+          
+          **Requirements:**
+          - Docker Desktop for Windows
+          - Windows 10/11 (64-bit)
+          - 8GB RAM minimum (16GB recommended)
+          
+          ### Linux (Docker)
+          1. Download and extract source code
+          2. Run:
+          ```bash
+          git clone https://github.com/orionK-max/DataForeman.git
+          cd DataForeman
+          git checkout {VERSION}
+          cp .env.example .env
+          npm run start:rebuild
+          ```
+          
+          ## Updating from Previous Version
+          
+          ### Windows
+          - Simply run the new installer - your data will be preserved automatically
+          - Or use: `.\windows-installer\update.ps1 -Version {VERSION}`
+          
+          ### Linux
+          ```bash
+          docker-compose down
+          git fetch --tags
+          git checkout {VERSION}
+          npm run start:rebuild
+          ```
+          
+          **Note:** Your databases and configurations are preserved during updates.
+          
+          ## Documentation
+          
+          - [Installation Guide](docs/installation.md)
+          - [Windows Installation](docs/windows-installation.md)
+          - [API Documentation](docs/api-registry.md)
+          - [Database Migrations](docs/database-migrations.md)
+          
+          EOF
+          
+          # Replace {VERSION} placeholder
+          sed -i "s/{VERSION}/$VERSION/g" release_notes.md
+      
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: DataForeman ${{ steps.get_version.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows-installer:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    needs: create-release
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.version }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+          echo "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      
+      - name: Update version in installer script
+        run: |
+          $version = "${{ needs.create-release.outputs.version }}"
+          $versionNumber = $version -replace '^v', ''
+          
+          $issFile = "windows-installer/installer.iss"
+          $content = Get-Content $issFile -Raw
+          $content = $content -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$versionNumber`""
+          Set-Content $issFile $content
+          
+          Write-Host "Updated version to: $versionNumber"
+      
+      - name: Create icon placeholder
+        run: |
+          # Create a simple placeholder icon if one doesn't exist
+          # In production, replace this with your actual icon
+          if (-not (Test-Path "windows-installer/icon.ico")) {
+            Write-Host "Note: No custom icon found. Using default."
+          }
+      
+      - name: Build installer
+        run: |
+          cd windows-installer
+          iscc installer.iss
+        shell: cmd
+      
+      - name: Verify installer was created
+        run: |
+          if (Test-Path "windows-installer/dist/DataForeman-Setup-*.exe") {
+            Write-Host "✓ Installer created successfully"
+            Get-ChildItem "windows-installer/dist/*.exe" | ForEach-Object { Write-Host "  $_" }
+          } else {
+            Write-Host "✗ Installer not found!"
+            exit 1
+          }
+      
+      - name: Upload installer to release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.create-release.outputs.version }}
+          files: windows-installer/dist/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: windows-installer/dist/*.exe
+          retention-days: 30
+
+  build-docker-images:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: create-release
+    # Only run if Docker Hub credentials are configured
+    if: ${{ vars.ENABLE_DOCKER_PUSH == 'true' || vars.ENABLE_DOCKER_PUSH == '' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.version }}
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+        continue-on-error: true
+      
+      - name: Extract metadata
+        id: meta
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          VERSION_NUMBER="${VERSION#v}"
+          echo "version_number=$VERSION_NUMBER" >> $GITHUB_OUTPUT
+      
+      - name: Build and push Core image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./core
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/dataforeman-core:latest
+            ${{ secrets.DOCKER_USERNAME }}/dataforeman-core:${{ steps.meta.outputs.version_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+        continue-on-error: true
+      
+      - name: Build and push Connectivity image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./connectivity
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/dataforeman-connectivity:latest
+            ${{ secrets.DOCKER_USERNAME }}/dataforeman-connectivity:${{ steps.meta.outputs.version_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+        continue-on-error: true
+      
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./front
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/dataforeman-front:latest
+            ${{ secrets.DOCKER_USERNAME }}/dataforeman-front:${{ steps.meta.outputs.version_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+        continue-on-error: true
+
+  create-source-archive:
+    name: Create Source Archive
+    runs-on: ubuntu-latest
+    needs: create-release
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.version }}
+      
+      - name: Create source archive
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          
+          # Create exclusion file for better control
+          cat > .tarignore << 'EOF'
+          .git
+          .github
+          node_modules
+          logs
+          var
+          windows-installer/dist
+          .playwright-mcp
+          *.log
+          .env
+          .DS_Store
+          EOF
+          
+          # Create archive with exclusions
+          tar -czf ../dataforeman-$VERSION-source.tar.gz \
+            --exclude-from=.tarignore \
+            -C .. \
+            $(basename $PWD)
+          
+          # Move archive to current directory
+          mv ../dataforeman-$VERSION-source.tar.gz .
+      
+      - name: Upload source archive to release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.create-release.outputs.version }}
+          files: dataforeman-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-completion:
+    name: Notify Release Completion
+    runs-on: ubuntu-latest
+    needs: [create-release, build-windows-installer, build-docker-images, create-source-archive]
+    if: always()
+    
+    steps:
+      - name: Check build status
+        run: |
+          echo "Release created: ${{ needs.create-release.result }}"
+          echo "Windows installer: ${{ needs.build-windows-installer.result }}"
+          echo "Docker images: ${{ needs.build-docker-images.result }}"
+          echo "Source archive: ${{ needs.create-source-archive.result }}"
+          
+          if [ "${{ needs.build-windows-installer.result }}" = "success" ] && \
+             [ "${{ needs.create-source-archive.result }}" = "success" ]; then
+            echo "✓ Release ${{ needs.create-release.outputs.version }} completed successfully!"
+          else
+            echo "✗ Some build jobs failed. Please check the logs."
+            exit 1
+          fi

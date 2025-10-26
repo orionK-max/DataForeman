@@ -1,0 +1,205 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${PGUSER:-postgres}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-postgres}
+      POSTGRES_DB: ${PGDATABASE:-dataforeman}
+    ports:
+      - "${PGPORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./logs/postgres:/var/log/postgresql
+    command: [
+      "postgres",
+      "-c","logging_collector=on",
+      "-c","log_destination=csvlog",
+      "-c","log_directory=/var/log/postgresql",
+      "-c","log_filename=postgres-%Y-%m-%d_%H%M",
+      "-c","log_rotation_age=60",
+      "-c","log_rotation_size=0",
+      "-c","log_min_duration_statement=500"
+    ]
+
+  nats:
+    image: nats:2-alpine
+    command: ["-js", "-l", "/var/log/nats/nats.current"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - ./logs/nats:/var/log/nats
+
+  tsdb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: ${TSDB_USER:-tsdb}
+      POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tsdb}
+      POSTGRES_DB: ${TSDB_DATABASE:-telemetry}
+    ports:
+      - "${TSDB_PORT:-5433}:5432"
+    volumes:
+      - tsdb-data:/var/lib/postgresql/data
+      - ./logs/postgres:/var/log/postgresql
+    command: [
+      "postgres",
+      "-c","logging_collector=on",
+      "-c","log_destination=csvlog",
+      "-c","log_directory=/var/log/postgresql",
+      "-c","log_filename=tsdb-%Y-%m-%d_%H%M",
+      "-c","log_rotation_age=60",
+      "-c","log_rotation_size=0",
+      "-c","log_min_duration_statement=500"
+    ]
+
+  core:
+    build: ./core
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      LOG_FILE: /var/log/core/core.current
+      LOG_ROTATE_PERIOD_MINUTES: ${LOG_ROTATE_PERIOD_MINUTES:-1440}
+      AUTH_DEV_TOKEN: ${AUTH_DEV_TOKEN:-0}
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-postgres}
+      PGDATABASE: ${PGDATABASE:-dataforeman}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Demo mode configuration
+      DEMO_MODE: ${DEMO_MODE:-0}
+      DEMO_INACTIVE_MINUTES: ${DEMO_INACTIVE_MINUTES:-60}
+      DEMO_PASSWORD_PREFIX: ${DEMO_PASSWORD_PREFIX:-Demo}
+      # TimescaleDB connection
+      TSDB_HOST: tsdb
+      TSDB_PORT: 5432
+      TSDB_USER: ${TSDB_USER:-tsdb}
+      TSDB_PASSWORD: ${TSDB_PASSWORD:-tsdb}
+      TSDB_DATABASE: ${TSDB_DATABASE:-telemetry}
+    depends_on:
+      - db
+      - nats
+      - tsdb
+    extra_hosts:
+      - "host-gateway:host-gateway"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./logs/core:/var/log/core
+      - ./logs/nats:/var/log/nats
+      - ./logs/postgres:/var/log/postgresql
+      - ./logs/ops:/var/log/ops
+      - ./logs/connectivity:/var/log/connectivity
+      - ./logs/front:/var/log/front:ro
+      - ./var:/app/var
+      - ./ops/logging.components.json:/app/ops/logging.components.json:ro
+      - ./logs:/app/logs:ro
+      - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  connectivity:
+    build: ./connectivity
+    network_mode: host
+    environment:
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      NATS_URL: nats://localhost:4222
+      SERVICE_ID: connectivity-1
+      HOST: 0.0.0.0
+      PORT: 3100
+      LOG_FILE: /var/log/connectivity/connectivity.current
+      ENABLE_MULTIRATE: "true"
+      CONNECTIVITY_SCRIPT: src/index-multirate.mjs
+      EIP_DRIVER: "${EIP_DRIVER:-libplctag}"  # Options: libplctag (default), pycomm3, javascript
+      PYCOMM3_ARRAY_MODE: "${PYCOMM3_ARRAY_MODE:-batch}"  # Options: batch (default), individual
+      PYCOMM3_MAX_TAGS_PER_GROUP: "${PYCOMM3_MAX_TAGS_PER_GROUP:-500}"  # Max tags per poll group (lower for stability)
+      PYCOMM3_MAX_CONNECTIONS: "${PYCOMM3_MAX_CONNECTIONS:-8}"  # Max concurrent CIP connections to PLC
+      EIP_TAGGROUP_BYTE_BUDGET: "${EIP_TAGGROUP_BYTE_BUDGET:-1800}"  # Bytes per shard, higher = fewer shards
+      EIP_SHARD_BUDGET_FRAC: "${EIP_SHARD_BUDGET_FRAC:-0.85}"  # Fraction of poll interval for shard processing
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: dataforeman
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    depends_on:
+      - nats
+      - tsdb
+      - db
+    volumes:
+      - ./logs/connectivity:/var/log/connectivity
+      - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
+    ports:
+      - "3100:3100"
+      - "4841:4841"
+
+  front:
+    build: ./front
+    depends_on:
+      - core
+    ports:
+      - "8080:80"
+    volumes:
+      - ./logs/front:/var/log/front
+
+  # DEPRECATED: Standalone ingestor service - DISABLED for testing
+  # The core service now handles all telemetry ingestion via telemetry-ingest.js
+  # Both services were subscribing to df.telemetry.raw.* causing duplicate processing
+  # TODO: Delete this service and ./ingestor/ directory after extensive testing confirms
+  #       that core service handles all telemetry ingestion reliably
+  # To re-enable temporarily: docker compose start ingestor
+  ingestor:
+    build: ./ingestor
+    environment:
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      NATS_URL: nats://nats:4222
+      TSDB_HOST: tsdb
+      TSDB_PORT: 5432
+      TSDB_USER: ${TSDB_USER:-tsdb}
+      TSDB_PASSWORD: ${TSDB_PASSWORD:-tsdb}
+      TSDB_DATABASE: ${TSDB_DATABASE:-telemetry}
+      BATCH_MAX: 5000
+      FLUSH_MS: 100
+      PULL_MAX: 256
+      JS_DURABLE: ingestor
+      JETSTREAM: "1"
+      LOG_FILE: /var/log/ingestor/ingestor.current
+    depends_on:
+      - nats
+      - tsdb
+    volumes:
+      - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
+      - ./logs/ingestor:/var/log/ingestor
+    profiles:
+      - deprecated  # Only starts with: docker compose --profile deprecated up
+
+  rotator:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: ["node","/app/ops/rotator-daemon.js"]
+    environment:
+      LOG_ROTATE_PERIOD_MINUTES: ${LOG_ROTATE_PERIOD_MINUTES:-1440}
+    depends_on:
+      - core
+      - nats
+      - db
+      - tsdb
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - front
+
+volumes:
+  db-data:
+  tsdb-data:

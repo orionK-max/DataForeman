@@ -1,0 +1,12 @@
+{
+  "components": [
+    { "name": "core", "pattern": "/var/log/core/core-%DATE%.log" },
+    { "name": "postgres", "pattern": "/var/log/postgresql/postgres-%DATE%.log" },
+    { "name": "tsdb", "pattern": "/var/log/postgresql/tsdb-%DATE%.csv" },
+    { "name": "nats", "pattern": "/var/log/nats/nats-%DATE%.log" },
+    { "name": "ops", "pattern": "/var/log/ops/ops-%DATE%.log" },
+    { "name": "connectivity", "pattern": "/var/log/connectivity/connectivity-%DATE%.log" },
+    { "name": "ingestor", "pattern": "/var/log/ingestor/ingestor-%DATE%.log" },
+    { "name": "frontend", "pattern": "/var/log/front/access-%DATE%.log", "mergePattern": "/var/log/front/error-%DATE%.log" }
+  ]
+}

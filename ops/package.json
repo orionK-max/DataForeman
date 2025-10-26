@@ -1,0 +1,19 @@
+{
+  "name": "@dataforeman/ops",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+  "seed": "node scripts/seed.js",
+  "backup": "node scripts/backup.js",
+  "restore": "node scripts/restore.js",
+  "smoke": "node scripts/smoke.js",
+  "dev:ops": "bin/log-run.sh ops node scripts/smoke.js",
+  "validate-permissions": "node validate-permissions.js",
+  "validate-permissions:verbose": "node validate-permissions.js --verbose",
+  "generate-api-docs": "node validate-permissions.js --generate-docs"
+  },
+  "dependencies": {
+    "pg": "^8.12.0"
+  }
+}

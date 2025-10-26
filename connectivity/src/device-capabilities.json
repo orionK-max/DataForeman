@@ -1,0 +1,182 @@
+{
+  "1756-L83E": {
+    "max_cip_connections": 64,
+    "vendor": "Allen-Bradley",
+    "family": "ControlLogix",
+    "description": "ControlLogix 5580 Controller"
+  },
+  "1756-L82E": {
+    "max_cip_connections": 64,
+    "vendor": "Allen-Bradley",
+    "family": "ControlLogix",
+    "description": "ControlLogix 5580 Controller"
+  },
+  "1756-L81E": {
+    "max_cip_connections": 64,
+    "vendor": "Allen-Bradley",
+    "family": "ControlLogix",
+    "description": "ControlLogix 5580 Controller"
+  },
+  "1756-L75": {
+    "max_cip_connections": 32,
+    "vendor": "Allen-Bradley",
+    "family": "ControlLogix",
+    "description": "ControlLogix 5570 Controller"
+  },
+  "1756-L73": {
+    "max_cip_connections": 32,
+    "vendor": "Allen-Bradley",
+    "family": "ControlLogix",
+    "description": "ControlLogix 5570 Controller"
+  },
+  "1756-L71": {
+    "max_cip_connections": 32,
+    "vendor": "Allen-Bradley",
+    "family": "ControlLogix",
+    "description": "ControlLogix 5570 Controller"
+  },
+  "1756-L72": {
+    "max_cip_connections": 32,
+    "vendor": "Allen-Bradley",
+    "family": "ControlLogix",
+    "description": "ControlLogix 5572 Controller"
+  },
+  "1769-L33ER": {
+    "max_cip_connections": 12,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Controller"
+  },
+  "1769-L30ER": {
+    "max_cip_connections": 12,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Controller"
+  },
+  "1769-L27ER": {
+    "max_cip_connections": 12,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Controller"
+  },
+  "1769-L24ER": {
+    "max_cip_connections": 8,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Controller"
+  },
+  "1769-L23E": {
+    "max_cip_connections": 8,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Controller"
+  },
+  "1769-L18ER": {
+    "max_cip_connections": 8,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Controller"
+  },
+  "1769-L16ER": {
+    "max_cip_connections": 8,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Controller"
+  },
+  "1756-EN2T": {
+    "max_cip_connections": 32,
+    "vendor": "Allen-Bradley",
+    "family": "Ethernet Module",
+    "description": "ControlLogix EtherNet/IP Communication Module"
+  },
+  "1756-ENBT": {
+    "max_cip_connections": 32,
+    "vendor": "Allen-Bradley",
+    "family": "Ethernet Module",
+    "description": "ControlLogix EtherNet/IP Bridge Module"
+  },
+  "1756-EN3TR": {
+    "max_cip_connections": 48,
+    "vendor": "Allen-Bradley",
+    "family": "Ethernet Module",
+    "description": "ControlLogix EtherNet/IP Communication Module with DLR"
+  },
+  "1756-EN2TR": {
+    "max_cip_connections": 32,
+    "vendor": "Allen-Bradley",
+    "family": "Ethernet Module",
+    "description": "ControlLogix EtherNet/IP Communication Module with DLR"
+  },
+  "1756-EWEB": {
+    "max_cip_connections": 20,
+    "vendor": "Allen-Bradley",
+    "family": "Ethernet Module",
+    "description": "ControlLogix Web Server Module"
+  },
+  "1769-L32E": {
+    "max_cip_connections": 12,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Controller"
+  },
+  "1769-L36ERM": {
+    "max_cip_connections": 16,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix",
+    "description": "CompactLogix 5370 Safety Controller"
+  },
+  "Micro820": {
+    "max_cip_connections": 4,
+    "vendor": "Allen-Bradley",
+    "family": "Micro800",
+    "description": "Micro820 Controller"
+  },
+  "Micro830": {
+    "max_cip_connections": 4,
+    "vendor": "Allen-Bradley",
+    "family": "Micro800",
+    "description": "Micro830 Controller"
+  },
+  "Micro850": {
+    "max_cip_connections": 8,
+    "vendor": "Allen-Bradley",
+    "family": "Micro800",
+    "description": "Micro850 Controller"
+  },
+  "Micro870": {
+    "max_cip_connections": 8,
+    "vendor": "Allen-Bradley",
+    "family": "Micro800",
+    "description": "Micro870 Controller"
+  },
+  "5069-L306ER": {
+    "max_cip_connections": 16,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix 5380",
+    "description": "Compact GuardLogix 5380 Safety Controller"
+  },
+  "5069-L310ER": {
+    "max_cip_connections": 16,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix 5380",
+    "description": "CompactLogix 5380 Controller"
+  },
+  "5069-L320ER": {
+    "max_cip_connections": 24,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix 5380",
+    "description": "CompactLogix 5380 Controller"
+  },
+  "5069-L330ER": {
+    "max_cip_connections": 32,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix 5380",
+    "description": "CompactLogix 5380 Controller"
+  },
+  "5069-L340ER": {
+    "max_cip_connections": 48,
+    "vendor": "Allen-Bradley",
+    "family": "CompactLogix 5380",
+    "description": "CompactLogix 5380 Controller"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "node": true
+  },
+  "extends": [
+    "eslint:recommended",
+    "plugin:react/recommended",
+    "plugin:react/jsx-runtime",
+    "prettier"
+  ],
+  "settings": {
+    "react": {
+      "version": "detect"
+    }
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "plugins": ["react"],
+  "rules": {
+    "no-unused-vars": ["warn", {"argsIgnorePattern": "^_", "varsIgnorePattern": "^_"}],
+    "no-console": "off",
+    "no-empty": ["error", {"allowEmptyCatch": true}],
+    "react/prop-types": "off",
+    
+  },
+  "overrides": [
+    {
+      "files": ["front/**/*"],
+      "env": { "browser": true, "node": false }
+    },
+    {
+      "files": ["core/**/*", "ops/**/*", "connectivity/**/*"],
+      "env": { "browser": false, "node": true }
+    }
+  ]
+}

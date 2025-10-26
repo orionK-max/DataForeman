@@ -1,0 +1,28 @@
+name: Validate Connectivity Schemas
+
+on:
+  push:
+    paths:
+      - 'spec/connectivity/**'
+      - 'tools/schema-validate/**'
+      - '.github/workflows/validate-schemas.yml'
+  pull_request:
+    paths:
+      - 'spec/connectivity/**'
+      - 'tools/schema-validate/**'
+
+jobs:
+  ajv-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install validator deps
+        working-directory: tools/schema-validate
+        run: npm ci
+      - name: Run schema validation
+        working-directory: tools/schema-validate
+        run: npm run -s validate

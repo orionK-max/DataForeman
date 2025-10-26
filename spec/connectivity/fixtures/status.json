@@ -1,0 +1,13 @@
+{
+  "schema": "connectivity.status@v1",
+  "ts": "2025-01-01T00:00:10.000Z",
+  "id": "opc1",
+  "state": "connected",
+  "stats": {
+    "uptime_s": 3600,
+    "rps": 1200,
+    "errors": 1,
+    "reconnects": 0,
+    "last_seen_ts": "2025-01-01T00:00:09.800Z"
+  }
+}
