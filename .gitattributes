@@ -1,0 +1,29 @@
+# Ensure shell scripts always use LF line endings (Unix style)
+# This prevents "No such file or directory" errors when building on Windows
+*.sh text eol=lf
+
+# Ensure batch files use CRLF (Windows style)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Docker and compose files
+Dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+
+# Source code - let Git decide but normalize
+*.js text
+*.jsx text
+*.mjs text
+*.json text
+*.md text
+*.sql text
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
