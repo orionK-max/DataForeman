@@ -34,6 +34,13 @@ DataForeman is available for both **Windows** and **Linux** systems:
 
 **Requirements:** Docker Desktop, Windows 10/11 (64-bit), 8GB RAM
 
+**Notes:**
+- If Docker Desktop prompts to update WSL, open PowerShell as Administrator and run:
+  ```powershell
+  wsl --update
+  ```
+- For Virtual Machines (VirtualBox, VMware, Parallels, etc.): Enable **virtualization** in VM settings under the "Processors" section (also called VT-x/AMD-V or nested virtualization)
+
 #### 🐧 Linux Installation (Docker)
 **Standard Docker Compose deployment**
 
@@ -170,7 +177,31 @@ DataForeman uses a granular permission system where administrators control user 
 
 ## Troubleshooting
 
-### Database Won't Start After OS Restart
+### Containers Won't Start - Permission Denied (Windows)
+
+**Symptom:** After installation or OS restart, containers stop with "Permission denied" errors when trying to write to log directories.
+
+**Automatic Fix:** The start script automatically checks and fixes permissions. Just restart DataForeman:
+- Use the Start Menu shortcut, or
+- Run `windows-installer\start-dataforeman.bat`
+
+**Manual Fix (if needed):**
+1. Open the Start Menu
+2. Find DataForeman → **Fix Permissions**
+3. Restart DataForeman
+
+**Or via PowerShell (as Administrator):**
+```powershell
+cd "C:\Program Files\DataForeman"
+.\windows-installer\fix-permissions.ps1
+.\windows-installer\start-dataforeman.bat
+```
+
+**Why this happens:** Docker Desktop uses WSL2, and directory permissions sometimes need to be reset for containers (running as different users) to write log files.
+
+**Note:** The start script now automatically checks permissions before starting containers, so this should rarely be needed.
+
+### Database Won't Start After OS Restart (Linux)
 
 **Symptom:** Containers show "Permission denied" when trying to write log files:
 ```

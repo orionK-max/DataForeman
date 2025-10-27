@@ -31,6 +31,10 @@ if not exist ".env" (
     echo.
 )
 
+REM Check and fix permissions if needed (silent check)
+echo [1.5/3] Verifying directory permissions...
+powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0fix-permissions.ps1" >nul 2>&1
+
 echo [2/3] Starting DataForeman services...
 docker-compose up -d
 

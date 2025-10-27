@@ -3,7 +3,7 @@
 ; Requires Inno Setup 6.0 or later: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "DataForeman"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "0.2.1"
 #define MyAppPublisher "DataForeman Project"
 #define MyAppURL "https://github.com/orionK-max/DataForeman"
 #define MyAppExeName "start-dataforeman.bat"
@@ -50,6 +50,7 @@ Source: "status-dataforeman.bat"; DestDir: "{app}\windows-installer"; Flags: ign
 Source: "update.ps1"; DestDir: "{app}\windows-installer"; Flags: ignoreversion
 Source: "install.ps1"; DestDir: "{app}\windows-installer"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}\windows-installer"; Flags: ignoreversion
+Source: "fix-permissions.ps1"; DestDir: "{app}\windows-installer"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}\windows-installer"; Flags: ignoreversion
 
 [Icons]
@@ -57,6 +58,7 @@ Source: "README.md"; DestDir: "{app}\windows-installer"; Flags: ignoreversion
 Name: "{group}\Start DataForeman"; Filename: "{app}\windows-installer\start-dataforeman.bat"; WorkingDir: "{app}"; Comment: "Start DataForeman services"
 Name: "{group}\Stop DataForeman"; Filename: "{app}\windows-installer\stop-dataforeman.bat"; WorkingDir: "{app}"; Comment: "Stop DataForeman services"
 Name: "{group}\Service Status"; Filename: "{app}\windows-installer\status-dataforeman.bat"; WorkingDir: "{app}"; Comment: "Check DataForeman service status"
+Name: "{group}\Fix Permissions"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows-installer\fix-permissions.ps1"""; WorkingDir: "{app}"; Comment: "Fix directory permissions if containers fail to start"
 Name: "{group}\Open Web Interface"; Filename: "http://localhost:8080"; Comment: "Open DataForeman in browser"
 Name: "{group}\Documentation"; Filename: "{app}\README.md"; Comment: "View DataForeman documentation"
 Name: "{group}\Configuration (.env)"; Filename: "{app}\.env"; Comment: "Edit DataForeman configuration"
@@ -68,6 +70,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\windows-installer\start-dat
 [Run]
 ; Run installation script
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows-installer\install.ps1"""; Flags: runhidden; StatusMsg: "Configuring DataForeman..."
+; Fix permissions for WSL2
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows-installer\fix-permissions.ps1"""; Flags: runhidden; StatusMsg: "Setting up directory permissions..."
 ; Offer to start DataForeman after installation
 Filename: "{app}\windows-installer\start-dataforeman.bat"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent shellexec
 
