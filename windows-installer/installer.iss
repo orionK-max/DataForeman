@@ -200,9 +200,28 @@ var
   Line: String;
   AdminEmail: String;
   AdminPassword: String;
+  LogDirs: array[0..7] of String;
+  DirIndex: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
+    // Create log directories with proper admin permissions
+    LogDirs[0] := ExpandConstant('{app}\logs');
+    LogDirs[1] := ExpandConstant('{app}\logs\core');
+    LogDirs[2] := ExpandConstant('{app}\logs\connectivity');
+    LogDirs[3] := ExpandConstant('{app}\logs\front');
+    LogDirs[4] := ExpandConstant('{app}\logs\nats');
+    LogDirs[5] := ExpandConstant('{app}\logs\postgres');
+    LogDirs[6] := ExpandConstant('{app}\logs\ops');
+    LogDirs[7] := ExpandConstant('{app}\var');
+  
+    for DirIndex := 0 to 7 do
+    begin
+      if not DirExists(LogDirs[DirIndex]) then
+      begin
+        CreateDir(LogDirs[DirIndex]);
+      end;
+    end;
     EnvPath := ExpandConstant('{app}\.env');
     
     // Create .env file if it doesn't exist

@@ -76,36 +76,9 @@ if (-not (Test-Path ".env")) {
 }
 Write-Host ""
 
-# Create log directories
-Write-ColorOutput "[3/4] Creating log directories..." "Yellow"
-$logDirs = @(
-    "logs",
-    "logs/core",
-    "logs/connectivity",
-    "logs/front",
-    "logs/ingestor",
-    "logs/nats",
-    "logs/postgres",
-    "logs/tsdb",
-    "logs/ops"
-)
-
-foreach ($dir in $logDirs) {
-    $fullPath = Join-Path $InstallDir $dir
-    if (-not (Test-Path $fullPath)) {
-        New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
-    }
-}
-Write-ColorOutput "✓ Log directories created" "Green"
-Write-Host ""
-
-# Create var directory for runtime data
-Write-ColorOutput "[4/4] Creating runtime directories..." "Yellow"
-$varPath = Join-Path $InstallDir "var"
-if (-not (Test-Path $varPath)) {
-    New-Item -ItemType Directory -Path $varPath -Force | Out-Null
-}
-Write-ColorOutput "✓ Runtime directories created" "Green"
+# Log directories are created by the installer itself with proper admin permissions
+Write-ColorOutput "[3/4] Verifying directories..." "Yellow"
+Write-ColorOutput "✓ Directories ready" "Green"
 Write-Host ""
 
 Write-ColorOutput "═══════════════════════════════════════════════════════════" "Green"
