@@ -31,9 +31,13 @@ if not exist ".env" (
     echo.
 )
 
-REM Check and fix permissions if needed (silent check)
-echo [1.5/3] Verifying directory permissions...
-powershell -ExecutionPolicy Bypass -File "%~dp0fix-permissions.ps1"
+REM Fix permissions via batch file (no PowerShell required)
+echo [1.5/3] Setting up directory permissions...
+call "%~dp0fix-permissions.bat" /SILENT
+if errorlevel 1 (
+    echo [WARNING] Permission fix failed - containers may not start
+    echo You can run 'Fix Permissions' from Start Menu later
+)
 
 echo [2/3] Building and starting DataForeman services...
 
