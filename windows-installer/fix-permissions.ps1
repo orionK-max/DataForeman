@@ -52,32 +52,24 @@ Write-ColorOutput "[2/2] Fixing directory permissions in WSL..." "Yellow"
 $wslPath = $InstallDir -replace '\\', '/' -replace '^([A-Z]):', {'/mnt/' + $_.Groups[1].Value.ToLower()}
 
 try {
-    # Check if permissions are already correct
-    $needsFix = $false
+    # Always fix permissions to ensure they're correct
+    # Make logs directory world-writable (required for PostgreSQL UID 70)
+    Write-ColorOutput "Setting logs directory to world-writable (0777)..." "Gray"
+    wsl -e bash -c "chmod -R 777 '$wslPath/logs' 2>/dev/null || true"
     
-    # Check if we can write to logs directory from WSL
-    $testResult = wsl -e bash -c "test -w '$wslPath/logs/postgres' 2>/dev/null && echo 'OK' || echo 'FAIL'"
+    # Make var directory writable
+    Write-ColorOutput "Setting var directory permissions (0755)..." "Gray"
+    wsl -e bash -c "chmod -R 755 '$wslPath/var' 2>/dev/null || true"
     
-    if ($testResult -ne "OK") {
-        $needsFix = $true
-    }
-    
-    if ($needsFix) {
-        # Make logs directory world-writable (required for PostgreSQL UID 70)
-        wsl -e bash -c "chmod -R 777 '$wslPath/logs' 2>/dev/null || true"
-        
-        # Make var directory writable
-        wsl -e bash -c "chmod -R 755 '$wslPath/var' 2>/dev/null || true"
-        
-        Write-ColorOutput "✓ Permissions fixed" "Green"
-    } else {
-        Write-ColorOutput "✓ Permissions already correct" "Green"
-    }
+    Write-ColorOutput "✓ Permissions fixed" "Green"
 } catch {
     Write-ColorOutput "⚠ Could not fix permissions via WSL" "Yellow"
     Write-Host ""
     Write-Host "This may happen if WSL is not fully initialized."
     Write-Host "Try running this script again after Docker Desktop is fully started."
+    Write-Host ""
+    Write-Host "If containers still fail to start, try manually:"
+    Write-Host "  wsl -e bash -c ""chmod -R 777 '$wslPath/logs'"""
     Write-Host ""
     Write-Host "If containers still fail to start, try manually:"
     Write-Host "  wsl -e bash -c ""chmod -R 777 '$wslPath/logs'"""

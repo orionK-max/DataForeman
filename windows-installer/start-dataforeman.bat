@@ -33,9 +33,29 @@ if not exist ".env" (
 
 REM Check and fix permissions if needed (silent check)
 echo [1.5/3] Verifying directory permissions...
-powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0fix-permissions.ps1" >nul 2>&1
+powershell -ExecutionPolicy Bypass -File "%~dp0fix-permissions.ps1"
 
-echo [2/3] Starting DataForeman services...
+echo [2/3] Building and starting DataForeman services...
+
+REM Check if images need to be built (first run detection)
+docker images dataforeman-core --format "{{.Repository}}" 2>nul | findstr "dataforeman-core" >nul
+if errorlevel 1 (
+    echo.
+    echo *** FIRST RUN DETECTED ***
+    echo Building container images from source...
+    echo This will take several minutes. Please wait - the window will stay open until complete.
+    echo.
+    docker-compose build
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] Failed to build images.
+        echo.
+        pause
+        exit /b 1
+    )
+)
+
+echo Starting services...
 docker-compose up -d
 
 if errorlevel 1 (
@@ -47,14 +67,18 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/3] Verifying services...
-timeout /t 3 /nobreak >nul
+echo.
+echo [3/3] Waiting for services to be ready...
+timeout /t 5 /nobreak >nul
 docker-compose ps
 
 echo.
 echo ========================================
-echo   DataForeman is now running!
+echo   DataForeman is starting up!
 echo ========================================
+echo.
+echo Services are now running in the background.
+echo It may take 1-2 minutes for the web interface to be fully ready.
 echo.
 echo   Frontend: http://localhost:8080
 echo   Core API: http://localhost:3000
@@ -63,6 +87,11 @@ echo Press any key to open the application in your browser...
 pause >nul
 
 start http://localhost:8080
+
+echo.
+echo Window will close in 5 seconds...
+echo (Tip: Check 'Service Status' from Start Menu to monitor containers)
+timeout /t 5 >nul
 
 echo.
 echo To stop DataForeman, run: stop-dataforeman.bat
