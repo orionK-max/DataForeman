@@ -23,8 +23,9 @@ if %SILENT_MODE%==0 echo Fixing directory permissions in WSL...
 if %SILENT_MODE%==0 echo.
 
 REM Fix permissions via WSL (requires Docker Desktop with WSL2)
-wsl bash -c "chmod -R 777 '%INSTALL_DIR:\=/%'/logs 2>/dev/null || true"
-wsl bash -c "chmod -R 755 '%INSTALL_DIR:\=/%'/var 2>/dev/null || true"
+REM Use -e sh instead of bash for better compatibility
+wsl -e sh -c "chmod -R 777 '%INSTALL_DIR:\=/%'/logs 2>/dev/null || true"
+wsl -e sh -c "chmod -R 755 '%INSTALL_DIR:\=/%'/var 2>/dev/null || true"
 
 if errorlevel 1 (
     if %SILENT_MODE%==0 (
