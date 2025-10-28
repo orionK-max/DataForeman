@@ -138,6 +138,85 @@ docker compose down
 docker compose down -v
 ```
 
+## Network & Firewall Requirements
+
+### DataForeman Services (Host Ports)
+
+These are the ports exposed by DataForeman on your host machine:
+
+- **Frontend (Web UI)**: TCP **8080** - Access the web interface
+- **Core API**: TCP **3000** - REST API (used internally by frontend)
+- **PostgreSQL**: TCP **5432** - Main database (internal only)
+- **TimescaleDB**: TCP **5433** - Time-series database (internal only)
+- **NATS**: TCP **4222**, **8222** - Message broker (internal only)
+
+### Protocol Drivers (Industrial Device Communication)
+
+DataForeman connects TO industrial devices - **no inbound ports are required** for most protocols. Configure your firewall to allow outbound connections:
+
+#### EtherNet/IP (Allen-Bradley PLCs)
+- **Protocol Port**: TCP/UDP **44818** (EtherNet/IP standard)
+- **Firewall**: Allow **outbound UDP/TCP port 44818** to PLC IP addresses
+- **Discovery**: Uses UDP broadcast for network device scanning
+- **Note**: Discovery requires bridged network mode on virtual machines (not NAT)
+- **Docker**: No port mapping needed (connectivity service initiates connections)
+
+#### Siemens S7 (S7-300/400/1200/1500)
+- **Protocol Port**: TCP **102** (ISO-on-TCP/S7 protocol)
+- **Firewall**: Allow **outbound TCP port 102** to PLC IP addresses
+- **Docker**: No port mapping needed (connectivity service initiates connections)
+
+#### OPC UA Client
+- **Protocol Port**: TCP **4840** (default, varies by server)
+- **Firewall**: Allow **outbound TCP port 4840** to OPC UA server addresses (or custom port)
+- **Note**: Port may be different depending on the OPC UA server configuration
+- **Docker**: No port mapping needed (connectivity service initiates connections)
+
+#### OPC UA Server (Optional - DataForeman as Server)
+- **Protocol Port**: TCP **4841** (exposed by DataForeman)
+- **Firewall**: Allow **inbound TCP port 4841** if external OPC UA clients need to read from DataForeman
+- **Docker**: Port mapping already configured in `docker-compose.yml`
+- **Use Case**: Allows other SCADA/HMI systems to read DataForeman tags via OPC UA
+
+### Virtual Machine Configuration
+
+When running DataForeman in a **virtual machine** (VirtualBox, VMware, Parallels, Hyper-V):
+
+- **Network Adapter**: Must use **Bridged Network** mode
+- **Why**: Device discovery (EIP) uses UDP broadcast packets which cannot traverse NAT
+- **Impact**: Without bridged networking:
+  - ✅ Direct device connections will work (with IP address)
+  - ❌ Network discovery will fail to find devices
+
+### Firewall Examples
+
+**Windows Firewall (PowerShell - as Administrator):**
+```powershell
+# Allow DataForeman web UI
+New-NetFirewallRule -DisplayName "DataForeman Web UI" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
+
+# Allow outbound to PLCs (EtherNet/IP)
+New-NetFirewallRule -DisplayName "DataForeman EIP" -Direction Outbound -Protocol TCP -RemotePort 44818 -Action Allow
+New-NetFirewallRule -DisplayName "DataForeman EIP Discovery" -Direction Outbound -Protocol UDP -RemotePort 44818 -Action Allow
+
+# Allow outbound to PLCs (Siemens S7)
+New-NetFirewallRule -DisplayName "DataForeman S7" -Direction Outbound -Protocol TCP -RemotePort 102 -Action Allow
+
+# Allow outbound to OPC UA servers
+New-NetFirewallRule -DisplayName "DataForeman OPC UA Client" -Direction Outbound -Protocol TCP -RemotePort 4840 -Action Allow
+```
+
+**Linux Firewall (ufw):**
+```bash
+# Allow DataForeman web UI
+sudo ufw allow 8080/tcp comment 'DataForeman Web UI'
+
+# Allow outbound is default in ufw, but if you have restrictive rules:
+sudo ufw allow out 44818 comment 'DataForeman EIP'
+sudo ufw allow out 102/tcp comment 'DataForeman S7'
+sudo ufw allow out 4840/tcp comment 'DataForeman OPC UA'
+```
+
 ## User Management
 
 ### Authentication

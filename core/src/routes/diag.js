@@ -71,13 +71,11 @@ export async function diagRoutes(app) {
     try { await app.tsdb?.query('select 1'); tsdb = 'up'; } catch {}
 
     // connectivity service health via HTTP JSON endpoint
-    // connectivity uses host network mode, so use extra_hosts gateway to reach it
     let connectivity = { ok: null };
     try {
       const ac = new AbortController();
       const to = setTimeout(() => ac.abort(), 800);
-      // Use 'host-gateway' alias defined in docker-compose extra_hosts
-      const res = await fetch('http://host-gateway:3100/health', { signal: ac.signal });
+      const res = await fetch('http://connectivity:3100/health', { signal: ac.signal });
       clearTimeout(to);
       if (res.ok) {
         let data = null; try { data = await res.json(); } catch {}

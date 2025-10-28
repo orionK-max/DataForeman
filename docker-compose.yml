@@ -31,7 +31,7 @@ services:
       - ./logs/nats:/var/log/nats
 
   tsdb:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.17.2-pg16
     environment:
       POSTGRES_USER: ${TSDB_USER:-tsdb}
       POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tsdb}
@@ -101,10 +101,9 @@ services:
 
   connectivity:
     build: ./connectivity
-    network_mode: host
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
-      NATS_URL: nats://localhost:4222
+      NATS_URL: nats://nats:4222
       SERVICE_ID: connectivity-1
       HOST: 0.0.0.0
       PORT: 3100
@@ -117,7 +116,7 @@ services:
       PYCOMM3_MAX_CONNECTIONS: "${PYCOMM3_MAX_CONNECTIONS:-8}"  # Max concurrent CIP connections to PLC
       EIP_TAGGROUP_BYTE_BUDGET: "${EIP_TAGGROUP_BYTE_BUDGET:-1800}"  # Bytes per shard, higher = fewer shards
       EIP_SHARD_BUDGET_FRAC: "${EIP_SHARD_BUDGET_FRAC:-0.85}"  # Fraction of poll interval for shard processing
-      PGHOST: localhost
+      PGHOST: db
       PGPORT: 5432
       PGDATABASE: dataforeman
       PGUSER: postgres

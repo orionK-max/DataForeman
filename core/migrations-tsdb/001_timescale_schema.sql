@@ -23,10 +23,16 @@ CREATE INDEX IF NOT EXISTS idx_tag_values_ts_desc ON tag_values (connection_id, 
 CREATE INDEX IF NOT EXISTS idx_tag_values_ts ON tag_values (ts DESC);
 
 -- Convert to hypertable
-SELECT create_hypertable('tag_values', 'ts', 
-    chunk_time_interval => INTERVAL '1 day',
-    if_not_exists => TRUE
-);
+DO $$
+BEGIN
+    PERFORM create_hypertable('tag_values', 'ts', 
+        chunk_time_interval => INTERVAL '1 day',
+        if_not_exists => TRUE
+    );
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Hypertable creation skipped or failed: %', SQLERRM;
+END $$;
 
 -- =====================================================
 -- System Metrics
@@ -41,9 +47,15 @@ CREATE TABLE IF NOT EXISTS system_metrics (
 );
 
 -- Convert to hypertable
-SELECT create_hypertable('system_metrics', 'ts',
-    chunk_time_interval => INTERVAL '1 day',
-    if_not_exists => TRUE
-);
+DO $$
+BEGIN
+    PERFORM create_hypertable('system_metrics', 'ts',
+        chunk_time_interval => INTERVAL '1 day',
+        if_not_exists => TRUE
+    );
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Hypertable creation skipped or failed: %', SQLERRM;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_system_metrics_name_ts ON system_metrics(metric_name, ts DESC);
