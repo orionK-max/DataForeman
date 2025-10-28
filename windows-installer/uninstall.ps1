@@ -33,11 +33,11 @@ try {
 }
 
 if ($dockerAvailable) {
-    # Stop DataForeman services
+    # Stop DataForeman services and remove containers
     Write-ColorOutput "Stopping DataForeman services..." "Yellow"
     try {
-        docker-compose down 2>&1 | Out-Null
-        Write-ColorOutput "✓ Services stopped" "Green"
+        docker-compose down --remove-orphans 2>&1 | Out-Null
+        Write-ColorOutput "✓ Services stopped and containers removed" "Green"
     } catch {
         Write-ColorOutput "⚠ Could not stop services (they may not be running)" "Yellow"
     }
@@ -81,7 +81,7 @@ if ($dockerAvailable) {
                 }
             }
             Write-Host ""
-            Write-ColorOutput "All data has been removed." "Red"
+            Write-ColorOutput "All data volumes have been removed." "Red"
         } else {
             Write-Host ""
             Write-ColorOutput "Data volumes will be preserved." "Green"
@@ -94,8 +94,57 @@ if ($dockerAvailable) {
     } else {
         Write-ColorOutput "No data volumes found." "Gray"
     }
+
+    Write-Host ""
+    Write-Host ""
+
+    # Check for Docker images
+    Write-ColorOutput "Checking for DataForeman Docker images..." "Yellow"
+    $images = docker images --format "{{.Repository}}:{{.Tag}}" | Select-String "dataforeman"
+    
+    if ($images.Count -gt 0) {
+        Write-Host ""
+        Write-ColorOutput "Found the following DataForeman images:" "Yellow"
+        Write-Host ""
+        foreach ($img in $images) {
+            Write-ColorOutput "  • $img" "White"
+        }
+        Write-Host ""
+        Write-ColorOutput "Docker images take up disk space but allow faster reinstallation." "Cyan"
+        Write-Host ""
+        Write-ColorOutput "Do you want to DELETE all DataForeman images? (Y/N)" "Yellow"
+        Write-ColorOutput "  Y = Delete images (free up disk space)" "Yellow"
+        Write-ColorOutput "  N = Keep images (faster reinstall)" "Green"
+        Write-Host ""
+        
+        $responseImg = Read-Host "Delete images? (Y/N)"
+        
+        if ($responseImg -eq "Y" -or $responseImg -eq "y") {
+            Write-Host ""
+            Write-ColorOutput "Deleting Docker images..." "Yellow"
+            foreach ($img in $images) {
+                try {
+                    docker rmi $img 2>&1 | Out-Null
+                    Write-ColorOutput "✓ Deleted: $img" "Yellow"
+                } catch {
+                    Write-ColorOutput "⚠ Could not delete: $img" "Yellow"
+                }
+            }
+            Write-Host ""
+            Write-ColorOutput "All DataForeman images have been removed." "Yellow"
+        } else {
+            Write-Host ""
+            Write-ColorOutput "Docker images will be preserved." "Green"
+            Write-Host ""
+            Write-ColorOutput "To manually remove images later, run:" "Gray"
+            Write-ColorOutput "  docker images" "White"
+            Write-ColorOutput "  docker rmi <image-name>" "White"
+        }
+    } else {
+        Write-ColorOutput "No DataForeman images found." "Gray"
+    }
 } else {
-    Write-ColorOutput "Docker not available - skipping volume cleanup." "Yellow"
+    Write-ColorOutput "Docker not available - skipping cleanup." "Yellow"
 }
 
 Write-Host ""
