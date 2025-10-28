@@ -119,6 +119,8 @@ cd DataForeman
 
 **Step 2: Configure Environment (Optional)**
 
+**Note:** Files starting with `.` (like `.env.example` and `.gitignore.example`) are hidden by default in Linux file managers. Press `Ctrl+H` to show/hide hidden files, or use `ls -a` in the terminal to list them.
+
 If you want to change the default admin password:
 
 ```bash
