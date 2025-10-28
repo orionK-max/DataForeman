@@ -18,9 +18,9 @@ function Write-ColorOutput {
     Write-Host $Message -ForegroundColor $Color
 }
 
-Write-ColorOutput "═══════════════════════════════════════════════════════════" "Cyan"
+Write-ColorOutput "???????????????????????????????????????????????????????????" "Cyan"
 Write-ColorOutput "  DataForeman Uninstallation" "Cyan"
-Write-ColorOutput "═══════════════════════════════════════════════════════════" "Cyan"
+Write-ColorOutput "???????????????????????????????????????????????????????????" "Cyan"
 Write-Host ""
 
 # Change to installation directory
@@ -40,7 +40,7 @@ try {
 }
 
 if (-not $dockerAvailable) {
-    Write-ColorOutput "⚠ Docker is not available or not running" "Red"
+    Write-ColorOutput "? Docker is not available or not running" "Red"
     Write-ColorOutput "Please start Docker Desktop and try again" "Yellow"
     Write-Host ""
     Write-ColorOutput "Press any key to exit..." "Gray"
@@ -48,7 +48,7 @@ if (-not $dockerAvailable) {
     exit 1
 }
 
-Write-ColorOutput "✓ Docker is available" "Green"
+Write-ColorOutput "? Docker is available" "Green"
 Write-Host ""
 
 # Stop DataForeman services and remove containers
@@ -56,7 +56,7 @@ Write-ColorOutput "Stopping DataForeman services..." "Yellow"
 
 # Check if docker-compose.yml exists
 if (-not (Test-Path "docker-compose.yml")) {
-    Write-ColorOutput "⚠ docker-compose.yml not found in: $(Get-Location)" "Yellow"
+    Write-ColorOutput "? docker-compose.yml not found in: $(Get-Location)" "Yellow"
     Write-ColorOutput "Attempting to stop containers manually..." "Yellow"
     
     # Try to stop containers by name pattern
@@ -64,13 +64,13 @@ if (-not (Test-Path "docker-compose.yml")) {
     if ($containers) {
         Write-ColorOutput "Found containers:" "Gray"
         foreach ($container in $containers) {
-            Write-ColorOutput "  • $container" "White"
+            Write-ColorOutput "  ? $container" "White"
         }
         Write-Host ""
         Write-ColorOutput "Stopping and removing containers..." "Yellow"
         docker stop $containers 2>&1 | Out-Null
         docker rm $containers 2>&1 | Out-Null
-        Write-ColorOutput "✓ Containers stopped and removed" "Green"
+        Write-ColorOutput "? Containers stopped and removed" "Green"
     } else {
         Write-ColorOutput "No running containers found" "Gray"
     }
@@ -78,9 +78,9 @@ if (-not (Test-Path "docker-compose.yml")) {
     Write-ColorOutput "Running docker-compose down..." "Gray"
     $dcOutput = docker-compose down --remove-orphans 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Write-ColorOutput "✓ Services stopped and containers removed" "Green"
+        Write-ColorOutput "? Services stopped and containers removed" "Green"
     } else {
-        Write-ColorOutput "⚠ docker-compose down failed:" "Yellow"
+        Write-ColorOutput "? docker-compose down failed:" "Yellow"
         Write-Host $dcOutput
         
         # Fallback to manual container removal
@@ -89,7 +89,7 @@ if (-not (Test-Path "docker-compose.yml")) {
         if ($containers) {
             docker stop $containers 2>&1 | Out-Null
             docker rm $containers 2>&1 | Out-Null
-            Write-ColorOutput "✓ Containers stopped and removed manually" "Green"
+            Write-ColorOutput "? Containers stopped and removed manually" "Green"
         }
     }
 }
@@ -104,14 +104,14 @@ if ($volumes.Count -gt 0) {
     Write-ColorOutput "WARNING: DataForeman has the following data volumes:" "Yellow"
     Write-Host ""
     foreach ($vol in $volumes) {
-        Write-ColorOutput "  • $vol" "White"
+        Write-ColorOutput "  ? $vol" "White"
     }
     Write-Host ""
     Write-ColorOutput "These volumes contain:" "Cyan"
-    Write-ColorOutput "  • Your databases (PostgreSQL, TimescaleDB)" "White"
-    Write-ColorOutput "  • All configurations and settings" "White"
-    Write-ColorOutput "  • User accounts and dashboards" "White"
-    Write-ColorOutput "  • Historical telemetry data" "White"
+    Write-ColorOutput "  ? Your databases (PostgreSQL, TimescaleDB)" "White"
+    Write-ColorOutput "  ? All configurations and settings" "White"
+    Write-ColorOutput "  ? User accounts and dashboards" "White"
+    Write-ColorOutput "  ? Historical telemetry data" "White"
     Write-Host ""
     Write-Host ""
     Write-ColorOutput "Do you want to DELETE all data volumes? (Y/N)" "Red"
@@ -127,9 +127,9 @@ if ($volumes.Count -gt 0) {
         foreach ($vol in $volumes) {
             try {
                 docker volume rm $vol 2>&1 | Out-Null
-                Write-ColorOutput "✓ Deleted: $vol" "Red"
+                Write-ColorOutput "? Deleted: $vol" "Red"
             } catch {
-                Write-ColorOutput "⚠ Could not delete: $vol" "Yellow"
+                Write-ColorOutput "? Could not delete: $vol" "Yellow"
             }
         }
         Write-Host ""
@@ -141,7 +141,7 @@ if ($volumes.Count -gt 0) {
         Write-ColorOutput "Your data will still be available if you reinstall DataForeman." "Cyan"
         Write-ColorOutput "To manually remove data later, run:" "Gray"
         Write-ColorOutput "  docker volume ls" "White"
-        Write-ColorOutput "  docker volume rm <volume-name>" "White"
+        Write-ColorOutput "  docker volume rm [volume-name]" "White"
     }
 } else {
     Write-ColorOutput "No data volumes found." "Gray"
@@ -159,7 +159,7 @@ if ($images.Count -gt 0) {
     Write-ColorOutput "Found the following DataForeman images:" "Yellow"
     Write-Host ""
     foreach ($img in $images) {
-        Write-ColorOutput "  • $img" "White"
+        Write-ColorOutput "  ? $img" "White"
     }
     Write-Host ""
     Write-ColorOutput "Docker images take up disk space but allow faster reinstallation." "Cyan"
@@ -177,9 +177,9 @@ if ($images.Count -gt 0) {
         foreach ($img in $images) {
             try {
                 docker rmi $img 2>&1 | Out-Null
-                Write-ColorOutput "✓ Deleted: $img" "Yellow"
+                Write-ColorOutput "? Deleted: $img" "Yellow"
             } catch {
-                Write-ColorOutput "⚠ Could not delete: $img" "Yellow"
+                Write-ColorOutput "? Could not delete: $img" "Yellow"
             }
         }
         Write-Host ""
@@ -190,16 +190,46 @@ if ($images.Count -gt 0) {
         Write-Host ""
         Write-ColorOutput "To manually remove images later, run:" "Gray"
         Write-ColorOutput "  docker images" "White"
-        Write-ColorOutput "  docker rmi <image-name>" "White"
+        Write-ColorOutput "  docker rmi [image-name]" "White"
     }
 } else {
     Write-ColorOutput "No DataForeman images found." "Gray"
 }
 
 Write-Host ""
-Write-ColorOutput "═══════════════════════════════════════════════════════════" "Green"
+Write-Host ""
+
+# Check for remaining base images
+Write-ColorOutput "Checking for remaining Docker base images..." "Cyan"
+$baseImages = docker images --format "{{.Repository}}:{{.Tag}}" | Select-String -Pattern "postgres|timescale|nats|node|nginx|alpine" | Where-Object { $_ -notmatch "dataforeman" }
+
+if ($baseImages.Count -gt 0) {
+    Write-Host ""
+    Write-ColorOutput "NOTE: The following base images are still on your system:" "Cyan"
+    Write-Host ""
+    foreach ($img in $baseImages | Select-Object -First 10) {
+        Write-ColorOutput "  • $img" "Gray"
+    }
+    if ($baseImages.Count -gt 10) {
+        Write-ColorOutput "  ... and $($baseImages.Count - 10) more" "Gray"
+    }
+    Write-Host ""
+    Write-ColorOutput "These are standard Docker Hub images (postgres, node, nats, etc.)" "White"
+    Write-ColorOutput "They were NOT removed because:" "White"
+    Write-ColorOutput "  • They might be used by other Docker applications" "Gray"
+    Write-ColorOutput "  • They are not specific to DataForeman" "Gray"
+    Write-ColorOutput "  • They will be reused if you reinstall" "Gray"
+    Write-Host ""
+    Write-ColorOutput "To remove ALL unused Docker images:" "Yellow"
+    Write-ColorOutput "  • Run: docker image prune -a" "White"
+    Write-ColorOutput "  • Or use Docker Desktop UI to delete them manually" "White"
+    Write-ColorOutput "  (Warning: This affects all Docker images on your system)" "Gray"
+}
+
+Write-Host ""
+Write-ColorOutput "???????????????????????????????????????????????????????????" "Green"
 Write-ColorOutput "  Uninstallation Complete" "Green"
-Write-ColorOutput "═══════════════════════════════════════════════════════════" "Green"
+Write-ColorOutput "???????????????????????????????????????????????????????????" "Green"
 Write-Host ""
 Write-ColorOutput "Press any key to close this window..." "Gray"
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
