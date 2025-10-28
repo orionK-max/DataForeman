@@ -21,6 +21,7 @@ echo ""
 
 # Fix var directory (license file)
 echo "[1/3] Fixing var/ directory permissions..."
+mkdir -p "$SCRIPT_DIR/var"
 sudo chown -R "$CURRENT_USER:$CURRENT_GROUP" "$SCRIPT_DIR/var"
 chmod 755 "$SCRIPT_DIR/var"
 if [ -f "$SCRIPT_DIR/var/license.json" ]; then
@@ -30,6 +31,7 @@ echo "      ✓ var/ directory fixed"
 
 # Fix logs directory
 echo "[2/3] Fixing logs/ directory permissions..."
+mkdir -p "$SCRIPT_DIR/logs"
 sudo chown -R "$CURRENT_USER:$CURRENT_GROUP" "$SCRIPT_DIR/logs"
 sudo chmod -R 755 "$SCRIPT_DIR/logs"
 echo "      ✓ logs/ directory fixed"
