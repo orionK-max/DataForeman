@@ -3,6 +3,49 @@
 DataForeman is a containerized stack for collecting industrial telemetry, storing it as time-series data, and exploring it via a modern web UI.
 
 **Repository:** https://github.com/orionK-max/DataForeman
+**website:** https://www.DataForeman.app
+
+## Table of Contents
+
+**📚 Helpful Guides:**
+- **[Quick Start Guide](QUICK-START.md)** - Step-by-step beginner instructions
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Solutions to common problems
+
+**For End Users:**
+- [What is DataForeman](#what-is-dataforeman)
+- [Getting Started](#getting-started)
+  - [Windows Installation](#-windows-installation)
+  - [Linux Installation](#-linux-installation-docker)
+- [Starting and Stopping](#starting-and-stopping-dataforeman)
+- [Updating DataForeman](#updating-dataforeman)
+- [Troubleshooting](#troubleshooting)
+- [Network & Firewall Requirements](#network--firewall-requirements)
+- [User Management](#user-management)
+- [Data Retention](#data-retention-and-disk-space-management)
+
+**For Developers:**
+- [Developer Information](#developer-information) - Technology stack, development setup, and advanced features
+
+---
+
+## Quick Start (TL;DR)
+
+**Linux Users:**
+```bash
+# Download
+cd ~ && git clone https://github.com/orionK-max/DataForeman.git && cd DataForeman
+
+# Setup and Start
+./fix-permissions.sh
+docker compose up -d
+
+# Access at http://localhost:8080
+# Login: admin@example.com / DataForeman2024!
+```
+
+**Windows Users:** Download installer from [Releases](https://github.com/orionK-max/DataForeman/releases), run it, access at http://localhost:8080
+
+---
 
 ## What is DataForeman
 
@@ -32,7 +75,10 @@ DataForeman is available for both **Windows** and **Linux** systems:
 
 📖 [Complete Windows Installation Guide](docs/windows-installation.md)
 
-**Requirements:** Docker Desktop, Windows 10/11 (64-bit), 8GB RAM
+### Requirements:
+- **Windows 10/11 (64-bit), 8GB RAM**
+- **Docker Desktop** 
+- **Internet connection** (only needed for initial installation to download Docker images)
 
 **Notes:**
 - If Docker Desktop prompts to update WSL, open PowerShell as Administrator and run:
@@ -45,43 +91,100 @@ DataForeman is available for both **Windows** and **Linux** systems:
 **Standard Docker Compose deployment**
 
 ### Prerequisites
-- Docker and Docker Compose
-- Node.js 22 (for local development)
+- **Docker** and **Docker Compose** installed
+- **Git** installed (to download DataForeman)
+- **Internet connection** (only needed for initial installation to download Docker images)
 
-**Initial Setup:**
-```bash
-# Clone and set up gitignore
-git clone https://github.com/orionK-max/DataForeman.git
-cd DataForeman
-cp .gitignore.example .gitignore  # Create your local .gitignore
-```
+**Note:** After installation, DataForeman works completely offline. Internet is only required to download the software during first-time setup and for updates.
 
 **For Virtual Machines (VirtualBox, Parallels, VMware, etc.):**
 - **Network Adapter**: Must use **Bridged Network** mode (not NAT/Shared)
 - **Why**: Device discovery uses UDP broadcast packets which cannot traverse NAT
 - **Impact**: Without bridged networking, device connections will work but network discovery will fail
 
-### Installation (Linux)
+### Step-by-Step Installation
 
-1. Copy `.env.example` to `.env` and adjust if needed
-2. Run `./fix-permissions.sh` to set up log directory permissions
-3. Start the stack:
+**Step 1: Download DataForeman**
+
+Open a terminal and run these commands one at a time:
 
 ```bash
-npm start
+# Download DataForeman to your home folder
+cd ~
+git clone https://github.com/orionK-max/DataForeman.git
+
+# Enter the DataForeman folder
+cd DataForeman
 ```
 
-**Access:**
-- Frontend: http://localhost:5174
-- Core API: http://localhost:3000
+**Step 2: Configure Environment (Optional)**
+
+If you want to change the default admin password:
+
+```bash
+# Copy the example configuration file
+cp .env.example .env
+
+# Edit the file (use nano, vim, or any text editor)
+nano .env
+
+# Find the line ADMIN_PASSWORD= and change the password
+# Press Ctrl+X, then Y, then Enter to save and exit
+```
+
+**Step 3: Set Up Permissions**
+
+```bash
+# Run the permission setup script
+./fix-permissions.sh
+```
+
+**Step 4: Start DataForeman**
+
+```bash
+# Start all containers (this will download and build everything - may take several minutes)
+docker compose up -d
+```
+
+Wait for the command to complete. The first time will take longer as it downloads Docker images and builds containers.
+
+**Step 5: Verify Installation**
+
+Check that all containers are running:
+
+```bash
+docker compose ps
+```
+
+You should see all services with "Up" status (core, front, db, tsdb, nats, connectivity, ingestor, rotator). If any show "Exited", wait another minute and check again.
+
+**Step 6: Access DataForeman**
+
+Open your web browser and go to:
+```
+http://localhost:8080
+```
+
+**Accessing from other computers on your network:**
+
+Replace `localhost` with the computer's IP address:
+```
+http://192.168.1.100:8080
+```
+
+Make sure your firewall allows:
+- Port **8080** (web interface)
+- Port **3000** (backend API - used by the web interface)
 
 **Default Login:**
 - Email: `admin@example.com`
-- Password: Set via `ADMIN_PASSWORD` in `.env` (default: see `.env.example`)
+- Password: `password` (or the password you set in Step 2)
 
-### Updating
+**Important:** The password from `.env` is only used to create the initial admin account. Once you change your password in the app, it's stored in the database and `.env` is no longer used.
 
-DataForeman makes it easy to update while **preserving all your data** (databases, configurations, dashboards):
+### Updating DataForeman
+
+DataForeman makes it easy to update while **preserving all your data** (databases, configurations, dashboards).
 
 #### Windows Update
 
@@ -98,43 +201,98 @@ cd "C:\Program Files\DataForeman"
 
 #### Linux Update
 
-**Step 1: Find the version you want to install**
+**Step 1: Find the Latest Version**
 
-Visit https://github.com/orionK-max/DataForeman/releases and find the latest release. Copy the release name (for example: `v1.2.0`)
+Visit https://github.com/orionK-max/DataForeman/releases and find the latest release version (for example: `v1.2.0`)
 
-**Step 2: Update your installation**
+**Step 2: Update DataForeman**
 
-Open a terminal in your DataForeman folder and run these commands one at a time:
+Open a terminal in DataForeman folder and run these commands one at a time:
 
 ```bash
 # Stop DataForeman
 docker compose down
 
-# Download the new version (replace v1.2.0 with the release name you copied)
+# Download the new version (replace v1.2.0 with your version)
 git fetch --tags
 git checkout v1.2.0
 
-# Install and start the new version
-npm run start:rebuild
+# Rebuild and start with the new version
+docker compose build
+docker compose up -d
 ```
 
-**Note:** 
-- Your databases and configurations are safely preserved during the update
-- The update process may take a few minutes
-- Always check the release notes on GitHub for any important information about the update
+**Step 3: Wait and Access**
 
-### Stopping
+Wait about 1-2 minutes for the update to complete, then access DataForeman at http://localhost:8080
+
+**Important Notes:**
+- ✅ Your databases and configurations are safely preserved during the update
+- ✅ All your dashboards, devices, and historical data remain intact
+- ⏱️ The update process may take a few minutes (downloading and building)
+- 📖 Always check the [release notes on GitHub](https://github.com/orionK-max/DataForeman/releases) for important information
+
+**If Something Goes Wrong:**
+
+You can always go back to the previous version.
+
+Open a terminal in DataForeman folder and type:
 
 ```bash
-# Stop containers (preserves all data in volumes)
+docker compose down
+git checkout v1.1.0  # Replace with your previous version
+docker compose build
+docker compose up -d
+```
+
+### Starting and Stopping DataForeman
+
+**To Start DataForeman:**
+
+Open a terminal in DataForeman folder and type:
+
+```bash
+docker compose up -d
+```
+
+Wait about 30 seconds, then access the web interface at http://localhost:8080
+
+**To Stop DataForeman:**
+
+Open a terminal in DataForeman folder and type:
+
+```bash
 docker compose down
 ```
 
-**Note:** This command stops and removes containers but **preserves all data** in Docker volumes (databases, configurations, etc.).
+**Note:** Stopping DataForeman shuts down the containers but **keeps all your data safe** (databases, configurations, dashboards, etc.). When you start it again, everything will be exactly as you left it.
 
-**To completely remove everything including data** (use with caution):
+**To Check if DataForeman is Running:**
+
+Open a terminal in DataForeman folder and type:
+
 ```bash
-# WARNING: This will delete all databases and data!
+docker compose ps
+```
+
+You should see services like `core`, `front`, `db`, `tsdb`, and `nats` with status "Up".
+
+**To Restart DataForeman:**
+
+Open a terminal in DataForeman folder and type:
+
+```bash
+docker compose restart
+```
+
+**⚠️ DANGER ZONE - Complete Removal (Delete Everything)**
+
+Only use this if you want to completely uninstall DataForeman and delete ALL data.
+
+Open a terminal in DataForeman folder and type:
+
+```bash
+# WARNING: This will permanently delete all databases, configurations, and data!
 docker compose down -v
 ```
 
@@ -256,81 +414,153 @@ DataForeman uses a granular permission system where administrators control user 
 
 ## Troubleshooting
 
-### Containers Won't Start - Permission Denied (Windows)
+**📖 For detailed troubleshooting with more solutions, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)**
 
-**Symptom:** After installation or OS restart, containers stop with "Permission denied" errors when trying to write to log directories.
+### Common Issues and Solutions
 
-**Automatic Fix:** The start script automatically checks and fixes permissions. Just restart DataForeman:
-- Use the Start Menu shortcut, or
-- Run `windows-installer\start-dataforeman.bat`
+#### "Cannot Access http://localhost:8080"
 
-**Manual Fix (if needed):**
-1. Open the Start Menu
-2. Find DataForeman → **Fix Permissions**
-3. Restart DataForeman
+**Check if containers are running:**
 
-**Or via PowerShell (as Administrator):**
-```powershell
-cd "C:\Program Files\DataForeman"
-.\windows-installer\fix-permissions.ps1
-.\windows-installer\start-dataforeman.bat
+Open a terminal in DataForeman folder and type:
+
+```bash
+docker compose ps
 ```
 
-**Why this happens:** Docker Desktop uses WSL2, and directory permissions sometimes need to be reset for containers (running as different users) to write log files.
+If containers are not running, start them:
+```bash
+docker compose up -d
+```
 
-**Note:** The start script now automatically checks permissions before starting containers, so this should rarely be needed.
+If containers show "Exited" or error status, check the logs:
+```bash
+docker compose logs
+```
 
-### Database Won't Start After OS Restart (Linux)
+#### Permission Errors on Startup
 
-**Symptom:** Containers show "Permission denied" when trying to write log files:
+**Symptom:** Containers show "Permission denied" when trying to write log files.
+
+**Solution:**
+
+Open a terminal in DataForeman folder and type:
+
+```bash
+./fix-permissions.sh
+docker compose restart
+```
+
+**Why this happens:** The log directories need specific permissions for the containers to write log files.
+
+#### "Out of Memory" or Containers Keep Restarting
+
+**Solution:** DataForeman needs at least 4GB of RAM to run smoothly. If you're on a VM or system with limited RAM:
+
+1. Close other applications
+2. Increase VM memory allocation (if using a VM)
+3. Check Docker memory limits: `docker stats`
+
+#### Database Won't Start After OS Restart
+
+**Symptom:** Containers show permission errors for PostgreSQL logs:
 ```
 FATAL: could not open log file "/var/log/postgresql/postgres-YYYY-MM-DD_HHMM": Permission denied
 ```
 
 **Solution:** Run the fix-permissions script:
+
+Open a terminal in DataForeman folder and type:
+
 ```bash
 ./fix-permissions.sh
 docker compose up -d
 ```
 
-**Why this happens:** PostgreSQL containers run as UID 70 and need world-writable permissions on the `logs/postgres/` directory to create log files. After OS restart, directory permissions may revert to defaults.
+#### Update Failed or Containers Won't Start After Update
 
-**Prevention:** Add `./fix-permissions.sh` to your startup routine or create a systemd service to run it automatically.
+**Solution:** Rebuild everything from scratch.
 
-### Data Retention
+Open a terminal in DataForeman folder and type:
 
-DataForeman uses TimescaleDB's automatic data retention policies to manage disk space for time-series data.
+```bash
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
 
-**Initial Setup:**
+If problems persist, check if you're on a valid version tag:
+```bash
+git describe --tags
+```
 
-By default, **no retention policy is active**. You must configure retention settings via the UI:
+#### Still Having Issues?
 
-1. Navigate to **Diagnostic → Capacity → Retention Policy**
-2. Configure settings (suggested defaults):
-   - **Chunk Interval**: 1 day (not configurable via UI)
-   - **Retention Period**: 30 days
-   - **Compression After**: 7 days
-3. Click **Save** to activate the retention policy
+1. **Check logs for errors:**
+   ```bash
+   docker compose logs core
+   docker compose logs front
+   ```
 
-**How It Works:**
+2. **Restart everything:**
+   ```bash
+   docker compose down
+   docker compose up -d
+   ```
 
-- Data is stored in time-based chunks (1-day chunks by default)
-- Older chunks are compressed after 7 days to save disk space
-- Retention policy automatically drops chunks older than 30 days
-- Cleanup job runs periodically to remove old data
-- **Important**: Chunk interval must be smaller than retention period for the policy to work
+3. **Ask for help:**
+   - Create an issue on [GitHub](https://github.com/orionK-max/DataForeman/issues)
+   - Include your logs and error messages
 
-**Managing Retention:**
+## Data Retention and Disk Space Management
 
-All retention settings are managed via **Diagnostic → Capacity → Retention Policy** in the UI. This interface allows you to:
-- Set retention period
-- Enable/disable automatic cleanup
-- View current retention status
-- Monitor disk space usage
+DataForeman automatically manages disk space by compressing and deleting old data. **By default, data is kept forever** until you configure a retention policy.
+
+### Setting Up Data Retention
+
+1. **Log in** to DataForeman as admin
+2. **Navigate to:** Diagnostic → Capacity → Retention Policy
+3. **Configure settings:**
+   - **Retention Period**: How long to keep data (suggested: 30 days)
+   - **Compression After**: When to compress old data (suggested: 7 days)
+4. **Click Save** to activate
+
+### How It Works
+
+- **Fresh data** (0-7 days): Stored normally, fast access
+- **Compressed data** (7-30 days): Automatically compressed to save ~75% disk space
+- **Old data** (30+ days): Automatically deleted to free up space
+
+### Monitoring Disk Usage
+
+View your disk usage at: **Diagnostic → Capacity → Retention Policy**
+
+This shows:
+- How much disk space is being used
+- How much data will be deleted
+- Compression savings
+
+---
+
+## Network & Firewall Requirements
+
+---
+
+# DEVELOPER INFORMATION
+
+**⚠️ The sections below are for developers and advanced users only.**
+
+If you're a regular user just wanting to use DataForeman, you can stop reading here. Everything above is all you need!
 
 ---
 
 ## Developer Information
+
+### Prerequisites for Development
+
+- **Docker** and **Docker Compose** (for running services)
+- **Node.js 22** (for local development)
+- **Git** (for version control)
 
 ### Technology Stack
 
@@ -351,15 +581,23 @@ All retention settings are managed via **Diagnostic → Capacity → Retention P
 
 ### Development Commands
 
+**Note:** These commands are for **active development only**. Regular users should use `docker compose up -d` instead.
+
+These commands run parts of DataForeman on your host machine (outside Docker) for faster development:
+
 | Command | Description |
 |---------|-------------|
-| `npm start` | Start frontend + backend |
-| `npm run start:rebuild` | Rebuild and start everything |
+| `npm start` | Start frontend (local) + backend (local) for development |
+| `npm run start:rebuild` | Rebuild containers and start everything |
 | `npm run dev` | Same as `npm start` |
-| `npm run dev:front` | Start only frontend |
-| `npm run dev:core` | Start only backend |
-| `npm run start:local` | Run Core locally (DB/NATS in Docker) |
+| `npm run dev:front` | Start only frontend locally (port 5174) |
+| `npm run dev:core` | Start only backend locally |
+| `npm run start:local` | Run Core locally with DB/NATS in Docker |
 | `npm run start:caddy` | Start with Caddy TLS reverse proxy |
+
+**Development vs Production:**
+- **Development** (`npm start`): Runs on port 5174, hot-reload enabled, not containerized
+- **Production** (`docker compose up -d`): Runs on port 8080, fully containerized, more stable
 
 ### Environment Variables
 
