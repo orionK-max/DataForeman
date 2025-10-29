@@ -1,0 +1,25 @@
+# Environment variables (contains passwords)
+.env
+
+# Security incident reports (sensitive information)
+SECURITY-INCIDENT-REPORT.md
+
+# Logs
+logs/
+
+# Dependencies
+node_modules/
+
+# Docker volumes data
+var/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

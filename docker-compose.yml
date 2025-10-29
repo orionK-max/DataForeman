@@ -3,10 +3,11 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${PGUSER:-postgres}
-      POSTGRES_PASSWORD: ${PGPASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
       POSTGRES_DB: ${PGDATABASE:-dataforeman}
-    ports:
-      - "${PGPORT:-5432}:5432"
+    # ports:
+    #   - "${PGPORT:-5432}:5432"  # REMOVED - Never expose database to internet!
+    # Database is only accessible from other Docker containers on internal network
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
@@ -24,9 +25,9 @@ services:
   nats:
     image: nats:2-alpine
     command: ["-js", "-l", "/var/log/nats/nats.current"]
-    ports:
-      - "4222:4222"
-      - "8222:8222"
+    # ports:
+    #   - "4222:4222"  # REMOVED - NATS should not be exposed to internet
+    #   - "8222:8222"  # REMOVED - NATS HTTP should not be exposed to internet
     volumes:
       - ./logs/nats:/var/log/nats
 
@@ -34,10 +35,11 @@ services:
     image: timescale/timescaledb:2.17.2-pg16
     environment:
       POSTGRES_USER: ${TSDB_USER:-tsdb}
-      POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tsdb}
+      POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       POSTGRES_DB: ${TSDB_DATABASE:-telemetry}
-    ports:
-      - "${TSDB_PORT:-5433}:5432"
+    # ports:
+    #   - "${TSDB_PORT:-5433}:5432"  # REMOVED - Never expose database to internet!
+    # TimescaleDB is only accessible from other Docker containers on internal network
     volumes:
       - tsdb-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
@@ -85,7 +87,7 @@ services:
     extra_hosts:
       - "host-gateway:host-gateway"
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
       - ./logs/core:/var/log/core
       - ./logs/nats:/var/log/nats
@@ -120,24 +122,27 @@ services:
       PGPORT: 5432
       PGDATABASE: dataforeman
       PGUSER: postgres
-      PGPASSWORD: postgres
+      PGPASSWORD: dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a
     depends_on:
       - nats
       - tsdb
       - db
+    extra_hosts:
+      - "host-gateway:host-gateway"
+      - "mtssrv1:138.128.244.15"
+    ports:
+      - "3102:3100"
+      - "4841:4841"
     volumes:
       - ./logs/connectivity:/var/log/connectivity
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
-    ports:
-      - "3100:3100"
-      - "4841:4841"
 
   front:
     build: ./front
     depends_on:
       - core
     ports:
-      - "8080:80"
+      - "8081:80"
     volumes:
       - ./logs/front:/var/log/front
 

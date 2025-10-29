@@ -92,7 +92,14 @@ export const natsPlugin = fp(async function (app) {
           try {
             const obj = JSON.parse(sc.decode(m.data));
             try { validateOrThrow(obj); } catch {}
-            if (obj?.id) statusMap.set(obj.id, obj);
+            if (obj?.id) {
+              // Remove status entries for deleted connections to prevent accumulation
+              if (obj.state === 'deleted') {
+                statusMap.delete(obj.id);
+              } else {
+                statusMap.set(obj.id, obj);
+              }
+            }
           } catch (err) {
             app.log.warn({ err }, 'Failed to parse status message');
           }

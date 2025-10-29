@@ -3,6 +3,6 @@
     reverse_proxy core:3000
   }
   handle {
-    reverse_proxy web:80
+    reverse_proxy front:80
   }
 }
