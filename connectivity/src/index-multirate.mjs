@@ -375,6 +375,23 @@ async function loadEnabledConnections(nc) {
 
 // Enhanced configuration handler
 async function handleConfigUpdate(nc, data) {
+  // Handle explicit delete operations first
+  if (data.op === 'delete' && data.id) {
+    const id = data.id;
+    const existing = connections.get(id);
+    if (existing) {
+      log.info({ connectionId: id }, 'Deleting connection via explicit delete operation');
+      try { await existing.driver.disconnect(); } catch {}
+      // Unregister connection from host tracking
+      if (existing.config?.host) {
+        unregisterConnection(existing.config.host, id);
+      }
+      connections.delete(id);
+      await publishStatus(nc, id, 'deleted');
+    }
+    return;
+  }
+  
   if (!data?.conn) return;
   
   const id = data.conn.id;
@@ -495,23 +512,57 @@ async function handleOPCUAConfigUpdate(nc, id, config, existing) {
         auth: config.auth || {},
         samplingMs: config.driver_opts?.sampling_ms ?? 1000,
         deadband: config.driver_opts?.deadband ?? 0,
-        queueSize: config.driver_opts?.queue_size ?? 10,
-        security_strategy: config.driver_opts?.security_strategy || 'auto',
+        queueSize: config.driver_opts?.queue_size || 10,
+        security_strategy: config.driver_opts?.security_strategy || 'none_first',
       });
-  driver.onData(async (pt) => { try { emitTelemetry(nc, id, pt); } catch {} });
-      connections.set(id, { driver, config });
-      beginOp(nc, id);
-      await publishStatus(nc, id, 'connected');
+      driver.onData(async (pt) => { try { emitTelemetry(nc, id, pt); } catch {} });
+      
+      // Add to connections Map immediately so delete operations can find it
+      connections.set(id, { driver, config, connecting: true });
+      
+      // Attempt connection asynchronously - don't block message processing
+      driver.connect()
+        .then(async () => {
+          // Check if connection was deleted while connecting
+          const current = connections.get(id);
+          if (!current || driver._aborted) {
+            log.info({ connectionId: id }, 'Connection was deleted during connect attempt');
+            try { await driver.disconnect(); } catch {}
+            connections.delete(id);
+            // Don't publish any status - delete handler already published 'deleted'
+            return;
+          }
+          
+          // Update to mark connection complete
+          connections.set(id, { driver, config, connecting: false });
+          beginOp(nc, id);
+          await publishStatus(nc, id, 'connected');
 
-      // Poll groups and tags
-      const pollGroups = Array.from(pollGroupsCache.values());
-      driver.updatePollGroups?.(pollGroups);
-  await driver.connect();
-      const tagMetadata = await dbHelper.getTagMetadataByConnection(id);
-  // Build tag map
-  driver.tagMap = Object.fromEntries(tagMetadata.map(t => [t.tag_id, t.tag_path]));
-      const tagsByPollGroup = groupTagsByPollGroup(tagMetadata);
-      await driver.updateTagSubscriptions?.(tagsByPollGroup);
+          // Poll groups and tags
+          const pollGroups = Array.from(pollGroupsCache.values());
+          driver.updatePollGroups?.(pollGroups);
+          const tagMetadata = await dbHelper.getTagMetadataByConnection(id);
+          // Build tag map
+          driver.tagMap = Object.fromEntries(tagMetadata.map(t => [t.tag_id, t.tag_path]));
+          const tagsByPollGroup = groupTagsByPollGroup(tagMetadata);
+          await driver.updateTagSubscriptions?.(tagsByPollGroup);
+        })
+        .catch(async (error) => {
+          log.error({ connectionId: id, err: String(error?.message || error) }, 'OPCUA config update failed');
+          // Don't delete from Map yet if aborted - delete handler will do it
+          // For non-abort errors, keep in Map so delete message can clean it up properly
+          if (!driver._aborted) {
+            await publishStatus(nc, id, 'error', error.message);
+            // Keep in Map but mark as failed so delete handler can find it
+            const current = connections.get(id);
+            if (current) {
+              connections.set(id, { ...current, failed: true });
+            }
+          }
+        });
+      
+      // Return immediately without awaiting connection
+      return;
     } else {
       // Refresh tag subscriptions from database (important for poll group updates)
       log.info({ connectionId: id }, 'Refreshing OPCUA tag subscriptions from database');

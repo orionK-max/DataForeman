@@ -34,6 +34,7 @@ export class OPCUAClientDriver {
     this.queueSize = opts.queueSize ?? 10;
   this.securityStrategy = opts.security_strategy || 'auto'; // 'auto' | 'none_first' | 'secure_first'
     this._onData = () => {};
+    this._aborted = false; // Flag to abort ongoing connection attempts
     this.client = null;
     this.session = null;
     // Single-subscription fields (kept for backward compat but no longer used for multi-rate)
@@ -120,6 +121,11 @@ export class OPCUAClientDriver {
 
     let lastErr;
     for (const attempt of attempts) {
+      // Check abort flag before each attempt
+      if (this._aborted) {
+        throw new Error('Connection aborted');
+      }
+      
       try {
         this.client = OPCUAClient.create({
           applicationName: 'DataForeman-OPCUA-Client',
@@ -131,6 +137,14 @@ export class OPCUAClientDriver {
         });
         log.info({ endpoint: this.endpoint, policy: SecurityPolicy[attempt.policy], mode: MessageSecurityMode[attempt.mode] }, 'OPC UA connecting');
         await this.client.connect(this.endpoint);
+        
+        // Check abort flag after connect
+        if (this._aborted) {
+          try { await this.client?.disconnect(); } catch {}
+          this.client = null;
+          throw new Error('Connection aborted');
+        }
+        
         const userIdentity = this._userIdentityFromAuth(this.auth);
         this.session = await this.client.createSession(userIdentity);
         log.info({ endpoint: this.endpoint, policy: SecurityPolicy[attempt.policy], mode: MessageSecurityMode[attempt.mode] }, 'OPC UA connected');
@@ -163,6 +177,9 @@ export class OPCUAClientDriver {
   }
 
   async disconnect() {
+    // Set abort flag to stop any ongoing connection attempts
+    this._aborted = true;
+    
     // Terminate group subscriptions first (multi-rate)
     try {
       for (const [gk, gs] of this.groupSubscriptions) {

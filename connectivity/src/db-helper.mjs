@@ -63,6 +63,12 @@ export class DatabaseHelper {
   }
 
   async getTagMetadataByConnection(connectionId) {
+    // Skip database query for test connections (ID starts with "test-")
+    if (typeof connectionId === 'string' && connectionId.startsWith('test-')) {
+      log.debug({ connectionId }, 'Skipping tag metadata fetch for test connection');
+      return [];
+    }
+    
     try {
       const { rows } = await this.query(`
         SELECT tm.tag_id, tm.connection_id, tm.driver_type, tm.tag_path, 
