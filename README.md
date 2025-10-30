@@ -40,7 +40,7 @@ cd ~ && git clone https://github.com/orionK-max/DataForeman.git && cd DataForema
 docker compose up -d
 
 # Access at http://localhost:8080
-# Login: admin@example.com / DataForeman2024!
+# Login: admin@example.com / password
 ```
 
 **Windows Users:** Download installer from [Releases](https://github.com/orionK-max/DataForeman/releases), run it, access at http://localhost:8080
