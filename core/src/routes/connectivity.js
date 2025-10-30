@@ -1929,4 +1929,764 @@ export async function connectivityRoutes(app) {
       return reply.code(500).send({ error: String(err?.message || err) });
     }
   });
+
+  // Export tags for a connection as JSON
+  app.get('/tags/:connectionId/export', async (req, reply) => {
+    const connectionId = req.params.connectionId;
+    const userId = req.user?.sub;
+    
+    try {
+      // Get connection info
+      const connResult = await app.db.query(
+        `SELECT id, name, type FROM connections WHERE id = $1 AND deleted_at IS NULL`,
+        [connectionId]
+      );
+      
+      if (connResult.rows.length === 0) {
+        return reply.code(404).send({ error: 'connection_not_found' });
+      }
+      
+      const connection = connResult.rows[0];
+      
+      // Get all active tags for this connection
+      const { rows } = await app.db.query(`
+        SELECT 
+          tm.tag_name,
+          tm.tag_path,
+          tm.data_type,
+          pg.name as poll_group_name,
+          pg.poll_rate_ms,
+          u.name as unit_name,
+          u.symbol as unit_symbol,
+          tm.on_change_enabled,
+          tm.on_change_deadband,
+          tm.on_change_deadband_type,
+          tm.on_change_heartbeat_ms
+        FROM tag_metadata tm
+        JOIN poll_groups pg ON tm.poll_group_id = pg.group_id
+        LEFT JOIN units_of_measure u ON tm.unit_id = u.id
+        WHERE tm.connection_id = $1
+          AND coalesce(tm.status,'active') = 'active'
+        ORDER BY tm.tag_name ASC
+      `, [connectionId]);
+      
+      const exportData = {
+        export_version: '1.0',
+        connection: {
+          id: connection.id,
+          name: connection.name,
+          type: connection.type
+        },
+        exported_at: new Date().toISOString(),
+        exported_by: userId,
+        tag_count: rows.length,
+        tags: rows.map(tag => ({
+          tag_name: tag.tag_name,
+          tag_path: tag.tag_path,
+          data_type: tag.data_type,
+          poll_group_name: tag.poll_group_name,
+          poll_rate_ms: tag.poll_rate_ms,
+          unit_name: tag.unit_name,
+          unit_symbol: tag.unit_symbol,
+          on_change_enabled: tag.on_change_enabled,
+          on_change_deadband: tag.on_change_deadband,
+          on_change_deadband_type: tag.on_change_deadband_type,
+          on_change_heartbeat_ms: tag.on_change_heartbeat_ms
+        }))
+      };
+      
+      req.log.info({ connectionId, tagCount: rows.length, userId }, 'Tags exported');
+      
+      // Set headers for file download
+      reply.header('Content-Type', 'application/json');
+      reply.header('Content-Disposition', `attachment; filename="tags_${connection.name}_${connectionId}_${new Date().toISOString().split('T')[0]}.json"`);
+      
+      return exportData;
+    } catch (err) {
+      req.log.error({ err: String(err?.message || err), connectionId, userId }, 'Tag export failed');
+      return reply.code(500).send({ error: String(err?.message || err) });
+    }
+  });
+
+  // Import tags from JSON
+  app.post('/tags/:connectionId/import', async (req, reply) => {
+    const connectionId = req.params.connectionId;
+    const userId = req.user?.sub;
+    const { tags, merge_strategy = 'skip' } = req.body; // merge_strategy: 'skip', 'replace', 'update'
+    
+    if (!Array.isArray(tags)) {
+      return reply.code(400).send({ error: 'tags must be an array' });
+    }
+    
+    try {
+      // Verify connection exists
+      const connResult = await app.db.query(
+        `SELECT id, name, type FROM connections WHERE id = $1 AND deleted_at IS NULL`,
+        [connectionId]
+      );
+      
+      if (connResult.rows.length === 0) {
+        return reply.code(404).send({ error: 'connection_not_found' });
+      }
+      
+      const connection = connResult.rows[0];
+      
+      // Get all poll groups for matching
+      const pollGroupsResult = await app.db.query(`
+        SELECT group_id, name, poll_rate_ms FROM poll_groups WHERE is_active = true
+      `);
+      const pollGroupMap = new Map();
+      pollGroupsResult.rows.forEach(pg => {
+        pollGroupMap.set(pg.name.toLowerCase(), pg);
+        pollGroupMap.set(pg.poll_rate_ms, pg);
+      });
+      
+      // Get all units for matching
+      const unitsResult = await app.db.query(`
+        SELECT id, name, symbol FROM units_of_measure
+      `);
+      const unitMap = new Map();
+      unitsResult.rows.forEach(u => {
+        unitMap.set(u.name.toLowerCase(), u);
+        unitMap.set(u.symbol.toLowerCase(), u);
+      });
+      
+      let imported = 0;
+      let skipped = 0;
+      let updated = 0;
+      let errors = [];
+      
+      await app.db.query('BEGIN');
+      
+      try {
+        for (const tag of tags) {
+          if (!tag.tag_name || !tag.tag_path) {
+            errors.push({ tag: tag.tag_name || 'unknown', error: 'missing tag_name or tag_path' });
+            continue;
+          }
+          
+          // Find matching poll group
+          let pollGroupId = 5; // default
+          if (tag.poll_group_name) {
+            const pg = pollGroupMap.get(tag.poll_group_name.toLowerCase()) || 
+                       pollGroupMap.get(tag.poll_rate_ms);
+            if (pg) pollGroupId = pg.group_id;
+          }
+          
+          // Find matching unit
+          let unitId = null;
+          if (tag.unit_name || tag.unit_symbol) {
+            const unit = unitMap.get((tag.unit_name || '').toLowerCase()) ||
+                        unitMap.get((tag.unit_symbol || '').toLowerCase());
+            if (unit) unitId = unit.id;
+          }
+          
+          // Check if tag already exists
+          const existingResult = await app.db.query(
+            `SELECT tag_id, status FROM tag_metadata WHERE connection_id = $1 AND tag_path = $2`,
+            [connectionId, tag.tag_path]
+          );
+          
+          if (existingResult.rows.length > 0) {
+            const existing = existingResult.rows[0];
+            
+            if (merge_strategy === 'skip') {
+              skipped++;
+              continue;
+            } else if (merge_strategy === 'replace' || merge_strategy === 'update') {
+              // Update existing tag
+              await app.db.query(`
+                UPDATE tag_metadata
+                SET tag_name = $1,
+                    data_type = $2,
+                    poll_group_id = $3,
+                    unit_id = $4,
+                    on_change_enabled = COALESCE($5, on_change_enabled),
+                    on_change_deadband = COALESCE($6, on_change_deadband),
+                    on_change_deadband_type = COALESCE($7, on_change_deadband_type),
+                    on_change_heartbeat_ms = COALESCE($8, on_change_heartbeat_ms),
+                    updated_at = NOW()
+                WHERE tag_id = $9
+              `, [
+                tag.tag_name,
+                tag.data_type || 'UNKNOWN',
+                pollGroupId,
+                unitId,
+                tag.on_change_enabled,
+                tag.on_change_deadband,
+                tag.on_change_deadband_type,
+                tag.on_change_heartbeat_ms,
+                existing.tag_id
+              ]);
+              updated++;
+            }
+          } else {
+            // Insert new tag
+            await app.db.query(`
+              INSERT INTO tag_metadata (
+                connection_id, driver_type, tag_name, tag_path, data_type,
+                is_subscribed, poll_group_id, unit_id,
+                on_change_enabled, on_change_deadband, on_change_deadband_type,
+                on_change_heartbeat_ms, status, created_at, updated_at
+              ) VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, 'active', NOW(), NOW())
+            `, [
+              connectionId,
+              connection.type,
+              tag.tag_name,
+              tag.tag_path,
+              tag.data_type || 'UNKNOWN',
+              pollGroupId,
+              unitId,
+              tag.on_change_enabled !== undefined ? tag.on_change_enabled : true,
+              tag.on_change_deadband || 0,
+              tag.on_change_deadband_type || 'absolute',
+              tag.on_change_heartbeat_ms || 60000
+            ]);
+            imported++;
+          }
+        }
+        
+        await app.db.query('COMMIT');
+        
+        // Notify connectivity service of config change
+        if (imported > 0 || updated > 0) {
+          app.nats.publish('df.connectivity.config.v1', JSON.stringify({
+            schema: 'connectivity.config@v1',
+            op: 'tag_subscription_update',
+            connection_id: connectionId
+          }));
+        }
+        
+        req.log.info({ connectionId, imported, updated, skipped, errorCount: errors.length, userId }, 'Tags imported');
+        
+        return { 
+          imported, 
+          updated, 
+          skipped, 
+          errors: errors.length > 0 ? errors : undefined,
+          total_processed: tags.length
+        };
+        
+      } catch (err) {
+        await app.db.query('ROLLBACK');
+        throw err;
+      }
+      
+    } catch (err) {
+      req.log.error({ err: String(err?.message || err), connectionId, userId }, 'Tag import failed');
+      return reply.code(500).send({ error: String(err?.message || err) });
+    }
+  });
+
+  // Export tags as CSV for Excel editing
+  app.get('/tags/:connectionId/export-csv', async (req, reply) => {
+    const connectionId = req.params.connectionId;
+    const driverType = req.query.driver || 's7';
+    const userId = req.user?.sub;
+    
+    try {
+      // Get connection info
+      const connResult = await app.db.query(
+        `SELECT id, name, type FROM connections WHERE id = $1 AND deleted_at IS NULL`,
+        [connectionId]
+      );
+      
+      if (connResult.rows.length === 0) {
+        return reply.code(404).send({ error: 'connection_not_found' });
+      }
+      
+      const connection = connResult.rows[0];
+      
+      // Get all active tags
+      const { rows } = await app.db.query(`
+        SELECT 
+          tm.tag_name,
+          tm.tag_path,
+          tm.data_type,
+          pg.name as poll_group_name,
+          u.symbol as unit,
+          tm.on_change_enabled,
+          tm.on_change_deadband,
+          tm.on_change_deadband_type,
+          tm.on_change_heartbeat_ms
+        FROM tag_metadata tm
+        JOIN poll_groups pg ON tm.poll_group_id = pg.group_id
+        LEFT JOIN units_of_measure u ON tm.unit_id = u.id
+        WHERE tm.connection_id = $1
+          AND coalesce(tm.status,'active') = 'active'
+        ORDER BY tm.tag_name ASC
+      `, [connectionId]);
+      
+      // Generate CSV based on driver type
+      let csv = '';
+      
+      if (driverType === 's7') {
+        // S7 format: address,data_type,tag_name,poll_group,unit,write_on_change,deadband,deadband_type,heartbeat_sec
+        csv = 'address,data_type,tag_name,poll_group,unit,write_on_change,deadband,deadband_type,heartbeat_sec\n';
+        
+        rows.forEach(tag => {
+          const address = tag.tag_path || '';
+          const dataType = tag.data_type || '';
+          const tagName = tag.tag_name !== tag.tag_path ? tag.tag_name : '';
+          const pollGroup = tag.poll_group_name || '';
+          const unit = tag.unit || '';
+          const writeOnChange = tag.on_change_enabled ? 'true' : 'false';
+          const deadband = tag.on_change_deadband || '';
+          const deadbandType = tag.on_change_deadband_type || 'absolute';
+          const heartbeatSec = tag.on_change_heartbeat_ms ? Math.round(tag.on_change_heartbeat_ms / 1000) : '';
+          
+          csv += `${address},${dataType},${tagName},${pollGroup},${unit},${writeOnChange},${deadband},${deadbandType},${heartbeatSec}\n`;
+        });
+      } else if (driverType === 'eip') {
+        // EIP format: tag_name,data_type,poll_group,unit,write_on_change,deadband,deadband_type,heartbeat_sec
+        csv = 'tag_name,data_type,poll_group,unit,write_on_change,deadband,deadband_type,heartbeat_sec\n';
+        
+        rows.forEach(tag => {
+          const tagName = tag.tag_name || tag.tag_path || '';
+          const dataType = tag.data_type || '';
+          const pollGroup = tag.poll_group_name || '';
+          const unit = tag.unit || '';
+          const writeOnChange = tag.on_change_enabled ? 'true' : 'false';
+          const deadband = tag.on_change_deadband || '';
+          const deadbandType = tag.on_change_deadband_type || 'absolute';
+          const heartbeatSec = tag.on_change_heartbeat_ms ? Math.round(tag.on_change_heartbeat_ms / 1000) : '';
+          
+          csv += `${tagName},${dataType},${pollGroup},${unit},${writeOnChange},${deadband},${deadbandType},${heartbeatSec}\n`;
+        });
+      } else if (driverType === 'opcua') {
+        // OPCUA format: node_id,tag_name,data_type,poll_group,unit,write_on_change,deadband,deadband_type,heartbeat_sec
+        csv = 'node_id,tag_name,data_type,poll_group,unit,write_on_change,deadband,deadband_type,heartbeat_sec\n';
+        
+        rows.forEach(tag => {
+          const nodeId = tag.tag_path || '';
+          const tagName = tag.tag_name !== tag.tag_path ? tag.tag_name : '';
+          const dataType = tag.data_type || '';
+          const pollGroup = tag.poll_group_name || '';
+          const unit = tag.unit || '';
+          const writeOnChange = tag.on_change_enabled ? 'true' : 'false';
+          const deadband = tag.on_change_deadband || '';
+          const deadbandType = tag.on_change_deadband_type || 'absolute';
+          const heartbeatSec = tag.on_change_heartbeat_ms ? Math.round(tag.on_change_heartbeat_ms / 1000) : '';
+          
+          csv += `${nodeId},${tagName},${dataType},${pollGroup},${unit},${writeOnChange},${deadband},${deadbandType},${heartbeatSec}\n`;
+        });
+      }
+      
+      req.log.info({ connectionId, tagCount: rows.length, driverType, userId }, 'Tags exported to CSV');
+      
+      // Set headers for file download
+      reply.header('Content-Type', 'text/csv');
+      reply.header('Content-Disposition', `attachment; filename="${driverType}_tags_${connection.name}_${connectionId}_${new Date().toISOString().split('T')[0]}.csv"`);
+      
+      return csv;
+    } catch (err) {
+      req.log.error({ err: String(err?.message || err), connectionId, userId }, 'CSV export failed');
+      return reply.code(500).send({ error: String(err?.message || err) });
+    }
+  });
+
+  // Import tags from CSV
+  app.post('/tags/:connectionId/import-csv', async (req, reply) => {
+    const connectionId = req.params.connectionId;
+    const userId = req.user?.sub;
+    
+    try {
+      // Get uploaded file
+      const data = await req.file();
+      if (!data) {
+        req.log.error({ connectionId, userId }, 'No file uploaded');
+        return reply.code(400).send({ error: 'no_file_uploaded' });
+      }
+      
+      req.log.info({ connectionId, filename: data.filename, fields: data.fields }, 'CSV file received');
+      
+      // Get driver type from fields
+      let driverType = 's7';
+      if (data.fields && data.fields.driver) {
+        driverType = data.fields.driver.value || 's7';
+      }
+      
+      // Read file content
+      const buffer = await data.toBuffer();
+      const csvContent = buffer.toString('utf-8');
+      
+      req.log.info({ connectionId, driverType, contentLength: csvContent.length, userId }, 'CSV content read');
+      
+      // Parse CSV - detect delimiter (comma or tab)
+      const lines = csvContent.split('\n').filter(line => line.trim());
+      if (lines.length < 2) {
+        return reply.code(400).send({ error: 'empty_csv_file' });
+      }
+      
+      // Detect delimiter from first line (prefer tab if present, otherwise comma)
+      const delimiter = lines[0].includes('\t') ? '\t' : ',';
+      
+      // Parse header
+      const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase());
+      
+      req.log.info({ connectionId, headers, delimiter, lineCount: lines.length, userId }, 'CSV parsed');
+      
+      // Verify connection exists
+      const connResult = await app.db.query(
+        `SELECT id, name, type FROM connections WHERE id = $1 AND deleted_at IS NULL`,
+        [connectionId]
+      );
+      
+      if (connResult.rows.length === 0) {
+        return reply.code(404).send({ error: 'connection_not_found' });
+      }
+      
+      const connection = connResult.rows[0];
+      
+      // Normalize driver type for database constraint
+      // connection.type might be 'opcua-client', 'opcua-server', 'pycomm3', etc.
+      // but DB constraint expects: 'EIP', 'OPCUA', 'S7', 'SYSTEM'
+      const normalizeDriverType = (type) => {
+        const upper = type.toUpperCase();
+        if (upper.startsWith('OPCUA')) return 'OPCUA';
+        if (upper === 'PYCOMM3') return 'EIP';
+        return upper; // S7, EIP already correct
+      };
+      const normalizedDriverType = normalizeDriverType(connection.type);
+      
+      // Get poll groups and units for matching
+      const pollGroupsResult = await app.db.query(`
+        SELECT group_id, name FROM poll_groups WHERE is_active = true
+      `);
+      const pollGroupMap = new Map();
+      pollGroupsResult.rows.forEach(pg => {
+        pollGroupMap.set(pg.name.toLowerCase(), pg.group_id);
+      });
+      
+      const unitsResult = await app.db.query(`
+        SELECT id, symbol FROM units_of_measure
+      `);
+      const unitMap = new Map();
+      unitsResult.rows.forEach(u => {
+        unitMap.set(u.symbol.toLowerCase(), u.id);
+      });
+      
+      let imported = 0;
+      let skipped = 0;
+      let errors = [];
+      
+      await app.db.query('BEGIN');
+      
+      try {
+        // Process data rows
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(delimiter).map(v => v.trim());
+          if (values.length === 0 || !values[0]) continue;
+          
+          const row = {};
+          headers.forEach((header, idx) => {
+            row[header] = values[idx] || '';
+          });
+          
+          // Validate and process based on driver type
+          if (driverType === 's7') {
+            if (!row.address || !row.data_type) {
+              errors.push({ row: i + 1, error: 'Missing required fields: address, data_type' });
+              continue;
+            }
+            
+            const tagPath = row.address;
+            const tagName = row.tag_name || row.address;
+            const dataType = row.data_type.toUpperCase();
+            
+            // Find poll group (default to 5 - Medium)
+            let pollGroupId = 5;
+            if (row.poll_group) {
+              const pgId = pollGroupMap.get(row.poll_group.toLowerCase());
+              if (pgId) pollGroupId = pgId;
+            }
+            
+            // Find unit
+            let unitId = null;
+            if (row.unit) {
+              const uId = unitMap.get(row.unit.toLowerCase());
+              if (uId) unitId = uId;
+            }
+            
+            // Parse write-on-change settings
+            const onChangeEnabled = row.write_on_change ? 
+              ['true', '1', 'yes', 'y'].includes(row.write_on_change.toLowerCase()) : true;
+            const deadband = (row.deadband && row.deadband.trim() !== '') ? parseFloat(row.deadband) : 0;
+            const deadbandType = row.deadband_type && ['absolute', 'percent'].includes(row.deadband_type.toLowerCase()) 
+              ? row.deadband_type.toLowerCase() 
+              : 'absolute';
+            const heartbeatSec = (row.heartbeat_sec && row.heartbeat_sec.trim() !== '') ? parseInt(row.heartbeat_sec) : 60;
+            const heartbeatMs = heartbeatSec * 1000;
+            
+            // Check if tag already exists
+            const existingResult = await app.db.query(
+              `SELECT tag_id FROM tag_metadata WHERE connection_id = $1 AND tag_path = $2`,
+              [connectionId, tagPath]
+            );
+            
+            if (existingResult.rows.length > 0) {
+              skipped++;
+              continue;
+            }
+            
+            // Insert new tag
+            await app.db.query(`
+              INSERT INTO tag_metadata (
+                connection_id, driver_type, tag_name, tag_path, data_type,
+                is_subscribed, poll_group_id, unit_id,
+                on_change_enabled, on_change_deadband, on_change_deadband_type,
+                on_change_heartbeat_ms, status, created_at, updated_at
+              ) VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, 'active', NOW(), NOW())
+            `, [
+              connectionId,
+              normalizedDriverType,
+              tagName,
+              tagPath,
+              dataType,
+              pollGroupId,
+              unitId,
+              onChangeEnabled,
+              deadband,
+              deadbandType,
+              heartbeatMs
+            ]);
+            
+            imported++;
+          } else if (driverType === 'eip') {
+            if (!row.tag_name || !row.data_type) {
+              errors.push({ row: i + 1, error: 'Missing required fields: tag_name, data_type' });
+              continue;
+            }
+            
+            const tagName = row.tag_name;
+            const tagPath = row.tag_name; // EIP uses tag_name as path
+            const dataType = row.data_type.toUpperCase();
+            
+            // Find poll group (default to 5 - Medium)
+            let pollGroupId = 5;
+            if (row.poll_group) {
+              const pgId = pollGroupMap.get(row.poll_group.toLowerCase());
+              if (pgId) pollGroupId = pgId;
+            }
+            
+            // Find unit
+            let unitId = null;
+            if (row.unit) {
+              const uId = unitMap.get(row.unit.toLowerCase());
+              if (uId) unitId = uId;
+            }
+            
+            // Parse write-on-change settings
+            const onChangeEnabled = row.write_on_change ? 
+              ['true', '1', 'yes', 'y'].includes(row.write_on_change.toLowerCase()) : true;
+            const deadband = (row.deadband && row.deadband.trim() !== '') ? parseFloat(row.deadband) : 0;
+            const deadbandType = row.deadband_type && ['absolute', 'percent'].includes(row.deadband_type.toLowerCase()) 
+              ? row.deadband_type.toLowerCase() 
+              : 'absolute';
+            const heartbeatSec = (row.heartbeat_sec && row.heartbeat_sec.trim() !== '') ? parseInt(row.heartbeat_sec) : 60;
+            const heartbeatMs = heartbeatSec * 1000;
+            
+            // Check if tag already exists
+            const existingResult = await app.db.query(
+              `SELECT tag_id FROM tag_metadata WHERE connection_id = $1 AND tag_path = $2`,
+              [connectionId, tagPath]
+            );
+            
+            if (existingResult.rows.length > 0) {
+              skipped++;
+              continue;
+            }
+            
+            // Insert new tag
+            await app.db.query(`
+              INSERT INTO tag_metadata (
+                connection_id, driver_type, tag_name, tag_path, data_type,
+                is_subscribed, poll_group_id, unit_id,
+                on_change_enabled, on_change_deadband, on_change_deadband_type,
+                on_change_heartbeat_ms, status, created_at, updated_at
+              ) VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, 'active', NOW(), NOW())
+            `, [
+              connectionId,
+              normalizedDriverType,
+              tagName,
+              tagPath,
+              dataType,
+              pollGroupId,
+              unitId,
+              onChangeEnabled,
+              deadband,
+              deadbandType,
+              heartbeatMs
+            ]);
+
+            
+            imported++;
+          } else if (driverType === 'opcua') {
+            req.log.info({ row: i + 1, originalRow: row, values }, 'OPC UA CSV row - BEFORE processing');
+            
+            // Handle case where node_id might be split across columns due to semicolon in CSV
+            // If node_id looks like "ns=X" and tag_name looks like "i=Y" or "s=Y", combine them
+            let nodeId = row.node_id;
+            let tagName = row.tag_name;
+            
+            // Check case-insensitively for node_id patterns
+            const tagNameLower = (tagName || '').toLowerCase();
+            if (nodeId && tagName && nodeId.startsWith('ns=') && (tagNameLower.startsWith('i=') || tagNameLower.startsWith('s=') || tagNameLower.startsWith('b='))) {
+              req.log.info({ row: i + 1, nodeId, tagName }, 'OPC UA: Detected split node_id, combining');
+              // Combine them with semicolon
+              nodeId = `${nodeId};${tagName}`;
+              // The actual tag_name is now in the data_type column, shift everything
+              tagName = row.data_type;
+              row.data_type = row.poll_group;
+              row.poll_group = row.unit;
+              row.unit = row.write_on_change;
+              row.write_on_change = row.deadband;
+              row.deadband = row.deadband_type;
+              row.deadband_type = row.heartbeat_sec;
+              row.heartbeat_sec = values[headers.indexOf('heartbeat_sec') + 1] || '60';
+              req.log.info({ row: i + 1, nodeId, tagName, shiftedRow: row }, 'OPC UA: After shifting columns');
+            }
+            
+            if (!nodeId || !row.data_type) {
+              errors.push({ row: i + 1, error: 'Missing required fields: node_id, data_type', received: row });
+              req.log.warn({ row: i + 1, rowData: row }, 'OPC UA CSV row missing required fields');
+              continue;
+            }
+            
+            const tagPath = nodeId; // OPC UA uses node_id as path
+            const dataType = row.data_type.toUpperCase();
+            
+            req.log.info({ row: i + 1, nodeId, tagName, tagPath, dataType }, 'OPC UA: Parsed identifiers');
+            
+            // Find poll group (default to 5 - Medium)
+            let pollGroupId = 5;
+            if (row.poll_group) {
+              const pgId = pollGroupMap.get(row.poll_group.toLowerCase());
+              if (pgId) pollGroupId = pgId;
+            }
+            
+            // Find unit
+            let unitId = null;
+            if (row.unit) {
+              const uId = unitMap.get(row.unit.toLowerCase());
+              if (uId) unitId = uId;
+            }
+            
+            req.log.info({ row: i + 1, rawDeadband: row.deadband, rawHeartbeat: row.heartbeat_sec }, 'OPC UA: Raw numeric values');
+            
+            // Parse write-on-change settings
+            const onChangeEnabled = row.write_on_change ? 
+              ['true', '1', 'yes', 'y'].includes(row.write_on_change.toLowerCase()) : true;
+            const deadband = (row.deadband && row.deadband.trim() !== '') ? parseFloat(row.deadband) : 0;
+            const deadbandType = row.deadband_type && ['absolute', 'percent'].includes(row.deadband_type.toLowerCase()) 
+              ? row.deadband_type.toLowerCase() 
+              : 'absolute';
+            const heartbeatSec = (row.heartbeat_sec && row.heartbeat_sec.trim() !== '') ? parseInt(row.heartbeat_sec) : 60;
+            const heartbeatMs = heartbeatSec * 1000;
+            
+            req.log.info({ 
+              row: i + 1, 
+              parsedDeadband: deadband, 
+              parsedHeartbeatSec: heartbeatSec,
+              parsedHeartbeatMs: heartbeatMs,
+              isDeadbandNaN: isNaN(deadband),
+              isHeartbeatNaN: isNaN(heartbeatMs)
+            }, 'OPC UA: Parsed numeric values');
+            
+            // Check if tag already exists
+            const existingResult = await app.db.query(
+              `SELECT tag_id FROM tag_metadata WHERE connection_id = $1 AND tag_path = $2`,
+              [connectionId, tagPath]
+            );
+            
+            if (existingResult.rows.length > 0) {
+              req.log.info({ row: i + 1, tagPath }, 'OPC UA: Tag already exists, skipping');
+              skipped++;
+              continue;
+            }
+            
+            req.log.info({ 
+              row: i + 1,
+              insertParams: {
+                connectionId,
+                driverType: connection.type.toUpperCase(),
+                tagName,
+                tagPath,
+                dataType,
+                pollGroupId,
+                unitId,
+                onChangeEnabled,
+                deadband,
+                deadbandType,
+                heartbeatMs
+              }
+            }, 'OPC UA: About to insert tag');
+            
+            // Insert new tag
+            try {
+              await app.db.query(`
+                INSERT INTO tag_metadata (
+                  connection_id, driver_type, tag_name, tag_path, data_type,
+                  is_subscribed, poll_group_id, unit_id,
+                  on_change_enabled, on_change_deadband, on_change_deadband_type,
+                  on_change_heartbeat_ms, status, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, 'active', NOW(), NOW())
+              `, [
+                connectionId,
+                normalizedDriverType,
+                tagName,
+                tagPath,
+                dataType,
+                pollGroupId,
+                unitId,
+                onChangeEnabled,
+                deadband,
+                deadbandType,
+                heartbeatMs
+              ]);
+              
+              req.log.info({ row: i + 1, tagPath }, 'OPC UA: Tag inserted successfully');
+              imported++;
+            } catch (insertError) {
+              req.log.error({ 
+                row: i + 1, 
+                error: insertError.message,
+                insertParams: [connectionId, connection.type.toUpperCase(), tagName, tagPath, dataType, pollGroupId, unitId, onChangeEnabled, deadband, deadbandType, heartbeatMs]
+              }, 'OPC UA: Insert failed');
+              errors.push({ row: i + 1, error: insertError.message });
+            }
+          }
+        }
+        
+        await app.db.query('COMMIT');
+        
+        // Notify connectivity service
+        if (imported > 0) {
+          app.nats.publish('df.connectivity.config.v1', JSON.stringify({
+            schema: 'connectivity.config@v1',
+            op: 'tag_subscription_update',
+            connection_id: connectionId
+          }));
+        }
+        
+        req.log.info({ connectionId, imported, skipped, errorCount: errors.length, userId }, 'CSV tags imported');
+        
+        return { 
+          imported, 
+          updated: 0,
+          skipped, 
+          errors: errors.length > 0 ? errors : undefined,
+          total_processed: lines.length - 1
+        };
+        
+      } catch (err) {
+        await app.db.query('ROLLBACK');
+        throw err;
+      }
+      
+    } catch (err) {
+      req.log.error({ err: String(err?.message || err), connectionId, userId }, 'CSV import failed');
+      return reply.code(500).send({ error: String(err?.message || err) });
+    }
+  });
 }

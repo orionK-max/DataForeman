@@ -297,6 +297,90 @@ export const connectivityService = {
   updateTagOnChange: (payload) =>
     apiClient.patch('/connectivity/tags/on-change', payload),
   
+  /**
+   * Export tags for a connection as JSON
+   * @param {string} connectionId - Connection ID
+   * @returns {Promise<Blob>} - JSON file blob
+   */
+  exportTags: async (connectionId) => {
+    const response = await fetch(`/api/connectivity/tags/${encodeURIComponent(connectionId)}/export`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Export failed' }));
+      throw new Error(error.error || 'Export failed');
+    }
+    
+    return response.blob();
+  },
+
+  /**
+   * Import tags from JSON file
+   * @param {string} connectionId - Connection ID
+   * @param {Object} data - Import data
+   * @param {Array} data.tags - Array of tags to import
+   * @param {string} data.merge_strategy - 'skip', 'replace', or 'update'
+   * @returns {Promise<{imported: number, updated: number, skipped: number, errors?: Array}>}
+   */
+  importTags: (connectionId, data) =>
+    apiClient.post(`/connectivity/tags/${encodeURIComponent(connectionId)}/import`, data),
+
+  /**
+   * Export tags for a connection as CSV
+   * @param {string} connectionId - Connection ID
+   * @param {string} driverType - 's7', 'opcua', or 'eip'
+   * @returns {Promise<Blob>} - CSV file blob
+   */
+  exportTagsCSV: async (connectionId, driverType) => {
+    const token = localStorage.getItem('df_token');
+    const response = await fetch(`/api/connectivity/tags/${encodeURIComponent(connectionId)}/export-csv?driver=${driverType}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Export failed' }));
+      throw new Error(error.error || 'Export failed');
+    }
+    
+    return response.blob();
+  },
+
+  /**
+   * Import tags from CSV file
+   * @param {string} connectionId - Connection ID
+   * @param {File} file - CSV file
+   * @param {string} driverType - 's7', 'opcua', or 'eip'
+   * @returns {Promise<{imported: number, updated: number, skipped: number, errors?: Array}>}
+   */
+  importTagsCSV: async (connectionId, file, driverType) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('driver', driverType);
+    
+    const token = localStorage.getItem('df_token');
+    const response = await fetch(`/api/connectivity/tags/${encodeURIComponent(connectionId)}/import-csv`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Import failed' }));
+      throw new Error(error.error || 'Import failed');
+    }
+    
+    return response.json();
+  },
+  
   // ===== Units of Measure =====
   
   /**

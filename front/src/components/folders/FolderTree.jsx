@@ -26,6 +26,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Home as HomeIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 
 /**
@@ -163,6 +164,9 @@ export default function FolderTree({
   onEditFolder,
   onDeleteFolder,
   showRootOption = true,
+  showSharedOption = false,
+  onSelectShared,
+  isSharedView = false,
   emptyMessage = 'No folders yet',
 }) {
   const handleSelectRoot = () => {
@@ -173,6 +177,12 @@ export default function FolderTree({
     onCreateFolder(null); // null parent = root folder
   };
 
+  const handleSelectShared = () => {
+    if (onSelectShared) {
+      onSelectShared();
+    }
+  };
+
   return (
     <Box sx={{ width: '100%', bgcolor: 'background.paper' }}>
       {/* Root/All Items Option */}
@@ -180,20 +190,45 @@ export default function FolderTree({
         <ListItem
           disablePadding
           sx={{
-            bgcolor: selectedFolderId === null ? 'action.selected' : 'transparent',
+            bgcolor: selectedFolderId === null && !isSharedView ? 'action.selected' : 'transparent',
             borderBottom: 1,
             borderColor: 'divider',
           }}
         >
           <ListItemButton onClick={handleSelectRoot} sx={{ py: 1 }}>
             <ListItemIcon sx={{ minWidth: 40 }}>
-              <HomeIcon color={selectedFolderId === null ? 'primary' : 'action'} />
+              <HomeIcon color={selectedFolderId === null && !isSharedView ? 'primary' : 'action'} />
             </ListItemIcon>
             <ListItemText 
               primary="All Items"
               primaryTypographyProps={{
                 variant: 'body2',
-                fontWeight: selectedFolderId === null ? 600 : 400,
+                fontWeight: selectedFolderId === null && !isSharedView ? 600 : 400,
+              }}
+            />
+          </ListItemButton>
+        </ListItem>
+      )}
+
+      {/* Shared Dashboards Option */}
+      {showSharedOption && (
+        <ListItem
+          disablePadding
+          sx={{
+            bgcolor: isSharedView ? 'action.selected' : 'transparent',
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
+          <ListItemButton onClick={handleSelectShared} sx={{ py: 1 }}>
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              <PeopleIcon color={isSharedView ? 'primary' : 'action'} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Shared with Me"
+              primaryTypographyProps={{
+                variant: 'body2',
+                fontWeight: isSharedView ? 600 : 400,
               }}
             />
           </ListItemButton>

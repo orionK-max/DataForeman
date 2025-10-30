@@ -22,6 +22,8 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import {
   Add,
@@ -32,6 +34,7 @@ import {
   FolderOpen as FolderOpenIcon,
   DriveFileMove as MoveIcon,
   Home as HomeIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import dashboardService from '../services/dashboardService';
 import folderService, { FOLDER_TYPES } from '../services/folderService';
@@ -48,11 +51,13 @@ const DashboardList = () => {
   const [dashboards, setDashboards] = useState([]);
   const [folders, setFolders] = useState([]);
   const [selectedFolderId, setSelectedFolderId] = useState(null);
+  const [viewMode, setViewMode] = useState('all'); // 'all' | 'shared'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState('');
   const [newDashboardDesc, setNewDashboardDesc] = useState('');
+  const [newDashboardShared, setNewDashboardShared] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDialogMode, setFolderDialogMode] = useState('create');
   const [editingFolder, setEditingFolder] = useState(null);
@@ -73,10 +78,15 @@ const DashboardList = () => {
     loadFolders();
   }, []);
 
+  useEffect(() => {
+    loadDashboards();
+  }, [viewMode]);
+
   const loadDashboards = async () => {
     try {
       setLoading(true);
-      const data = await dashboardService.listDashboards();
+      const scope = viewMode === 'shared' ? 'shared' : 'all';
+      const data = await dashboardService.listDashboards(scope);
       setDashboards(data.items || []);
       setError(null);
     } catch (err) {
@@ -100,11 +110,13 @@ const DashboardList = () => {
       const dashboard = await dashboardService.createDashboard({
         name: newDashboardName,
         description: newDashboardDesc,
+        is_shared: newDashboardShared,
         layout: dashboardService.createDefaultLayout(),
       });
       setCreateDialogOpen(false);
       setNewDashboardName('');
       setNewDashboardDesc('');
+      setNewDashboardShared(false);
       navigate(`/dashboards/${dashboard.id}`);
     } catch (err) {
       setError(err.message);
@@ -135,6 +147,12 @@ const DashboardList = () => {
   // Folder management handlers
   const handleSelectFolder = (folderId) => {
     setSelectedFolderId(folderId);
+    setViewMode('all'); // Switch back to 'all' when selecting a folder
+  };
+
+  const handleSelectShared = () => {
+    setSelectedFolderId(null);
+    setViewMode('shared');
   };
 
   const handleCreateFolder = (parentId = null) => {
@@ -221,9 +239,11 @@ const DashboardList = () => {
   };
 
   // Filter dashboards by selected folder
-  const filteredDashboards = selectedFolderId === null
-    ? dashboards
-    : dashboards.filter(d => d.folder_id === selectedFolderId);
+  const filteredDashboards = viewMode === 'shared' 
+    ? dashboards // In shared mode, show all shared dashboards
+    : (selectedFolderId === null
+        ? dashboards
+        : dashboards.filter(d => d.folder_id === selectedFolderId));
 
   // Flatten folders for move menu
   const flattenFolders = (folders, level = 0) => {
@@ -266,6 +286,9 @@ const DashboardList = () => {
           onCreateFolder={handleCreateFolder}
           onEditFolder={handleEditFolder}
           onDeleteFolder={handleDeleteFolder}
+          showSharedOption={true}
+          onSelectShared={handleSelectShared}
+          isSharedView={viewMode === 'shared'}
         />
       </Box>
 
@@ -273,7 +296,15 @@ const DashboardList = () => {
       <Box sx={{ flexGrow: 1, p: 3, overflowY: 'auto' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {selectedFolderId && (
+            {viewMode === 'shared' && (
+              <>
+                <PeopleIcon color="primary" />
+                <Typography variant="h6" color="primary">
+                  Shared with Me
+                </Typography>
+              </>
+            )}
+            {selectedFolderId && viewMode !== 'shared' && (
               <>
                 <FolderOpenIcon color="primary" />
                 <Typography variant="h6" color="primary">
@@ -282,7 +313,7 @@ const DashboardList = () => {
               </>
             )}
           </Box>
-          {can('dashboards', 'create') && (
+          {can('dashboards', 'create') && viewMode !== 'shared' && (
             <Button
               variant="contained"
               startIcon={<Add />}
@@ -301,11 +332,18 @@ const DashboardList = () => {
 
       {filteredDashboards.length === 0 ? (
         <Box sx={{ textAlign: 'center', py: 8 }}>
-          <DashboardIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+          {viewMode === 'shared' ? (
+            <PeopleIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+          ) : (
+            <DashboardIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+          )}
           <Typography variant="h6" color="text.secondary" gutterBottom>
-            {selectedFolderId ? 'No dashboards in this folder' : 'No dashboards yet'}
+            {viewMode === 'shared' 
+              ? 'No dashboards shared with you yet'
+              : (selectedFolderId ? 'No dashboards in this folder' : 'No dashboards yet')
+            }
           </Typography>
-          {can('dashboards', 'create') && (
+          {can('dashboards', 'create') && viewMode !== 'shared' && (
             <Button
               variant="contained"
               startIcon={<Add />}
@@ -326,9 +364,14 @@ const DashboardList = () => {
                     <Typography variant="h6" component="div">
                       {dashboard.name}
                     </Typography>
-                    {dashboard.is_shared && (
-                      <Chip label="Shared" size="small" color="primary" />
-                    )}
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      {dashboard.is_shared && (
+                        <Chip label="Shared" size="small" color="primary" />
+                      )}
+                      {viewMode === 'shared' && !dashboard.is_owner && (
+                        <Chip label="Read Only" size="small" variant="outlined" />
+                      )}
+                    </Box>
                   </Box>
                   {dashboard.description && (
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -346,7 +389,7 @@ const DashboardList = () => {
                   >
                     Open
                   </Button>
-                  {can('dashboards', 'update') && (
+                  {can('dashboards', 'update') && dashboard.is_owner && (
                     <IconButton
                       size="small"
                       onClick={(e) => handleOpenMoveMenu(e, dashboard)}
@@ -423,6 +466,16 @@ const DashboardList = () => {
             rows={3}
             value={newDashboardDesc}
             onChange={(e) => setNewDashboardDesc(e.target.value)}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={newDashboardShared}
+                onChange={(e) => setNewDashboardShared(e.target.checked)}
+              />
+            }
+            label="Share with other users"
+            sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>

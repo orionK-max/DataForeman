@@ -18,10 +18,12 @@ import {
 import SaveIcon from '@mui/icons-material/Save';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
+import ImportExportIcon from '@mui/icons-material/ImportExport';
 import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
 import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import connectivityService from '../../services/connectivityService';
 import SavedTagsList from './SavedTagsList';
+import EIPImportExportDialog from './EIPImportExportDialog';
 
 /**
  * Format poll rate for display
@@ -61,6 +63,7 @@ const EIPTagBrowser = ({ connectionId: initialConnectionId, connections = [], on
   const [nodePagination, setNodePagination] = useState({}); // Track pagination state per node
   const [programs, setPrograms] = useState([]); // Available programs from PLC
   const [selectedProgram, setSelectedProgram] = useState('Controller'); // Selected program filter ('Controller' or program name)
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
   
   // For multi-select support (Shift+Click, Ctrl+Click)
   const lastAnchorRef = useRef(null);
@@ -1312,12 +1315,36 @@ const EIPTagBrowser = ({ connectionId: initialConnectionId, connections = [], on
         {/* Saved Tags List - Right Side */}
         {selectedConnection && (
           <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {/* CSV Import/Export Button */}
+            <Box sx={{ mb: 2 }}>
+              <Button
+                variant="outlined"
+                startIcon={<ImportExportIcon />}
+                onClick={() => setCsvDialogOpen(true)}
+                size="small"
+              >
+                CSV Import/Export for Excel
+              </Button>
+            </Box>
+            
             <SavedTagsList
               connectionId={selectedConnection}
               onTagsChanged={() => {
                 if (onTagsSaved) onTagsSaved();
+                setSavedTagsRefreshKey(prev => prev + 1);
               }}
               refreshTrigger={savedTagsRefreshKey}
+            />
+            
+            {/* CSV Import/Export Dialog */}
+            <EIPImportExportDialog
+              open={csvDialogOpen}
+              onClose={() => setCsvDialogOpen(false)}
+              connectionId={selectedConnection}
+              onComplete={() => {
+                setSavedTagsRefreshKey(prev => prev + 1);
+                if (onTagsSaved) onTagsSaved();
+              }}
             />
           </Box>
         )}

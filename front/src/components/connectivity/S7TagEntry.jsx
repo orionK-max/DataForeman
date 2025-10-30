@@ -23,8 +23,10 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/Save';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ImportExportIcon from '@mui/icons-material/ImportExport';
 import connectivityService from '../../services/connectivityService';
 import SavedTagsList from './SavedTagsList';
+import S7ImportExportDialog from './S7ImportExportDialog';
 
 const S7TagEntry = ({ connectionId: initialConnectionId, connections = [], onTagsSaved }) => {
   const [selectedConnection, setSelectedConnection] = useState(initialConnectionId || '');
@@ -39,6 +41,8 @@ const S7TagEntry = ({ connectionId: initialConnectionId, connections = [], onTag
   const [forcePublishInterval, setForcePublishInterval] = useState(60); // seconds
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
+  const [savedTagsRefreshKey, setSavedTagsRefreshKey] = useState(0);
 
   useEffect(() => {
     // Update selected connection if initialConnectionId changes
@@ -435,9 +439,34 @@ const S7TagEntry = ({ connectionId: initialConnectionId, connections = [], onTag
         {/* Saved Tags List - Right Side */}
         {selectedConnection && (
           <Box sx={{ flex: 1, minWidth: 0 }}>
+            {/* CSV Import/Export Button */}
+            <Box sx={{ mb: 2 }}>
+              <Button
+                variant="outlined"
+                startIcon={<ImportExportIcon />}
+                onClick={() => setCsvDialogOpen(true)}
+                size="small"
+              >
+                CSV Import/Export for Excel
+              </Button>
+            </Box>
+            
             <SavedTagsList
               connectionId={selectedConnection}
               onTagsChanged={() => {
+                if (onTagsSaved) onTagsSaved();
+                setSavedTagsRefreshKey(prev => prev + 1);
+              }}
+              refreshTrigger={savedTagsRefreshKey}
+            />
+            
+            {/* CSV Import/Export Dialog */}
+            <S7ImportExportDialog
+              open={csvDialogOpen}
+              onClose={() => setCsvDialogOpen(false)}
+              connectionId={selectedConnection}
+              onComplete={() => {
+                setSavedTagsRefreshKey(prev => prev + 1);
                 if (onTagsSaved) onTagsSaved();
               }}
             />

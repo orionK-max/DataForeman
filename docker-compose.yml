@@ -31,7 +31,7 @@ services:
       - ./logs/nats:/var/log/nats
 
   tsdb:
-    image: timescale/timescaledb:2.17.2-pg16
+    image: timescale/timescaledb:latest-pg16
     environment:
       POSTGRES_USER: ${TSDB_USER:-tsdb}
       POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
@@ -143,37 +143,6 @@ services:
       - "8081:80"
     volumes:
       - ./logs/front:/var/log/front
-
-  # DEPRECATED: Standalone ingestor service - DISABLED for testing
-  # The core service now handles all telemetry ingestion via telemetry-ingest.js
-  # Both services were subscribing to df.telemetry.raw.* causing duplicate processing
-  # TODO: Delete this service and ./ingestor/ directory after extensive testing confirms
-  #       that core service handles all telemetry ingestion reliably
-  # To re-enable temporarily: docker compose start ingestor
-  ingestor:
-    build: ./ingestor
-    environment:
-      LOG_LEVEL: "${LOG_LEVEL:-info}"
-      NATS_URL: nats://nats:4222
-      TSDB_HOST: tsdb
-      TSDB_PORT: 5432
-      TSDB_USER: ${TSDB_USER:-tsdb}
-      TSDB_PASSWORD: ${TSDB_PASSWORD:-tsdb}
-      TSDB_DATABASE: ${TSDB_DATABASE:-telemetry}
-      BATCH_MAX: 5000
-      FLUSH_MS: 100
-      PULL_MAX: 256
-      JS_DURABLE: ingestor
-      JETSTREAM: "1"
-      LOG_FILE: /var/log/ingestor/ingestor.current
-    depends_on:
-      - nats
-      - tsdb
-    volumes:
-      - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
-      - ./logs/ingestor:/var/log/ingestor
-    profiles:
-      - deprecated  # Only starts with: docker compose --profile deprecated up
 
   rotator:
     image: node:22-alpine

@@ -11,6 +11,7 @@ import {
   Alert,
   CircularProgress,
   TextField,
+  Chip,
 } from '@mui/material';
 import {
   Edit,
@@ -20,6 +21,7 @@ import {
   Fullscreen,
   AccessTime,
   FileDownload,
+  Settings,
 } from '@mui/icons-material';
 import { Responsive, WidthProvider } from 'react-grid-layout';
 import { DashboardProvider, useDashboard } from '../contexts/DashboardContext';
@@ -28,6 +30,7 @@ import DashboardWidget from '../components/dashboard/DashboardWidget';
 import ChartLibrary from '../components/dashboard/ChartLibrary';
 import TimeSyncDialog from '../components/dashboard/TimeSyncDialog';
 import ExportDialog from '../components/dashboard/ExportDialog';
+import DashboardSettingsDialog from '../components/dashboard/DashboardSettingsDialog';
 import TVMode from '../components/dashboard/TVMode';
 import TVModeDialog from '../components/dashboard/TVModeDialog';
 import '../styles/dashboard.css';
@@ -60,6 +63,7 @@ const DashboardContent = () => {
   const [showAddChart, setShowAddChart] = useState(false);
   const [showSyncTimeDialog, setShowSyncTimeDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [showTVModeDialog, setShowTVModeDialog] = useState(false);
   const [tvMode, setTvMode] = useState(false);
   const [tvConfig, setTvConfig] = useState(null);
@@ -133,6 +137,21 @@ const DashboardContent = () => {
       }
     }
     toggleEditMode();
+  };
+
+  // Settings handler
+  const handleSaveSettings = async (settings) => {
+    try {
+      setCurrentDashboard({
+        ...currentDashboard,
+        ...settings,
+      });
+      setHasUnsavedChanges(true);
+      await saveDashboard();
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+      throw err;
+    }
   };
 
   // TV Mode handlers
@@ -222,6 +241,15 @@ const DashboardContent = () => {
           ) : (
             <Typography variant="h6" sx={{ flexGrow: 1 }}>
               {currentDashboard?.name || 'Dashboard'}
+              {currentDashboard?.is_shared && (
+                <Chip
+                  label="Shared"
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  sx={{ ml: 2, height: 24 }}
+                />
+              )}
             </Typography>
           )}
 
@@ -270,6 +298,16 @@ const DashboardContent = () => {
             </>
           ) : (
             <>
+              <Tooltip title="Settings">
+                <span>
+                  <IconButton 
+                    onClick={() => setShowSettingsDialog(true)}
+                    disabled={!currentDashboard?.is_owner}
+                  >
+                    <Settings />
+                  </IconButton>
+                </span>
+              </Tooltip>
               <Tooltip title="Export Dashboard">
                 <IconButton onClick={() => setShowExportDialog(true)}>
                   <FileDownload />
@@ -352,6 +390,14 @@ const DashboardContent = () => {
       <TimeSyncDialog
         open={showSyncTimeDialog}
         onClose={() => setShowSyncTimeDialog(false)}
+      />
+
+      {/* Settings Dialog */}
+      <DashboardSettingsDialog
+        open={showSettingsDialog}
+        onClose={() => setShowSettingsDialog(false)}
+        onSave={handleSaveSettings}
+        dashboard={currentDashboard}
       />
 
       {/* Export Dialog */}

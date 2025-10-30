@@ -96,6 +96,7 @@ export const DashboardProvider = ({ children }) => {
       await dashboardService.updateDashboard(currentDashboard.id, {
         name: currentDashboard.name,
         description: currentDashboard.description,
+        is_shared: currentDashboard.is_shared,
         layout: layout,
       });
       

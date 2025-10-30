@@ -29,8 +29,10 @@ import SaveIcon from '@mui/icons-material/Save';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import HomeIcon from '@mui/icons-material/Home';
 import SearchIcon from '@mui/icons-material/Search';
+import ImportExportIcon from '@mui/icons-material/ImportExport';
 import connectivityService from '../../services/connectivityService';
 import SavedTagsList from './SavedTagsList';
+import OpcUaImportExportDialog from './OpcUaImportExportDialog';
 
 const OpcUaTagBrowser = ({ connectionId: initialConnectionId, connections = [], onTagsSaved }) => {
   const [selectedConnection, setSelectedConnection] = useState(''); // Start with no selection
@@ -52,6 +54,7 @@ const OpcUaTagBrowser = ({ connectionId: initialConnectionId, connections = [], 
   const [searchFilter, setSearchFilter] = useState('');
   const [units, setUnits] = useState([]);
   const [selectedUnit, setSelectedUnit] = useState(''); // Optional unit of measure
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
 
   // Removed auto-selection effect - user must explicitly select a device
 
@@ -526,13 +529,36 @@ const OpcUaTagBrowser = ({ connectionId: initialConnectionId, connections = [], 
 
         {/* Saved Tags List - Right Side */}
         {selectedConnection && (
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {/* CSV Import/Export Button */}
+            <Box sx={{ mb: 2 }}>
+              <Button
+                variant="outlined"
+                startIcon={<ImportExportIcon />}
+                onClick={() => setCsvDialogOpen(true)}
+                size="small"
+              >
+                CSV Import/Export for Excel
+              </Button>
+            </Box>
+            
             <SavedTagsList
               connectionId={selectedConnection}
               onTagsChanged={() => {
                 if (onTagsSaved) onTagsSaved();
               }}
               refreshTrigger={savedTagsRefreshKey}
+            />
+            
+            {/* CSV Import/Export Dialog */}
+            <OpcUaImportExportDialog
+              open={csvDialogOpen}
+              onClose={() => setCsvDialogOpen(false)}
+              connectionId={selectedConnection}
+              onImportComplete={() => {
+                setSavedTagsRefreshKey(prev => prev + 1);
+                if (onTagsSaved) onTagsSaved();
+              }}
             />
           </Box>
         )}

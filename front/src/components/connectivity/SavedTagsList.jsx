@@ -24,7 +24,16 @@ import {
   InputLabel,
   Autocomplete,
   Tooltip,
+  IconButton,
+  Menu,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
+import {
+  FileDownload as DownloadIcon,
+  FileUpload as UploadIcon,
+  MoreVert as MoreVertIcon,
+} from '@mui/icons-material';
 import connectivityService from '../../services/connectivityService';
 import ConfirmDialog from '../common/ConfirmDialog';
 
@@ -89,6 +98,10 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingTags, setDeletingTags] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const fileInputRef = useRef(null);
   
   const lastAnchorRef = useRef(null);
 
@@ -370,6 +383,95 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
     setDeleteDialogOpen(false);
   };
 
+  // Export tags to JSON
+  const handleExport = async () => {
+    setMenuAnchor(null);
+    setExporting(true);
+    setError('');
+    
+    try {
+      const blob = await connectivityService.exportTags(connectionId);
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tags_${connectionId}_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      setMessage('Tags exported successfully');
+    } catch (err) {
+      console.error('Failed to export tags:', err);
+      setError('Failed to export tags: ' + (err.message || 'Unknown error'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Import tags from JSON
+  const handleImport = () => {
+    setMenuAnchor(null);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setImporting(true);
+    setError('');
+    setMessage('');
+    
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      if (!data.tags || !Array.isArray(data.tags)) {
+        throw new Error('Invalid import file format');
+      }
+      
+      // Import with 'skip' strategy (don't overwrite existing tags)
+      const result = await connectivityService.importTags(connectionId, {
+        tags: data.tags,
+        merge_strategy: 'skip'
+      });
+      
+      await loadTags();
+      if (onTagsChanged) onTagsChanged();
+      
+      const messages = [];
+      if (result.imported > 0) messages.push(`${result.imported} new tag${result.imported > 1 ? 's' : ''} imported`);
+      if (result.updated > 0) messages.push(`${result.updated} tag${result.updated > 1 ? 's' : ''} updated`);
+      if (result.skipped > 0) messages.push(`${result.skipped} tag${result.skipped > 1 ? 's' : ''} skipped (already exist)`);
+      
+      setMessage(messages.join(', ') || 'Import completed');
+      
+      if (result.errors && result.errors.length > 0) {
+        console.warn('Import errors:', result.errors);
+      }
+    } catch (err) {
+      console.error('Failed to import tags:', err);
+      setError('Failed to import tags: ' + (err.message || 'Unknown error'));
+    } finally {
+      setImporting(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleOpenMenu = (event) => {
+    setMenuAnchor(event.currentTarget);
+  };
+
+  const handleCloseMenu = () => {
+    setMenuAnchor(null);
+  };
+
   // Check if any selected tag has active deletion
   const selectedTags = filteredTags.filter(t => selected.has(t.tag_id));
   const hasActiveDeletion = selectedTags.some(t => 
@@ -411,8 +513,46 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
               label="Deleted"
               sx={{ fontSize: 12 }}
             />
+            <Tooltip title="Import/Export">
+              <IconButton
+                size="small"
+                onClick={handleOpenMenu}
+                disabled={!connectionId || loading}
+              >
+                <MoreVertIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
         </Box>
+
+        {/* Import/Export Menu */}
+        <Menu
+          anchorEl={menuAnchor}
+          open={Boolean(menuAnchor)}
+          onClose={handleCloseMenu}
+        >
+          <MenuItem onClick={handleExport} disabled={exporting || tags.length === 0}>
+            <ListItemIcon>
+              <DownloadIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Export Tags to JSON</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={handleImport} disabled={importing}>
+            <ListItemIcon>
+              <UploadIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Import Tags from JSON</ListItemText>
+          </MenuItem>
+        </Menu>
+
+        {/* Hidden file input for import */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept=".json"
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
 
         {/* Table */}
         <TableContainer sx={{ 
@@ -527,6 +667,8 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
         </Alert>
 
         {/* Messages */}
+        {exporting && <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>Exporting tags...</Alert>}
+        {importing && <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>Importing tags...</Alert>}
         {message && <Alert severity="success" sx={{ mb: 1, py: 0.5 }}>{message}</Alert>}
         {error && <Alert severity="error" sx={{ mb: 1, py: 0.5 }}>{error}</Alert>}
         

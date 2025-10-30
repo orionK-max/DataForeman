@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import fp from 'fastify-plugin';
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
@@ -107,6 +108,11 @@ export async function buildServer() {
   startRetentionScheduler(app.log);
   await app.register(cors, { origin: true, credentials: true });
   await app.register(helmet, { global: true });
+  await app.register(multipart, { 
+    limits: { 
+      fileSize: 10 * 1024 * 1024 // 10MB max file size
+    } 
+  });
 
   await app.register(jwtPlugin);
   await app.register(auditPlugin);
