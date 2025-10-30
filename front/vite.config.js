@@ -10,7 +10,7 @@ export default defineConfig({
     sourcemapIgnoreList: () => true,  // Suppress source map warnings in dev
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',  // Core backend server
+        target: process.env.VITE_API_URL || 'http://localhost:3000',  // Use env var or default to 3000
         changeOrigin: false,  // Changed to false to preserve headers
         secure: false,
         // Don't strip /api prefix - backend routes expect it

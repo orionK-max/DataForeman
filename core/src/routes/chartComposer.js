@@ -212,12 +212,23 @@ export async function chartComposerRoutes(app) {
         
         // Execute query for each tag separately - more efficient than window functions
         for (const tagId of selectedTagIds) {
-          // Build WHERE clause without the tag_id ANY clause
-          const tagWhere = where.filter(w => !w.includes('tag_id = ANY'));
-          tagWhere.push(`tag_id = ${tagId}`);
+          // Build new WHERE clause and params array for this specific tag
+          const tagWhere = [];
+          const tagParams = [];
           
-          // Build params without the tag_ids array
-          const tagParams = params.filter((_, idx) => idx !== params.length - 1);
+          // Add time range conditions if present
+          if (from) {
+            tagParams.push(from);
+            tagWhere.push(`ts >= $${tagParams.length}`);
+          }
+          if (to) {
+            tagParams.push(to);
+            tagWhere.push(`ts <= $${tagParams.length}`);
+          }
+          
+          // Add this specific tag_id
+          tagParams.push(tagId);
+          tagWhere.push(`tag_id = $${tagParams.length}`);
           
           const tagQuery = useSystemMetricsTable
             ? `SELECT tv.ts, tv.tag_id, tv.v_num

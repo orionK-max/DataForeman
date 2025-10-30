@@ -8,7 +8,6 @@
     "core",
     "front",
     "connectivity",
-    "ingestor",
     "ops"
   ],
   "engines": {

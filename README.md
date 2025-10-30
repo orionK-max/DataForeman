@@ -53,8 +53,7 @@ DataForeman connects to industrial devices (OPC UA, EtherNet/IP, S7, etc.), coll
 
 **Key Components:**
 - **Connectivity** - Reads devices and publishes measurements to NATS
-- **Ingestor** - Subscribes to NATS and writes batches to TimescaleDB
-- **Core API** - Serves configuration, diagnostics, and historian endpoints
+- **Core API** - Serves configuration, diagnostics, historian endpoints, and ingests telemetry from NATS
 - **Frontend** - React + Material UI web interface with dark/light mode
 - **TimescaleDB** - Time-series database with automatic data retention
 - **NATS** - Message bus providing buffering and durability
@@ -158,7 +157,7 @@ Check that all containers are running:
 docker compose ps
 ```
 
-You should see all services with "Up" status (core, front, db, tsdb, nats, connectivity, ingestor, rotator). If any show "Exited", wait another minute and check again.
+You should see all services with "Up" status (core, front, db, tsdb, nats, connectivity, rotator). If any show "Exited", wait another minute and check again.
 
 **Step 6: Access DataForeman**
 
@@ -571,14 +570,13 @@ If you're a regular user just wanting to use DataForeman, you can stop reading h
 - **Database**: PostgreSQL 16 + TimescaleDB, node-pg-migrate
 - **Frontend**: React 18 + Material UI v5 + React Router v6 + Vite
 - **Messaging**: NATS with JetStream
-- **Containers**: Docker Compose (postgres, nats, tsdb, core, connectivity, ingestor, rotator)
+- **Containers**: Docker Compose (postgres, nats, tsdb, core, connectivity, rotator)
 
 ### Project Structure
 
 - **front**: React + Material UI frontend (port 5174)
-- **core**: Fastify API (port 3000)
+- **core**: Fastify API (port 3000) with integrated telemetry ingestion
 - **connectivity**: Protocol drivers and device connectivity API
-- **ingestor**: NATS→TimescaleDB ingestion service
 - **ops**: Utilities, scripts, and operational tools
 
 ### Development Commands
@@ -625,9 +623,8 @@ See `.env.example` for all variables. Key settings:
 - **db** (postgres:16-alpine): Primary database, exposes 5432
 - **tsdb** (timescale/timescaledb): Time-series store, exposes 5433
 - **nats** (nats:2-alpine): Message bus, exposes 4222 (client), 8222 (monitoring)
-- **core** (dataforeman-core): API service, exposes 3000
+- **core** (dataforeman-core): API service with integrated telemetry ingestion, exposes 3000
 - **connectivity** (node:22-alpine): Protocol drivers
-- **ingestor** (node:22-alpine): NATS→TimescaleDB ingestion
 - **rotator** (node:22-alpine): Log rotation daemon
 - **caddy** (caddy:2-alpine): Optional TLS reverse proxy
 
@@ -639,7 +636,6 @@ All components write logs to `./logs/<component>/<component>.current` symlinks. 
 - Core: `logs/core/core.current`
 - NATS: `logs/nats/nats.current`
 - Postgres/TSDB: `logs/postgres/*.csv`
-- Ingestor: `logs/ingestor/ingestor.current`
 - Connectivity: `logs/connectivity/connectivity.current`
 - Ops/Rotator: `logs/ops/ops.current`
 

@@ -172,7 +172,7 @@ const SavedConnectionsList = ({
                               size="small"
                               color="error"
                               onClick={() => onDelete?.(conn)}
-                              disabled={status.tag_count > 0}
+                              disabled={status.tags > 0}
                             >
                               <DeleteIcon />
                             </IconButton>

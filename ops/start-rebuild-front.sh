@@ -8,8 +8,8 @@ echo "🔨 Rebuilding everything (All Docker services + Frontend)..."
 echo ""
 
 # Build Docker services
-echo "📦 Building Docker services (core, connectivity, ingestor, front)..."
-docker compose build core connectivity ingestor front
+echo "📦 Building Docker services (core, connectivity, front)..."
+docker compose build core connectivity front
 
 # Install/update frontend dependencies
 echo "📦 Installing frontend dependencies..."
@@ -45,7 +45,7 @@ echo "   Frontend Prod: http://localhost:8080"
 echo ""
 
 # Start all services
-docker compose up -d db nats tsdb core connectivity ingestor rotator front
+docker compose up -d db nats tsdb core connectivity rotator front
 
 # Start frontend in dev mode (background)
 cd front

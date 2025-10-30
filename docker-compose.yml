@@ -64,7 +64,7 @@ services:
       PGHOST: db
       PGPORT: 5432
       PGUSER: ${PGUSER:-postgres}
-      PGPASSWORD: ${PGPASSWORD:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
       PGDATABASE: ${PGDATABASE:-dataforeman}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
@@ -76,7 +76,7 @@ services:
       TSDB_HOST: tsdb
       TSDB_PORT: 5432
       TSDB_USER: ${TSDB_USER:-tsdb}
-      TSDB_PASSWORD: ${TSDB_PASSWORD:-tsdb}
+      TSDB_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       TSDB_DATABASE: ${TSDB_DATABASE:-telemetry}
     depends_on:
       - db
@@ -85,7 +85,7 @@ services:
     extra_hosts:
       - "host-gateway:host-gateway"
     ports:
-      - "3001:3000"
+      - "${CORE_PORT:-3000}:3000"
     volumes:
       - ./logs/core:/var/log/core
       - ./logs/nats:/var/log/nats
@@ -119,8 +119,8 @@ services:
       PGHOST: db
       PGPORT: 5432
       PGDATABASE: dataforeman
-      PGUSER: postgres
-      PGPASSWORD: dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a
+      PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
     depends_on:
       - nats
       - tsdb
@@ -140,7 +140,7 @@ services:
     depends_on:
       - core
     ports:
-      - "8081:80"
+      - "${FRONT_PORT:-8080}:80"
     volumes:
       - ./logs/front:/var/log/front
 

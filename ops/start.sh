@@ -107,11 +107,11 @@ if [[ "$MODE" == "local-core" ]]; then
 fi
 
 if [[ "$BUILD_MODE" == "build" ]]; then
-  echo "Building and starting full stack via Docker Compose (db, nats, core, web, connectivity, ingestor, rotator)..."
-  docker compose up -d --build db nats core web connectivity ingestor rotator
+  echo "Building and starting full stack via Docker Compose (db, nats, core, web, connectivity, rotator)..."
+  docker compose up -d --build db nats core web connectivity rotator
 else
-  echo "Starting full stack via Docker Compose without rebuild (db, nats, core, web, connectivity, ingestor, rotator)..."
-  docker compose up -d db nats core web connectivity ingestor rotator
+  echo "Starting full stack via Docker Compose without rebuild (db, nats, core, web, connectivity, rotator)..."
+  docker compose up -d db nats core web connectivity rotator
 fi
 if [[ "$WITH_CADDY" == "true" ]]; then
   docker compose --profile tls up -d caddy
@@ -123,7 +123,6 @@ echo "Services ready:"
 echo "  Core: http://localhost:3000"
 echo "  Web:  http://localhost:8080"
 echo "  Connectivity: http://localhost:3100"
-echo "  Ingestor: running (container)"
 [[ "$WITH_CADDY" == "true" ]] && echo "  Caddy: http://localhost"
 echo "  Demo login: admin@example.com / password"
 echo
