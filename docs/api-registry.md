@@ -1,7 +1,7 @@
 # API Registry
 
 **Version:** 1.0  
-**Last Updated:** 2025-10-26 (Auto-generated)  
+**Last Updated:** 2025-10-29 (Auto-generated)  
 **Purpose:** Complete reference of all API endpoints with authentication and permission requirements
 
 > ⚠️ **This file is auto-generated.** Run `node ops/validate-permissions.js --generate-docs` to update.
@@ -164,6 +164,10 @@ Permissions follow the pattern: `feature:operation`
 | POST | `/eip/identify` | Yes | *Via preHandler* | Create resource |
 | POST | `/eip/rack-config` | Yes | *Via preHandler* | Create resource |
 | POST | `/eip/tags/:id/bulk-save` | Yes | *Via preHandler* | API endpoint |
+| GET | `/tags/:connectionId/export` | Yes | *Via preHandler* | Export tags as JSON for backup/restore |
+| POST | `/tags/:connectionId/import` | Yes | *Via preHandler* | Import tags from JSON backup |
+| GET | `/tags/:connectionId/export-csv` | Yes | *Via preHandler* | Export tags as CSV for Excel editing (S7/EIP/OPC UA) |
+| POST | `/tags/:connectionId/import-csv` | Yes | *Via preHandler* | Import tags from CSV (bulk tag creation/editing) |
 
 ## Dashboards Routes
 
@@ -283,9 +287,9 @@ node ops/validate-permissions.js --verbose
 
 ## Statistics
 
-- **Total Endpoints:** 112
-- **Protected:** 174
+- **Total Endpoints:** 116
+- **Protected:** 182
 - **Public:** 17
-- **Coverage:** 171%
+- **Coverage:** 172%
 
-*Generated on 2025-10-26*
+*Generated on 2025-10-29*
