@@ -1,5 +1,7 @@
 # DataForeman
 
+> **⚠️ Active Development:** This project is currently in beta and under active development. Features and APIs may change.
+
 DataForeman is a containerized stack for collecting industrial telemetry, storing it as time-series data, and exploring it via a modern web UI.
 
 **Repository:** https://github.com/orionK-max/DataForeman
@@ -7,7 +9,7 @@ DataForeman is a containerized stack for collecting industrial telemetry, storin
 
 ## Table of Contents
 
-**📚 Helpful Guides:**
+**Helpful Guides:**
 - **[Quick Start Guide](QUICK-START.md)** - Step-by-step beginner instructions
 - **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Solutions to common problems
 
