@@ -367,7 +367,9 @@ export class OPCUAClientDriver {
 
   _hasValueChanged(tagId, newValue, newQuality) {
     const config = this._tagConfigs.get(tagId);
-    if (!config?.on_change_enabled) return true; // always publish if write on change disabled
+    
+    // Always publish if write-on-change is disabled (regular polling mode)
+    if (!config?.on_change_enabled) return true;
     
     const last = this._lastValues.get(tagId);
     
@@ -579,13 +581,18 @@ export class OPCUAClientDriver {
         if (monitored.has(tagId)) continue;
         const nodeId = this._resolveNodeId(this.tagMap[tagId]);
         if (!nodeId) { log.warn({ tagId }, 'No nodeId for tag (skip subscribe)'); continue; }
+        
+        // Get tag-specific configuration for on-change settings
+        const tagConfig = this._tagConfigs.get(tagId);
+        const useDeadband = tagConfig?.on_change_enabled && (tagConfig?.on_change_deadband ?? 0) > 0;
+        
         const parameters = {
           samplingInterval: groupSampling,
           discardOldest: true,
           queueSize: this.queueSize,
-          filter: this.deadband > 0 ? new DataChangeFilter({
-            deadbandType: DeadbandType.Percent,
-            deadbandValue: this.deadband,
+          filter: useDeadband ? new DataChangeFilter({
+            deadbandType: tagConfig.on_change_deadband_type === 'percent' ? DeadbandType.Percent : DeadbandType.Absolute,
+            deadbandValue: tagConfig.on_change_deadband,
             trigger: DataChangeTrigger.StatusValue,
           }) : undefined,
         };
@@ -598,11 +605,15 @@ export class OPCUAClientDriver {
             const src_ts = dataValue.sourceTimestamp?.toISOString?.();
             const ts = (dataValue.serverTimestamp || new Date()).toISOString?.() || new Date().toISOString();
             
-            // Check if value changed before publishing
-            if (this._hasValueChanged(tagId, v, q)) {
-              this._onData({ tag_id: tagId, v, q, src_ts, ts });
-              this._updateLastValue(tagId, v, q);
+            // DEBUG: Log all changed events to see what OPC UA server is sending
+            if (tagId === 26) {
+              log.info({ tagId, v, q, nodeId }, 'DEBUG: Constant tag changed event received from OPC UA server');
             }
+            
+            // Always publish the data - filtering will be done by _hasValueChanged if on_change is enabled
+            this._onData({ tag_id: tagId, v, q, src_ts, ts });
+            // Update last value for on-change comparison
+            this._updateLastValue(tagId, v, q);
           });
           monitored.set(tagId, mi);
           this.monitoredItems.set(tagId, mi);

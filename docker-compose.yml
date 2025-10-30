@@ -5,9 +5,8 @@ services:
       POSTGRES_USER: ${PGUSER:-postgres}
       POSTGRES_PASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
       POSTGRES_DB: ${PGDATABASE:-dataforeman}
-    # ports:
-    #   - "${PGPORT:-5432}:5432"  # REMOVED - Never expose database to internet!
-    # Database is only accessible from other Docker containers on internal network
+    ports:
+      - "127.0.0.1:5432:5432"  # Only accessible from localhost (not internet)
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
@@ -37,9 +36,8 @@ services:
       POSTGRES_USER: ${TSDB_USER:-tsdb}
       POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       POSTGRES_DB: ${TSDB_DATABASE:-telemetry}
-    # ports:
-    #   - "${TSDB_PORT:-5433}:5432"  # REMOVED - Never expose database to internet!
-    # TimescaleDB is only accessible from other Docker containers on internal network
+    ports:
+      - "127.0.0.1:5433:5432"  # Only accessible from localhost (not internet)
     volumes:
       - tsdb-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql

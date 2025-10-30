@@ -113,10 +113,19 @@ export const telemetryIngestPlugin = fp(async (app) => {
     lastFlush = Date.now();
     try {
       const t0 = Date.now();
+      
+      // Deduplicate rows by (connection_id, tag_id, ts) - keep the last occurrence
+      const dedupMap = new Map();
+      for (const r of rows) {
+        const key = `${r.connection_id}|${r.tag_id}|${r.ts}`;
+        dedupMap.set(key, r); // later values overwrite earlier ones
+      }
+      const uniqueRows = Array.from(dedupMap.values());
+      
       const values = [];
       const params = [];
       let i = 1;
-      for (const r of rows) {
+      for (const r of uniqueRows) {
         values.push(`($${i++}, $${i++}, to_timestamp($${i++} / 1000.0), $${i++}, $${i++}, $${i++}, $${i++})`);
         params.push(r.connection_id, r.tag_id, r.ts, r.quality, r.v_num, r.v_text, r.v_json ? JSON.stringify(r.v_json) : null);
       }
@@ -124,13 +133,13 @@ export const telemetryIngestPlugin = fp(async (app) => {
                    ON CONFLICT (connection_id, tag_id, ts) DO UPDATE SET 
                    quality = EXCLUDED.quality, v_num = EXCLUDED.v_num, v_text = EXCLUDED.v_text, v_json = EXCLUDED.v_json`;
       await tsdb.query(sql, params);
-      metrics.totalRows += rows.length;
-      metrics.lastFlushCount = rows.length;
+      metrics.totalRows += uniqueRows.length;
+      metrics.lastFlushCount = uniqueRows.length;
       metrics.lastFlushMs = Date.now() - t0;
       metrics.lastFlushAt = new Date().toISOString();
       // Only log every 100th flush or slow flushes (>100ms) to reduce log noise
       if (metrics.flushCount % 100 === 0 || metrics.lastFlushMs > 100) {
-        app.log.info({ count: rows.length, ms: metrics.lastFlushMs, totalFlushes: metrics.flushCount }, 'telemetry-ingest flush');
+        app.log.info({ count: uniqueRows.length, ms: metrics.lastFlushMs, totalFlushes: metrics.flushCount, dropped: rows.length - uniqueRows.length }, 'telemetry-ingest flush');
       }
     } catch (err) {
       app.log.error({ err }, 'telemetry-ingest flush failed');
