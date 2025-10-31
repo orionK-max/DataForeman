@@ -2,26 +2,32 @@
 REM Fix directory permissions for DataForeman on Windows
 REM This ensures Docker containers can write to log directories via WSL2
 REM Can be called with /SILENT flag to skip pauses
-
-REM Check for Administrator privileges
-net session >nul 2>&1
-if %errorLevel% neq 0 (
-    echo.
-    echo ========================================
-    echo   Administrator Rights Required
-    echo ========================================
-    echo.
-    echo This script needs to be run as Administrator to create
-    echo directories in Program Files.
-    echo.
-    echo Please right-click this file and select "Run as Administrator"
-    echo.
-    pause
-    exit /b 1
-)
+REM Can be called with /SKIPCHECK to bypass admin verification (used by installer)
 
 set SILENT_MODE=0
+set SKIP_ADMIN_CHECK=0
 if /i "%1"=="/SILENT" set SILENT_MODE=1
+if /i "%2"=="/SKIPCHECK" set SKIP_ADMIN_CHECK=1
+if /i "%1"=="/SKIPCHECK" set SKIP_ADMIN_CHECK=1
+
+REM Check for Administrator privileges (unless SKIPCHECK is passed)
+if %SKIP_ADMIN_CHECK%==0 (
+    net session >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo ========================================
+        echo   Administrator Rights Required
+        echo ========================================
+        echo.
+        echo This script needs to be run as Administrator to create
+        echo directories in Program Files.
+        echo.
+        echo Please right-click this file and select "Run as Administrator"
+        echo.
+        pause
+        exit /b 1
+    )
+)
 
 if %SILENT_MODE%==0 (
     echo.

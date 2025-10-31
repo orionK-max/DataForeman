@@ -52,9 +52,14 @@ if not exist ".env" (
 )
 
 REM Fix permissions via batch file (no PowerShell required)
+REM Pass /SKIPCHECK if we were called with it (from installer)
 echo [1.5/3] Setting up directory permissions...
 echo This ensures Docker containers can write to log directories...
-call "%~dp0fix-permissions.bat" /SILENT
+if /i "%~1"=="/SKIPCHECK" (
+    call "%~dp0fix-permissions.bat" /SILENT /SKIPCHECK
+) else (
+    call "%~dp0fix-permissions.bat" /SILENT
+)
 if errorlevel 1 (
     echo [ERROR] Permission fix via WSL failed!
     echo.
