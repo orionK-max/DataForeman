@@ -199,8 +199,8 @@ jobs:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
     needs: create-release
-    # Only run if Docker Hub credentials are configured
-    if: ${{ vars.ENABLE_DOCKER_PUSH == 'true' || vars.ENABLE_DOCKER_PUSH == '' }}
+    # Skip if Docker Hub credentials are not configured
+    if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
     
     steps:
       - name: Checkout code
@@ -216,7 +216,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-        continue-on-error: true
       
       - name: Extract metadata
         id: meta
@@ -235,7 +234,6 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/dataforeman-core:${{ steps.meta.outputs.version_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-        continue-on-error: true
       
       - name: Build and push Connectivity image
         uses: docker/build-push-action@v5
@@ -247,7 +245,6 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/dataforeman-connectivity:${{ steps.meta.outputs.version_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-        continue-on-error: true
       
       - name: Build and push Frontend image
         uses: docker/build-push-action@v5
@@ -259,7 +256,6 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/dataforeman-front:${{ steps.meta.outputs.version_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-        continue-on-error: true
 
   create-source-archive:
     name: Create Source Archive
@@ -321,10 +317,15 @@ jobs:
           echo "Docker images: ${{ needs.build-docker-images.result }}"
           echo "Source archive: ${{ needs.create-source-archive.result }}"
           
+          # Core requirements: Windows installer and source archive must succeed
+          # Docker images are optional (require credentials)
           if [ "${{ needs.build-windows-installer.result }}" = "success" ] && \
              [ "${{ needs.create-source-archive.result }}" = "success" ]; then
             echo "✓ Release ${{ needs.create-release.outputs.version }} completed successfully!"
+            if [ "${{ needs.build-docker-images.result }}" != "success" ]; then
+              echo "Note: Docker images were not published (credentials not configured)"
+            fi
           else
-            echo "✗ Some build jobs failed. Please check the logs."
+            echo "✗ Required build jobs failed. Please check the logs."
             exit 1
           fi
