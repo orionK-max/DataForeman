@@ -79,6 +79,13 @@ Filename: "{app}\windows-installer\start-dataforeman.bat"; Description: "{cm:Lau
 ; Run uninstall script (asks user about data removal)
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\windows-installer\uninstall.ps1"""; Flags: waituntilterminated; RunOnceId: "UninstallDataForeman"
 
+[UninstallDelete]
+; Delete runtime-generated files and directories
+Type: filesandordirs; Name: "{app}\logs"
+Type: filesandordirs; Name: "{app}\var"
+Type: files; Name: "{app}\.env"
+Type: dirifempty; Name: "{app}"
+
 [Code]
 var
   DockerCheckPage: TOutputMsgWizardPage;

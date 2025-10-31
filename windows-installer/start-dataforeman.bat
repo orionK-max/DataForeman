@@ -36,23 +36,15 @@ echo [1.5/3] Setting up directory permissions...
 echo This ensures Docker containers can write to log directories...
 call "%~dp0fix-permissions.bat" /SILENT
 if errorlevel 1 (
-    echo [WARNING] Permission fix via WSL failed
+    echo [ERROR] Permission fix via WSL failed!
     echo.
-    echo Creating directories manually as fallback...
-    mkdir logs 2>nul
-    mkdir logs\postgres 2>nul
-    mkdir logs\core 2>nul
-    mkdir logs\connectivity 2>nul
-    mkdir logs\front 2>nul
-    mkdir logs\nats 2>nul
-    mkdir logs\ops 2>nul
-    mkdir logs\tsdb 2>nul
-    mkdir var 2>nul
+    echo WSL is required for DataForeman to run on Windows.
+    echo Please ensure Docker Desktop is running and WSL is installed.
     echo.
-    echo If containers fail to start with permission errors:
-    echo   1. Run 'Fix Permissions' from Start Menu
-    echo   2. Or manually run: fix-permissions.bat
+    echo Try running fix-permissions.bat manually from the Start Menu.
     echo.
+    pause
+    exit /b 1
 )
 
 echo [2/3] Building and starting DataForeman services...
