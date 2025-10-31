@@ -3,6 +3,23 @@ REM Fix directory permissions for DataForeman on Windows
 REM This ensures Docker containers can write to log directories via WSL2
 REM Can be called with /SILENT flag to skip pauses
 
+REM Check for Administrator privileges
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    echo.
+    echo ========================================
+    echo   Administrator Rights Required
+    echo ========================================
+    echo.
+    echo This script needs to be run as Administrator to create
+    echo directories in Program Files.
+    echo.
+    echo Please right-click this file and select "Run as Administrator"
+    echo.
+    pause
+    exit /b 1
+)
+
 set SILENT_MODE=0
 if /i "%1"=="/SILENT" set SILENT_MODE=1
 
@@ -27,8 +44,7 @@ if %SILENT_MODE%==0 (
 )
 
 REM Convert Windows path to WSL path (C:\Path -> /mnt/c/Path)
-set WSL_PATH=%INSTALL_DIR:\=/%
-set WSL_PATH=%WSL_PATH::=%
+REM Handle drive letter and preserve spaces in path
 set DRIVE_LETTER=%INSTALL_DIR:~0,1%
 call set DRIVE_LETTER=%%DRIVE_LETTER:A=a%%
 call set DRIVE_LETTER=%%DRIVE_LETTER:B=b%%
@@ -36,36 +52,41 @@ call set DRIVE_LETTER=%%DRIVE_LETTER:C=c%%
 call set DRIVE_LETTER=%%DRIVE_LETTER:D=d%%
 call set DRIVE_LETTER=%%DRIVE_LETTER:E=e%%
 call set DRIVE_LETTER=%%DRIVE_LETTER:F=f%%
-set WSL_PATH=/mnt/%DRIVE_LETTER%%WSL_PATH:~2%
+
+REM Get path after drive letter (C:\ -> everything after)
+set "REST_OF_PATH=%INSTALL_DIR:~3%"
+REM Replace backslashes with forward slashes
+set "REST_OF_PATH=%REST_OF_PATH:\=/%"
+REM Build final WSL path
+set "WSL_PATH=/mnt/%DRIVE_LETTER%/%REST_OF_PATH%"
 
 if %SILENT_MODE%==0 echo WSL path: %WSL_PATH%
+if %SILENT_MODE%==0 echo.
 
-REM Create directories and fix permissions via WSL
-wsl -e bash -c "mkdir -p '%WSL_PATH%/logs' '%WSL_PATH%/var' '%WSL_PATH%/logs/postgres' '%WSL_PATH%/logs/core' '%WSL_PATH%/logs/connectivity' '%WSL_PATH%/logs/front' '%WSL_PATH%/logs/nats' '%WSL_PATH%/logs/ops' '%WSL_PATH%/logs/tsdb' 2>&1"
+REM First create directories using Windows commands to ensure they exist in Windows filesystem
+if %SILENT_MODE%==0 echo Creating directories in Windows...
+if not exist "logs" mkdir "logs"
+if not exist "logs\postgres" mkdir "logs\postgres"
+if not exist "logs\core" mkdir "logs\core"
+if not exist "logs\connectivity" mkdir "logs\connectivity"
+if not exist "logs\front" mkdir "logs\front"
+if not exist "logs\nats" mkdir "logs\nats"
+if not exist "logs\ops" mkdir "logs\ops"
+if not exist "logs\tsdb" mkdir "logs\tsdb"
+if not exist "var" mkdir "var"
+
+REM Now set permissions via WSL
+if %SILENT_MODE%==0 echo Setting permissions via WSL...
+wsl sh -c "chmod -R 777 '%WSL_PATH%/logs'"
+wsl sh -c "chmod -R 755 '%WSL_PATH%/var'"
 
 if errorlevel 1 (
     if %SILENT_MODE%==0 (
         echo.
-        echo [ERROR] Could not create directories via WSL
-        echo Please ensure Docker Desktop is running and WSL is enabled.
+        echo [WARNING] Could not set permissions
         echo.
         pause
     )
-    exit /b 1
-)
-
-wsl -e bash -c "chmod -R 777 '%WSL_PATH%/logs' 2>&1"
-wsl -e bash -c "chmod -R 755 '%WSL_PATH%/var' 2>&1"
-
-if errorlevel 1 (
-    if %SILENT_MODE%==0 (
-        echo.
-        echo [WARNING] Could not set permissions via WSL
-        echo Directories were created but permissions may not be correct.
-        echo.
-        pause
-    )
-    exit /b 1
 )
 
 if %SILENT_MODE%==0 (

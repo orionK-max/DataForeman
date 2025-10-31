@@ -2,6 +2,21 @@
 REM DataForeman Launcher for Windows
 REM This script starts the DataForeman application using Docker Compose
 
+REM Check for Administrator privileges
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    echo.
+    echo ========================================
+    echo   Administrator Rights Required
+    echo ========================================
+    echo.
+    echo This script needs to be run as Administrator.
+    echo Please right-click "Start DataForeman" and select "Run as Administrator"
+    echo.
+    pause
+    exit /b 1
+)
+
 echo.
 echo ========================================
 echo   DataForeman - Starting Application
