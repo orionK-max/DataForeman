@@ -54,26 +54,26 @@ Source: "fix-permissions.bat"; DestDir: "{app}\windows-installer"; Flags: ignore
 Source: "README.md"; DestDir: "{app}\windows-installer"; Flags: ignoreversion
 
 [Icons]
-; Start menu items
-Name: "{group}\Start DataForeman"; Filename: "{app}\windows-installer\start-dataforeman.bat"; WorkingDir: "{app}"; Comment: "Start DataForeman services"
-Name: "{group}\Stop DataForeman"; Filename: "{app}\windows-installer\stop-dataforeman.bat"; WorkingDir: "{app}"; Comment: "Stop DataForeman services"
+; Start menu items (with runasadmin flag for scripts that need elevation)
+Name: "{group}\Start DataForeman"; Filename: "{app}\windows-installer\start-dataforeman.bat"; WorkingDir: "{app}"; Comment: "Start DataForeman services"; Flags: runasadmin
+Name: "{group}\Stop DataForeman"; Filename: "{app}\windows-installer\stop-dataforeman.bat"; WorkingDir: "{app}"; Comment: "Stop DataForeman services"; Flags: runasadmin
 Name: "{group}\Service Status"; Filename: "{app}\windows-installer\status-dataforeman.bat"; WorkingDir: "{app}"; Comment: "Check DataForeman service status"
-Name: "{group}\Fix Permissions"; Filename: "{app}\windows-installer\fix-permissions.bat"; WorkingDir: "{app}"; Comment: "Fix directory permissions if containers fail to start"
+Name: "{group}\Fix Permissions"; Filename: "{app}\windows-installer\fix-permissions.bat"; WorkingDir: "{app}"; Comment: "Fix directory permissions if containers fail to start"; Flags: runasadmin
 Name: "{group}\Open Web Interface"; Filename: "http://localhost:8080"; Comment: "Open DataForeman in browser"
 Name: "{group}\Documentation"; Filename: "{app}\README.md"; Comment: "View DataForeman documentation"
 Name: "{group}\Configuration (.env)"; Filename: "{app}\.env"; Comment: "Edit DataForeman configuration"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
-; Desktop shortcut
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\windows-installer\start-dataforeman.bat"; WorkingDir: "{app}"; Tasks: desktopicon; Comment: "Start DataForeman"
+; Desktop shortcut (with runasadmin flag)
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\windows-installer\start-dataforeman.bat"; WorkingDir: "{app}"; Tasks: desktopicon; Comment: "Start DataForeman"; Flags: runasadmin
 
 [Run]
 ; Run installation script
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows-installer\install.ps1"""; Flags: runhidden; StatusMsg: "Configuring DataForeman..."
-; Fix permissions for WSL2
+; Fix permissions for WSL2 (requires admin)
 Filename: "{app}\windows-installer\fix-permissions.bat"; Parameters: "/SILENT"; Flags: runhidden; StatusMsg: "Setting up directory permissions..."
-; Offer to start DataForeman after installation
-Filename: "{app}\windows-installer\start-dataforeman.bat"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent shellexec
+; Offer to start DataForeman after installation (with runasadmin flag)
+Filename: "{app}\windows-installer\start-dataforeman.bat"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent shellexec runasadmin
 
 [UninstallRun]
 ; Run uninstall script (asks user about data removal)
