@@ -81,18 +81,24 @@ if not exist "logs\ops" mkdir "logs\ops"
 if not exist "logs\tsdb" mkdir "logs\tsdb"
 if not exist "var" mkdir "var"
 
+REM Give WSL a moment to sync filesystem
+timeout /t 1 /nobreak >nul 2>&1
+
+REM Verify directories exist in WSL before setting permissions
+if %SILENT_MODE%==0 echo Verifying directories in WSL...
+wsl sh -c "test -d '%WSL_PATH%/logs' || mkdir -p '%WSL_PATH%/logs'" 2>nul
+wsl sh -c "test -d '%WSL_PATH%/var' || mkdir -p '%WSL_PATH%/var'" 2>nul
+
 REM Now set permissions via WSL
 if %SILENT_MODE%==0 echo Setting permissions via WSL...
-wsl sh -c "chmod -R 777 '%WSL_PATH%/logs'"
-wsl sh -c "chmod -R 755 '%WSL_PATH%/var'"
-
+wsl sh -c "chmod -R 777 '%WSL_PATH%/logs'" 2>nul
 if errorlevel 1 (
-    if %SILENT_MODE%==0 (
-        echo.
-        echo [WARNING] Could not set permissions
-        echo.
-        pause
-    )
+    if %SILENT_MODE%==0 echo [WARNING] Could not set permissions on logs directory
+)
+
+wsl sh -c "chmod -R 755 '%WSL_PATH%/var'" 2>nul
+if errorlevel 1 (
+    if %SILENT_MODE%==0 echo [WARNING] Could not set permissions on var directory
 )
 
 if %SILENT_MODE%==0 (
