@@ -19,11 +19,12 @@ cd /d "%~dp0.."
 REM Convert path to WSL format for current directory
 for /f "tokens=*" %%i in ('cd') do set INSTALL_DIR=%%i
 
-if %SILENT_MODE%==0 echo Fixing directory permissions in WSL...
+if %SILENT_MODE%==0 echo Creating and fixing directory permissions in WSL...
 if %SILENT_MODE%==0 echo.
 
-REM Fix permissions via WSL (requires Docker Desktop with WSL2)
+REM Create directories and fix permissions via WSL (requires Docker Desktop with WSL2)
 REM Use -e sh instead of bash for better compatibility
+wsl -e sh -c "mkdir -p '%INSTALL_DIR:\=/%'/logs '%INSTALL_DIR:\=/%'/var '%INSTALL_DIR:\=/%'/logs/postgres '%INSTALL_DIR:\=/%'/logs/core '%INSTALL_DIR:\=/%'/logs/connectivity '%INSTALL_DIR:\=/%'/logs/front '%INSTALL_DIR:\=/%'/logs/ingestor '%INSTALL_DIR:\=/%'/logs/nats '%INSTALL_DIR:\=/%'/logs/ops '%INSTALL_DIR:\=/%'/logs/tsdb 2>/dev/null || true"
 wsl -e sh -c "chmod -R 777 '%INSTALL_DIR:\=/%'/logs 2>/dev/null || true"
 wsl -e sh -c "chmod -R 755 '%INSTALL_DIR:\=/%'/var 2>/dev/null || true"
 

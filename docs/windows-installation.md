@@ -403,6 +403,78 @@ docker-compose logs core
 - Database connection failures → Check database containers are running
 - Port conflicts → Change ports in `.env`
 - Missing environment variables → Verify `.env` file exists
+- Permission errors → See Permission Errors section below
+
+### Permission Errors
+
+**Symptom:** Containers fail to start with "Permission denied" errors in logs:
+```
+Permission denied: /var/log/...
+cannot create directory: Permission denied
+```
+
+**Root Cause:** On Windows with WSL2, Docker bind mounts need specific permissions for containers to write log files.
+
+**Solution 1: Use Fix Permissions Tool (Easiest)**
+
+Run from Start Menu:
+- Search for "DataForeman" → "Fix Permissions"
+
+Or manually:
+```powershell
+cd "C:\Program Files\DataForeman"
+.\windows-installer\fix-permissions.bat
+```
+
+Then restart services:
+```powershell
+docker-compose restart
+```
+
+**Solution 2: Manual Fix via WSL**
+
+If the automated fix doesn't work, manually create directories with correct permissions:
+
+```powershell
+# Open PowerShell in DataForeman directory
+cd "C:\Program Files\DataForeman"
+
+# Run WSL commands to create directories and fix permissions
+wsl -e bash -c "cd '/mnt/c/Program Files/DataForeman' && mkdir -p logs/postgres logs/core logs/connectivity logs/front logs/nats logs/ops logs/tsdb var"
+wsl -e bash -c "cd '/mnt/c/Program Files/DataForeman' && chmod -R 777 logs"
+wsl -e bash -c "cd '/mnt/c/Program Files/DataForeman' && chmod -R 755 var"
+```
+
+Then restart:
+```powershell
+docker-compose down
+docker-compose up -d
+```
+
+**Solution 3: Clean Restart**
+
+If permission errors persist, completely remove containers and volumes, then start fresh:
+
+```powershell
+cd "C:\Program Files\DataForeman"
+
+# Stop and remove everything
+docker-compose down -v
+
+# Fix permissions
+.\windows-installer\fix-permissions.bat
+
+# Start fresh
+docker-compose up -d
+```
+
+**⚠️ Note:** Using `-v` flag removes volumes, which will delete your data. Only use if you don't have important data or have a backup.
+
+**Why This Happens:**
+- Docker on Windows uses WSL2 to run Linux containers
+- Log files need to be writable by the container's user ID (PostgreSQL uses UID 70)
+- If Windows creates the directories first, they have wrong permissions
+- The fix-permissions script ensures correct permissions before Docker starts
 
 ### Database Connection Errors
 

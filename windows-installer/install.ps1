@@ -77,8 +77,19 @@ if (-not (Test-Path ".env")) {
 Write-Host ""
 
 # Log directories are created by the installer itself with proper admin permissions
-Write-ColorOutput "[3/4] Verifying directories..." "Yellow"
-Write-ColorOutput "✓ Directories ready" "Green"
+Write-ColorOutput "[3/4] Creating directories..." "Yellow"
+$wslPath = $InstallDir -replace '\\', '/' -replace '^([A-Z]):', {'/mnt/' + $_.Groups[1].Value.ToLower()}
+
+try {
+    # Create all required directories via WSL to ensure proper permissions
+    wsl -e bash -c "mkdir -p '$wslPath/logs' '$wslPath/var' '$wslPath/logs/postgres' '$wslPath/logs/core' '$wslPath/logs/connectivity' '$wslPath/logs/front' '$wslPath/logs/ingestor' '$wslPath/logs/nats' '$wslPath/logs/ops' '$wslPath/logs/tsdb' 2>/dev/null || true"
+    wsl -e bash -c "chmod -R 777 '$wslPath/logs' 2>/dev/null || true"
+    wsl -e bash -c "chmod -R 755 '$wslPath/var' 2>/dev/null || true"
+    Write-ColorOutput "✓ Directories created with proper permissions" "Green"
+} catch {
+    Write-ColorOutput "⚠ Could not create directories via WSL" "Yellow"
+    Write-ColorOutput "  Directories will be created on first run" "Gray"
+}
 Write-Host ""
 
 Write-ColorOutput "═══════════════════════════════════════════════════════════" "Green"

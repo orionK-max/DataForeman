@@ -46,13 +46,16 @@ try {
 Write-Host ""
 
 # Fix permissions via WSL
-Write-ColorOutput "[2/2] Fixing directory permissions in WSL..." "Yellow"
+Write-ColorOutput "[2/2] Creating directories and fixing permissions in WSL..." "Yellow"
 
 # Convert Windows path to WSL path
 $wslPath = $InstallDir -replace '\\', '/' -replace '^([A-Z]):', {'/mnt/' + $_.Groups[1].Value.ToLower()}
 
 try {
-    # Always fix permissions to ensure they're correct
+    # Create all required directories first
+    Write-ColorOutput "Creating log directories..." "Gray"
+    wsl -e bash -c "mkdir -p '$wslPath/logs' '$wslPath/var' '$wslPath/logs/postgres' '$wslPath/logs/core' '$wslPath/logs/connectivity' '$wslPath/logs/front' '$wslPath/logs/ingestor' '$wslPath/logs/nats' '$wslPath/logs/ops' '$wslPath/logs/tsdb' 2>/dev/null || true"
+    
     # Make logs directory world-writable (required for PostgreSQL UID 70)
     Write-ColorOutput "Setting logs directory to world-writable (0777)..." "Gray"
     wsl -e bash -c "chmod -R 777 '$wslPath/logs' 2>/dev/null || true"
@@ -61,7 +64,7 @@ try {
     Write-ColorOutput "Setting var directory permissions (0755)..." "Gray"
     wsl -e bash -c "chmod -R 755 '$wslPath/var' 2>/dev/null || true"
     
-    Write-ColorOutput "✓ Permissions fixed" "Green"
+    Write-ColorOutput "✓ Directories created and permissions fixed" "Green"
 } catch {
     Write-ColorOutput "⚠ Could not fix permissions via WSL" "Yellow"
     Write-Host ""
@@ -69,10 +72,8 @@ try {
     Write-Host "Try running this script again after Docker Desktop is fully started."
     Write-Host ""
     Write-Host "If containers still fail to start, try manually:"
-    Write-Host "  wsl -e bash -c ""chmod -R 777 '$wslPath/logs'"""
+    Write-Host "  wsl -e bash -c ""mkdir -p '$wslPath/logs' && chmod -R 777 '$wslPath/logs'"""
     Write-Host ""
-    Write-Host "If containers still fail to start, try manually:"
-    Write-Host "  wsl -e bash -c ""chmod -R 777 '$wslPath/logs'"""
 }
 Write-Host ""
 
