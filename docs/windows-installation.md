@@ -105,6 +105,8 @@ DataForeman requires Docker Desktop to run its containerized services.
    - Use the desktop shortcut, OR
    - Start Menu → DataForeman → Start DataForeman
 
+**Note:** If you encounter any issues after installation, please refer to the [Troubleshooting](#troubleshooting) section below.
+
 ### Method 2: Manual Installation (Advanced Users)
 
 1. **Clone the Repository**
@@ -133,6 +135,8 @@ DataForeman requires Docker Desktop to run its containerized services.
    ```powershell
    .\windows-installer\start-dataforeman.bat
    ```
+
+**Note:** If you experience any issues after manual installation, check the [Troubleshooting](#troubleshooting) section below.
 
 ---
 
@@ -200,6 +204,8 @@ You should see:
 
 3. **Restart DataForeman**
    - Services will restart automatically with the new version
+
+**Note:** If services fail to start after updating, see the [Troubleshooting](#troubleshooting) section below.
 
 ### Manual Update Using PowerShell Script
 
@@ -469,6 +475,61 @@ docker-compose up -d
 ```
 
 **⚠️ Note:** Using `-v` flag removes volumes, which will delete your data. Only use if you don't have important data or have a backup.
+
+**Solution 4: Fix Permissions via Windows GUI (No Command Line)**
+
+If command-line solutions don't work, you can fix permissions through Windows File Explorer:
+
+1. **Navigate to DataForeman Folder:**
+   - Open File Explorer
+   - Go to `C:\Program Files\DataForeman`
+
+2. **Create Missing Directories:**
+   - Right-click in the folder → New → Folder
+   - Create a folder named `logs` (if it doesn't exist)
+   - Open the `logs` folder
+   - Inside `logs`, create these folders:
+     - `postgres`
+     - `core`
+     - `connectivity`
+     - `front`
+     - `nats`
+     - `ops`
+     - `tsdb`
+   - Go back to `C:\Program Files\DataForeman`
+   - Create a folder named `var` (if it doesn't exist)
+
+3. **Set Full Permissions on Logs Folder:**
+   - Right-click the `logs` folder → Properties
+   - Go to the "Security" tab
+   - Click "Edit" button
+   - Click "Add" button
+   - Type `Everyone` and click "Check Names"
+   - Click "OK"
+   - Select "Everyone" from the list
+   - Check "Full control" in the "Allow" column
+   - Click "Apply" → "OK"
+
+4. **Restart Docker Desktop:**
+   - Right-click Docker icon in system tray
+   - Select "Restart Docker Desktop"
+   - Wait for Docker to fully restart (icon shows green)
+
+5. **Restart DataForeman:**
+   - Search for "DataForeman" in Start Menu
+   - Click "Start DataForeman"
+   - Or manually:
+     ```powershell
+     cd "C:\Program Files\DataForeman"
+     docker-compose down
+     docker-compose up -d
+     ```
+
+**Important Notes:**
+- You may need Administrator privileges to modify permissions in `C:\Program Files`
+- If prompted by User Account Control (UAC), click "Yes"
+- The `Everyone` permission allows Docker containers (running in WSL2) to write log files
+- This is safe because the folder is only accessible locally on your machine
 
 **Why This Happens:**
 - Docker on Windows uses WSL2 to run Linux containers
