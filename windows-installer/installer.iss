@@ -73,7 +73,7 @@ Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\w
 ; Fix permissions for WSL2 (requires admin)
 Filename: "{app}\windows-installer\fix-permissions.bat"; Parameters: "/SILENT"; Flags: runhidden; StatusMsg: "Setting up directory permissions..."
 ; Offer to start DataForeman after installation (inherits admin privileges from installer)
-Filename: "{app}\windows-installer\start-dataforeman.bat"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\windows-installer\start-dataforeman.bat"; Parameters: "/SKIPCHECK"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Run uninstall script (asks user about data removal)

@@ -2,6 +2,9 @@
 REM DataForeman Launcher for Windows
 REM This script starts the DataForeman application using Docker Compose
 
+REM Skip admin check if /SKIPCHECK parameter is passed (used by installer)
+if /i "%~1"=="/SKIPCHECK" goto :SkipAdminCheck
+
 REM Check for Administrator privileges
 net session >nul 2>&1
 if %errorLevel% neq 0 (
@@ -16,6 +19,8 @@ if %errorLevel% neq 0 (
     pause
     exit /b 1
 )
+
+:SkipAdminCheck
 
 echo.
 echo ========================================
