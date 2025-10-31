@@ -72,8 +72,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\windows-installer\start-dat
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows-installer\install.ps1"""; Flags: runhidden; StatusMsg: "Configuring DataForeman..."
 ; Fix permissions for WSL2 (requires admin)
 Filename: "{app}\windows-installer\fix-permissions.bat"; Parameters: "/SILENT"; Flags: runhidden; StatusMsg: "Setting up directory permissions..."
-; Offer to start DataForeman after installation
-Filename: "{app}\windows-installer\start-dataforeman.bat"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent shellexec
+; Offer to start DataForeman after installation (inherits admin privileges from installer)
+Filename: "{app}\windows-installer\start-dataforeman.bat"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Run uninstall script (asks user about data removal)
