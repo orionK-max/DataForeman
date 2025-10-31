@@ -7,6 +7,15 @@ cd "$ROOT_DIR"
 echo "🔨 Rebuilding everything (All Docker services + Frontend)..."
 echo ""
 
+# Fix permissions first
+echo "🔧 Fixing permissions..."
+if [ -f "$ROOT_DIR/fix-permissions.sh" ]; then
+  bash "$ROOT_DIR/fix-permissions.sh"
+else
+  echo "⚠️  Warning: fix-permissions.sh not found, skipping..."
+fi
+echo ""
+
 # Build Docker services
 echo "📦 Building Docker services (core, connectivity, front)..."
 docker compose build core connectivity front

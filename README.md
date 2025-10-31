@@ -37,9 +37,8 @@ DataForeman is a containerized stack for collecting industrial telemetry, storin
 # Download
 cd ~ && git clone https://github.com/orionK-max/DataForeman.git && cd DataForeman
 
-# Setup and Start
-./fix-permissions.sh
-docker compose up -d
+# Setup and Start (single command with automatic permission fix)
+npm start
 
 # Access at http://localhost:8080
 # Login: admin@example.com / password
@@ -135,23 +134,20 @@ nano .env
 # Press Ctrl+X, then Y, then Enter to save and exit
 ```
 
-**Step 3: Set Up Permissions**
+**Step 3: Start DataForeman**
 
 ```bash
-# Run the permission setup script
-./fix-permissions.sh
-```
+# Start all containers (automatically fixes permissions and starts services)
+npm start
 
-**Step 4: Start DataForeman**
-
-```bash
-# Start all containers (this will download and build everything - may take several minutes)
-docker compose up -d
+# Alternative: Use docker compose directly
+# ./fix-permissions.sh
+# docker compose up -d
 ```
 
 Wait for the command to complete. The first time will take longer as it downloads Docker images and builds containers.
 
-**Step 5: Verify Installation**
+**Step 4: Verify Installation**
 
 Check that all containers are running:
 
@@ -161,7 +157,7 @@ docker compose ps
 
 You should see all services with "Up" status (core, front, db, tsdb, nats, connectivity, rotator). If any show "Exited", wait another minute and check again.
 
-**Step 6: Access DataForeman**
+**Step 5: Access DataForeman**
 
 Open your web browser and go to:
 ```
@@ -255,7 +251,8 @@ docker compose up -d
 Open a terminal in DataForeman folder and type:
 
 ```bash
-docker compose up -d
+npm start
+# Or use docker compose directly: docker compose up -d
 ```
 
 Wait about 30 seconds, then access the web interface at http://localhost:8080
@@ -450,11 +447,11 @@ docker compose logs
 Open a terminal in DataForeman folder and type:
 
 ```bash
-./fix-permissions.sh
-docker compose restart
+npm start
+# Or manually: ./fix-permissions.sh && docker compose restart
 ```
 
-**Why this happens:** The log directories need specific permissions for the containers to write log files.
+**Why this happens:** The log directories need specific permissions for the containers to write log files. The `npm start` command automatically fixes these permissions.
 
 #### "Out of Memory" or Containers Keep Restarting
 
@@ -471,13 +468,13 @@ docker compose restart
 FATAL: could not open log file "/var/log/postgresql/postgres-YYYY-MM-DD_HHMM": Permission denied
 ```
 
-**Solution:** Run the fix-permissions script:
+**Solution:** Use npm start to automatically fix permissions and start services:
 
 Open a terminal in DataForeman folder and type:
 
 ```bash
-./fix-permissions.sh
-docker compose up -d
+npm start
+# Or manually: ./fix-permissions.sh && docker compose up -d
 ```
 
 #### Update Failed or Containers Won't Start After Update
@@ -583,23 +580,31 @@ If you're a regular user just wanting to use DataForeman, you can stop reading h
 
 ### Development Commands
 
-**Note:** These commands are for **active development only**. Regular users should use `docker compose up -d` instead.
+**For Regular Users:**
+
+| Command | Description |
+|---------|-------------|
+| `npm start` | Start all Docker services (auto fixes permissions) |
+| `npm run start:rebuild` | Rebuild images and start all Docker services |
+| `docker compose up -d` | Alternative: Direct Docker Compose start |
+| `docker compose down` | Stop all services |
+
+**For Developers:**
 
 These commands run parts of DataForeman on your host machine (outside Docker) for faster development:
 
 | Command | Description |
 |---------|-------------|
-| `npm start` | Start frontend (local) + backend (local) for development |
-| `npm run start:rebuild` | Rebuild containers and start everything |
-| `npm run dev` | Same as `npm start` |
+| `npm run dev` | Start Docker services + frontend dev server (port 5174) |
+| `npm run dev:rebuild` | Rebuild everything + start frontend dev server |
 | `npm run dev:front` | Start only frontend locally (port 5174) |
 | `npm run dev:core` | Start only backend locally |
 | `npm run start:local` | Run Core locally with DB/NATS in Docker |
 | `npm run start:caddy` | Start with Caddy TLS reverse proxy |
 
-**Development vs Production:**
-- **Development** (`npm start`): Runs on port 5174, hot-reload enabled, not containerized
-- **Production** (`docker compose up -d`): Runs on port 8080, fully containerized, more stable
+**Frontend Modes:**
+- **Production** (`npm start`): Runs on port 8080, fully containerized, stable
+- **Development** (`npm run dev`): Runs on port 5174, hot-reload enabled, faster iterations
 
 ### Environment Variables
 

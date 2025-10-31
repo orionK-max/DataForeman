@@ -44,6 +44,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Fix permissions first (for compose mode)
+if [[ "$MODE" == "compose" ]]; then
+  echo "🔧 Fixing permissions..."
+  if [ -f "$ROOT_DIR/fix-permissions.sh" ]; then
+    bash "$ROOT_DIR/fix-permissions.sh"
+  else
+    echo "⚠️  Warning: fix-permissions.sh not found, skipping..."
+  fi
+  echo ""
+fi
+
 if [[ ! -f .env ]]; then
   echo ".env not found; copying from .env.example"
   cp .env.example .env || true
