@@ -33,6 +33,7 @@ import ExportDialog from '../components/dashboard/ExportDialog';
 import DashboardSettingsDialog from '../components/dashboard/DashboardSettingsDialog';
 import TVMode from '../components/dashboard/TVMode';
 import TVModeDialog from '../components/dashboard/TVModeDialog';
+import dashboardService from '../services/dashboardService';
 import '../styles/dashboard.css';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -142,12 +143,21 @@ const DashboardContent = () => {
   // Settings handler
   const handleSaveSettings = async (settings) => {
     try {
-      setCurrentDashboard({
+      const updatedDashboard = {
         ...currentDashboard,
         ...settings,
-      });
+      };
+      setCurrentDashboard(updatedDashboard);
       setHasUnsavedChanges(true);
-      await saveDashboard();
+      
+      // Save immediately with the updated settings
+      await dashboardService.updateDashboard(currentDashboard.id, {
+        name: settings.name,
+        description: settings.description,
+        is_shared: settings.is_shared,
+        layout: layout,
+      });
+      setHasUnsavedChanges(false);
     } catch (err) {
       console.error('Failed to save settings:', err);
       throw err;
