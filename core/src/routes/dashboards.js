@@ -117,7 +117,7 @@ export async function dashboardRoutes(app) {
     
     let where = 'is_deleted=false AND (user_id=$1 OR is_shared=true)';
     if (scope === 'mine') where = 'is_deleted=false AND user_id=$1';
-    else if (scope === 'shared') where = 'is_deleted=false AND is_shared=true AND user_id<>$1';
+    else if (scope === 'shared') where = 'is_deleted=false AND is_shared=true';
     
     const q = `SELECT ${baseCols} FROM dashboard_configs WHERE ${where} ORDER BY updated_at DESC LIMIT $2 OFFSET $3`;
     const { rows } = await app.db.query(q, [userId, limit, offset]);

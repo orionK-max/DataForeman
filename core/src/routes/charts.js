@@ -183,7 +183,7 @@ export async function chartsRoutes(app) {
     // Exclude system charts - they're for diagnostics only, not for Chart Composer
     let where = 'is_deleted=false and is_system_chart=false and (user_id=$1 or is_shared=true)';
     if (scope === 'mine') where = 'is_deleted=false and is_system_chart=false and user_id=$1';
-    else if (scope === 'shared') where = 'is_deleted=false and is_system_chart=false and is_shared=true and user_id<>$1';
+    else if (scope === 'shared') where = 'is_deleted=false and is_system_chart=false and is_shared=true';
     const q = `select ${baseCols} from chart_configs where ${where} order by updated_at desc limit $2 offset $3`;
     const { rows } = await app.db.query(q, [userId, limit, offset]);
     return { items: rows, limit, offset, count: rows.length };
