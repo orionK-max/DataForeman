@@ -45,11 +45,13 @@ async function applyPolicies(app) {
   // Read config values with defaults
   const retentionDays = await getConfigValue(app, 'historian.retention_days', 30);
   const compressionDays = await getConfigValue(app, 'historian.compression_days', 7);
+  const systemMetricsRetentionDays = await getConfigValue(app, 'system_metrics.retention_days', 30);
 
   // Clamp and ensure compression < retention
   const rDays = Math.max(1, Math.floor(Number(retentionDays) || 30));
   let cDays = Math.max(1, Math.floor(Number(compressionDays) || 7));
   if (cDays >= rDays) cDays = Math.max(1, Math.floor(rDays / 2));
+  const sysMetricsRDays = Math.max(1, Math.floor(Number(systemMetricsRetentionDays) || 30));
 
   // Apply policies idempotently: remove existing and add fresh with new intervals
   const sql = `DO $$
@@ -87,11 +89,29 @@ async function applyPolicies(app) {
     BEGIN
       PERFORM add_compression_policy('tag_values', INTERVAL '${cDays} days');
     EXCEPTION WHEN OTHERS THEN NULL; END;
+
+    -- Apply retention policy for system_metrics hypertable
+    BEGIN
+      PERFORM 1 FROM timescaledb_information.hypertables WHERE hypertable_name = 'system_metrics';
+      -- If system_metrics hypertable exists, apply retention policy
+      BEGIN
+        PERFORM remove_retention_policy('system_metrics');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN
+        PERFORM add_retention_policy('system_metrics', INTERVAL '${sysMetricsRDays} days');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+    EXCEPTION WHEN OTHERS THEN
+      -- Hypertable doesn't exist yet, skip
+      NULL;
+    END;
   END$$;`;
 
   try {
     await tsdb.query(sql);
-    log.info({ retentionDays: rDays, compressionDays: cDays }, 'tsdb-policies: applied');
+    log.info({ 
+      tag_values: { retentionDays: rDays, compressionDays: cDays },
+      system_metrics: { retentionDays: sysMetricsRDays }
+    }, 'tsdb-policies: applied');
   } catch (err) {
     log.error({ err }, 'tsdb-policies: apply failed');
   }

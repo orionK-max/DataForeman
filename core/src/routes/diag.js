@@ -483,87 +483,18 @@ export async function diagRoutes(app) {
     } catch {}
 
     // Disk capacity estimation based on telemetry ingestion rate
+    // Now fetched from cached calculation (background job runs every 15 minutes)
     let capacityEstimate = null;
     try {
-      const db = app.tsdb || app.db;
-      
-      // Get retention policy settings
-      const retentionResult = await app.db.query(`
+      const cachedResult = await app.db.query(`
         SELECT value FROM system_settings WHERE key = $1
-      `, ['historian.retention_days']);
-      const retentionDays = Number(retentionResult.rows[0]?.value) || null;
+      `, ['capacity.last_calculation']);
       
-      // Get database size
-      const dbSizeResult = await db.query(`
-        SELECT pg_database_size(current_database()) as db_size_bytes
-      `);
-      const dbSizeBytes = Number(dbSizeResult.rows[0]?.db_size_bytes || 0);
-      
-      // Get ingestion rate: count rows and total size from last 24 hours
-      const ingestRateResult = await db.query(`
-        SELECT 
-          COUNT(*) as row_count,
-          EXTRACT(EPOCH FROM (MAX(ts) - MIN(ts))) as time_span_seconds
-        FROM tag_values
-        WHERE ts >= NOW() - INTERVAL '24 hours'
-      `);
-      
-      const rowCount = Number(ingestRateResult.rows[0]?.row_count || 0);
-      const timeSpanSeconds = Number(ingestRateResult.rows[0]?.time_span_seconds || 0);
-      
-      // Calculate average bytes per row (estimate based on table structure)
-      // Each row: ts(8) + connection_id(16) + tag_id(4) + quality(2) + v_num(8) + v_text(avg ~50) + v_json(avg ~100) + overhead(~30)
-      // Conservative estimate: ~200 bytes/row average
-      const BYTES_PER_ROW = 200;
-      
-      // Calculate ingestion rate
-      let bytesPerDay = null;
-      let daysRemaining = null;
-      let steadyStateBytes = null;
-      let daysUntilSteadyState = null;
-      let mode = 'unknown'; // 'steady_state', 'growth', 'unknown'
-      
-      if (rowCount > 0 && timeSpanSeconds > 0) {
-        const rowsPerSecond = rowCount / timeSpanSeconds;
-        const rowsPerDay = rowsPerSecond * 86400; // 86400 seconds in a day
-        bytesPerDay = rowsPerDay * BYTES_PER_ROW;
-        
-        // If retention policy is active, data will reach steady state
-        if (retentionDays && retentionDays > 0) {
-          // Steady state size = retention_days * bytes_per_day
-          steadyStateBytes = retentionDays * bytesPerDay;
-          
-          if (dbSizeBytes >= steadyStateBytes * 0.95) {
-            // Already at steady state (within 5% of target)
-            mode = 'steady_state';
-            daysRemaining = null; // Infinite - data won't grow beyond this
-          } else {
-            // Still growing towards steady state
-            mode = 'growth';
-            const bytesUntilSteadyState = steadyStateBytes - dbSizeBytes;
-            daysUntilSteadyState = Math.ceil(bytesUntilSteadyState / bytesPerDay);
-          }
-        } else {
-          // No retention policy - will grow indefinitely
-          mode = 'growth';
-          if (primary && primary.avail_bytes != null && bytesPerDay > 0) {
-            daysRemaining = Math.floor(primary.avail_bytes / bytesPerDay);
-          }
-        }
+      if (cachedResult.rows.length > 0) {
+        capacityEstimate = cachedResult.rows[0].value;
       }
-      
-      capacityEstimate = {
-        db_size_bytes: dbSizeBytes,
-        rows_last_24h: rowCount,
-        estimated_bytes_per_day: bytesPerDay,
-        days_remaining: daysRemaining,
-        retention_days: retentionDays,
-        steady_state_bytes: steadyStateBytes,
-        days_until_steady_state: daysUntilSteadyState,
-        mode: mode,
-      };
     } catch (err) {
-      app.log.warn({ err }, 'Failed to calculate disk capacity estimate');
+      app.log.warn({ err }, 'Failed to fetch cached capacity estimate');
     }
 
     return { process: processInfo, memory, cpu, disks: disksOut, net, capacity: capacityEstimate };
@@ -658,6 +589,74 @@ export async function diagRoutes(app) {
 
       return reply.code(500).send({
         error: 'restart_failed',
+        message: err.message
+      });
+    }
+  });
+
+  // Manual capacity recalculation
+  app.post('/recalculate-capacity', async (req, reply) => {
+    const userId = req.user?.sub;
+    
+    // Require update permission for triggering capacity calculation
+    if (!userId || !(await app.permissions.can(userId, 'diagnostic.system', 'update'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+    
+    try {
+      // Check if a capacity calculation job is already running or queued recently
+      const { rows } = await app.db.query(`
+        SELECT id, status, created_at 
+        FROM jobs 
+        WHERE type = 'capacity_calculation' 
+          AND status IN ('queued', 'running')
+          AND created_at > NOW() - INTERVAL '1 minute'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `);
+      
+      if (rows.length > 0) {
+        return {
+          job_id: rows[0].id,
+          status: rows[0].status,
+          message: 'Capacity calculation is already in progress',
+          already_running: true
+        };
+      }
+      
+      // Enqueue new capacity calculation job
+      const job = await app.jobs.enqueue('capacity_calculation', {}, {});
+      
+      app.log.info({ jobId: job.id, userId }, 'Manual capacity recalculation triggered');
+      
+      // Audit log
+      try {
+        await app.audit('diagnostic.capacity.recalculate', {
+          outcome: 'success',
+          actor_user_id: userId,
+          metadata: { job_id: job.id }
+        });
+      } catch {}
+      
+      return {
+        job_id: job.id,
+        status: 'queued',
+        message: 'Capacity recalculation started',
+        already_running: false
+      };
+    } catch (err) {
+      app.log.error({ err, userId }, 'Failed to trigger capacity recalculation');
+      
+      try {
+        await app.audit('diagnostic.capacity.recalculate', {
+          outcome: 'failure',
+          actor_user_id: userId,
+          metadata: { error: err.message }
+        });
+      } catch {}
+      
+      return reply.code(500).send({
+        error: 'recalculation_failed',
         message: err.message
       });
     }

@@ -607,6 +607,12 @@ export const jobsPlugin = fp(async (app) => {
 		await _runTagsDelete(ctx);
 	});
 
+	// Capacity calculator - calculates disk capacity estimation and stores in system_settings
+	register('capacity_calculation', async (ctx) => {
+		const capacityCalculator = (await import('../workers/capacity-calculator.js')).default;
+		await capacityCalculator(ctx);
+	});
+
 
 	// Graceful shutdown hook
 	app.addHook('onClose', async () => {
@@ -724,7 +730,37 @@ export const jobsPlugin = fp(async (app) => {
 		remove,
 		register,
 		metrics,
-		start: async () => { await _startupReconcile(); dispatcherLoop(); },
+		start: async () => { 
+			await _startupReconcile(); 
+			dispatcherLoop();
+			
+			// Schedule periodic capacity calculation job
+			async function _schedulePeriodicJobs() {
+				try {
+					// Check if capacity calculation job already scheduled for next 15 minutes
+					const { rows } = await app.db.query(`
+						SELECT id FROM jobs 
+						WHERE type = 'capacity_calculation' 
+						  AND status IN ('queued', 'running')
+						  AND created_at > NOW() - INTERVAL '15 minutes'
+						LIMIT 1
+					`);
+					
+					if (rows.length === 0) {
+						// No recent job, schedule one
+						await enqueue('capacity_calculation', {}, {});
+						log.info('Scheduled capacity_calculation job');
+					}
+				} catch (e) {
+					log.warn({ err: e }, 'Failed to schedule capacity_calculation job');
+				}
+			}
+			
+			// Run every 15 minutes
+			setInterval(_schedulePeriodicJobs, 15 * 60 * 1000);
+			// First run after 10 seconds
+			setTimeout(_schedulePeriodicJobs, 10_000);
+		},
 	});
 });
 

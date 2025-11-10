@@ -404,16 +404,6 @@ export const systemMetricsSampler = fp(async function (app) {
     }
   }
 
-  async function pruneOld() {
-    const days = await getConfigValue('system_metrics.retention_days', 30);
-    try {
-      if (!app.tsdb) return;
-      await app.tsdb.query(`delete from system_metrics where ts < now() - ($1 || ' days')::interval`, [String(days)]);
-    } catch (e) {
-      log.warn({ err: e }, 'prune system_metrics failed');
-    }
-  }
-
   // Main loop with dynamic interval
   async function loop() {
     if (stop) return;
@@ -428,8 +418,6 @@ export const systemMetricsSampler = fp(async function (app) {
     } catch (e) {
       log.warn({ err: e }, 'sampling failed');
     }
-    // occasionally prune (every ~12 cycles)
-    try { if (Math.random() < 1/12) await pruneOld(); } catch {}
     setTimeout(loop, Math.max(500, Number(pollMs)||5000));
   }
 

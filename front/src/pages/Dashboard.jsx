@@ -154,7 +154,7 @@ const DashboardContent = () => {
     }
   };
 
-  // TV Mode handlers
+  // TV Mode handlers 
   const handleStartTVMode = async (config) => {
     try {
       // Load all selected dashboards

@@ -40,9 +40,9 @@ export async function configRoutes(app) {
         const msg = { schema: 'config.changed@v1', ts: new Date().toISOString(), keys: changedKeys, values: body };
         if (app.nats?.healthy?.() === true) app.nats.publish('df.config.changed.v1', msg);
       } catch {}
-      // If historian.* keys were updated, re-apply TSDB policies
+      // If historian.* or system_metrics.* keys were updated, re-apply TSDB policies
       try {
-        if (Object.keys(body).some((k) => k.startsWith('historian.')) && typeof app.applyTsdbPolicies === 'function') {
+        if (Object.keys(body).some((k) => k.startsWith('historian.') || k.startsWith('system_metrics.')) && typeof app.applyTsdbPolicies === 'function') {
           await app.applyTsdbPolicies();
         }
       } catch {}
