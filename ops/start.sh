@@ -60,6 +60,30 @@ if [[ ! -f .env ]]; then
   cp .env.example .env || true
 fi
 
+# Auto-configure for Linux to enable EIP autodiscovery
+if [[ "$MODE" == "compose" && "$(uname -s)" == "Linux" ]]; then
+  if ! grep -q "^[[:space:]]*network_mode: host" docker-compose.yml; then
+    echo "🔧 Configuring host networking for Linux (enables EIP autodiscovery)..."
+    
+    # Uncomment network_mode: host in docker-compose.yml
+    sed -i 's|^[[:space:]]*# network_mode: host|    network_mode: host|' docker-compose.yml
+    
+    # Update .env for host networking
+    if ! grep -q "^NATS_URL=nats://localhost:4222" .env; then
+      sed -i 's|^NATS_URL=.*|NATS_URL=nats://localhost:4222|' .env
+    fi
+    if ! grep -q "^PGHOST=localhost" .env; then
+      sed -i 's|^PGHOST=.*|PGHOST=localhost|' .env
+    fi
+    if ! grep -q "^TSDB_HOST=localhost" .env; then
+      sed -i 's|^TSDB_HOST=.*|TSDB_HOST=localhost|' .env
+    fi
+    
+    echo "✅ Configured for host networking (EIP autodiscovery enabled)"
+    echo ""
+  fi
+fi
+
 ensure_db_nats() {
   echo "Bringing up Postgres and NATS..."
   docker compose up -d db nats
