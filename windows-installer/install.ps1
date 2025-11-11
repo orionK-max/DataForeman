@@ -70,26 +70,35 @@ if (-not (Test-Path ".env")) {
     Write-ColorOutput "[OK] .env file already exists" "Green"
 }
 
-# Replace docker-compose.yml with Windows-specific version
-if (Test-Path "docker-compose.windows.yml") {
+# Configure Windows-specific Docker networking settings
+if (Test-Path ".env") {
     try {
-        # Backup original Linux version if not already done
-        if (-not (Test-Path "docker-compose.linux.yml")) {
-            Copy-Item "docker-compose.yml" "docker-compose.linux.yml"
-            Write-ColorOutput "[OK] Backed up Linux docker-compose.yml" "Green"
-        } else {
-            Write-ColorOutput "[OK] Linux backup already exists" "Green"
+        $envContent = Get-Content ".env" -Raw
+        
+        # Set network mode to bridge for Windows (Docker Desktop doesn't support host mode)
+        if ($envContent -notmatch "NETWORK_MODE=") {
+            Add-Content ".env" "`n# Windows Docker networking configuration (set by installer)"
+            Add-Content ".env" "NETWORK_MODE=bridge"
         }
         
-        # Replace with Windows version
-        Copy-Item "docker-compose.windows.yml" "docker-compose.yml" -Force
-        Write-ColorOutput "[OK] Configured Docker Compose for Windows" "Green"
+        # Set service hostnames for bridge networking
+        if ($envContent -notmatch "NATS_URL=") {
+            Add-Content ".env" "NATS_URL=nats://nats:4222"
+        }
+        if ($envContent -notmatch "^PGHOST=") {
+            Add-Content ".env" "PGHOST=db"
+        }
+        if ($envContent -notmatch "^TSDB_HOST=") {
+            Add-Content ".env" "TSDB_HOST=tsdb"
+        }
+        if ($envContent -notmatch "CONNECTIVITY_PORT=") {
+            Add-Content ".env" "CONNECTIVITY_PORT=3100"
+        }
         
+        Write-ColorOutput "[OK] Configured Docker networking for Windows" "Green"
     } catch {
-        Write-ColorOutput "[WARN] Could not configure Docker Compose for Windows" "Yellow"
+        Write-ColorOutput "[WARN] Could not configure Windows networking settings" "Yellow"
     }
-} else {
-    Write-ColorOutput "[WARN] docker-compose.windows.yml not found" "Yellow"
 }
 Write-Host ""
 
