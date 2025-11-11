@@ -14,7 +14,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "name": { "type": "string" },
-        "type": { "type": "string", "enum": ["opcua-client", "opcua-server", "s7", "eip", "pycomm3"] },
+        "type": { "type": "string", "enum": ["opcua-client", "opcua-server", "s7", "eip"] },
         "enabled": { "type": "boolean" },
         "endpoint": { "type": "string" },
         "host": { "type": "string" },

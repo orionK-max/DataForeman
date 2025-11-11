@@ -367,10 +367,10 @@ export async function chartsRoutes(app) {
           // Chart already exists, return it
           charts.push(existing.get(def.name));
         } else {
-          // Create new system chart (owned by system user)
+          // Create new system chart (owned by system user) with Rolling mode for efficiency
           const insertQ = `INSERT INTO chart_configs 
-                           (user_id, name, time_from, time_to, is_shared, is_system_chart, options)
-                           VALUES ($1, $2, NULL, NULL, false, true, $3)
+                           (user_id, name, time_mode, time_duration, is_shared, is_system_chart, options)
+                           VALUES ($1, $2, 'rolling', 900000, false, true, $3)
                            RETURNING *`;
           const insertRes = await app.db.query(insertQ, [systemUserId, def.name, def.options]);
           charts.push(insertRes.rows[0]);

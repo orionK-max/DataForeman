@@ -221,13 +221,21 @@ export class OPCUAClientDriver {
           await this.connect();
         }
         const result = await this.session.browse(rootNodeId);
-        const items = result.references?.map(r => ({
-          browseName: r.browseName?.toString?.() || '',
-          displayName: r.displayName?.text || '',
-          nodeId: r.nodeId?.toString?.() || '',
-          // Map numeric nodeClass to its symbolic name for easier UI logic
-          nodeClass: (typeof r.nodeClass === 'number' && NodeClass[r.nodeClass]) ? NodeClass[r.nodeClass] : (r.nodeClass ? String(r.nodeClass) : undefined),
-        })) || [];
+        const items = result.references?.map(r => {
+          // Normalize NodeId format: node-opcua may return "ns=3;I=1007" with capital I
+          // but only accepts lowercase "ns=3;i=1007" when coercing from string
+          let nodeIdStr = r.nodeId?.toString?.() || '';
+          if (nodeIdStr) {
+            nodeIdStr = nodeIdStr.replace(/;I=/g, ';i=').replace(/^I=/g, 'i=');
+          }
+          return {
+            browseName: r.browseName?.toString?.() || '',
+            displayName: r.displayName?.text || '',
+            nodeId: nodeIdStr,
+            // Map numeric nodeClass to its symbolic name for easier UI logic
+            nodeClass: (typeof r.nodeClass === 'number' && NodeClass[r.nodeClass]) ? NodeClass[r.nodeClass] : (r.nodeClass ? String(r.nodeClass) : undefined),
+          };
+        }) || [];
         return items;
       } catch (err) {
         const msg = String(err?.message || err);

@@ -14,6 +14,7 @@ import {
   LinearProgress
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import MemoryIcon from '@mui/icons-material/Memory';
 import StorageIcon from '@mui/icons-material/Storage';
 import SpeedIcon from '@mui/icons-material/Speed';
@@ -47,6 +48,10 @@ export default function CapacityTab() {
   const [savingMetrics, setSavingMetrics] = useState(false);
   const [metricsMessage, setMetricsMessage] = useState('');
   const [metricsMessageType, setMetricsMessageType] = useState('success');
+  
+  // Capacity recalculation
+  const [recalculating, setRecalculating] = useState(false);
+  const [recalcMessage, setRecalcMessage] = useState('');
   
   // System chart IDs (dynamically loaded from backend)
   const [chartIds, setChartIds] = useState({
@@ -92,6 +97,32 @@ export default function CapacityTab() {
       console.error('Failed to fetch capacity metrics:', err);
       setError('Failed to fetch metrics');
       setLoading(false);
+    }
+  };
+
+  // Manual capacity recalculation
+  const handleRecalculate = async () => {
+    setRecalculating(true);
+    setRecalcMessage('');
+    
+    try {
+      const response = await apiClient.post('/diag/recalculate-capacity');
+      
+      if (response.already_running) {
+        setRecalcMessage('Calculation already in progress');
+      } else {
+        setRecalcMessage('Recalculation started - results will update shortly');
+        // Refresh metrics after a short delay to get updated data
+        setTimeout(() => {
+          fetchMetrics();
+          setRecalcMessage('');
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Failed to trigger recalculation:', err);
+      setRecalcMessage('Failed to trigger recalculation');
+    } finally {
+      setRecalculating(false);
     }
   };
 
@@ -236,6 +267,27 @@ export default function CapacityTab() {
             </Box>
           ) : (
             <>
+              {/* Capacity Recalculation Control */}
+              <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={recalculating ? <CircularProgress size={16} /> : <RefreshIcon />}
+                  onClick={handleRecalculate}
+                  disabled={recalculating}
+                >
+                  Recalculate Capacity
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  Auto-calculated every 15 minutes
+                </Typography>
+                {recalcMessage && (
+                  <Typography variant="caption" color="primary.main" sx={{ fontWeight: 500 }}>
+                    {recalcMessage}
+                  </Typography>
+                )}
+              </Box>
+
               {/* Metrics Cards */}
               <Grid container spacing={2} sx={{ mb: 3 }}>
                 {/* Disk Capacity Card - Featured */}

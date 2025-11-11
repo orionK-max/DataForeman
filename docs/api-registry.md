@@ -1,7 +1,7 @@
 # API Registry
 
 **Version:** 1.0  
-**Last Updated:** 2025-10-29 (Auto-generated)  
+**Last Updated:** 2025-11-10 (Auto-generated)  
 **Purpose:** Complete reference of all API endpoints with authentication and permission requirements
 
 > ⚠️ **This file is auto-generated.** Run `node ops/validate-permissions.js --generate-docs` to update.
@@ -164,10 +164,10 @@ Permissions follow the pattern: `feature:operation`
 | POST | `/eip/identify` | Yes | *Via preHandler* | Create resource |
 | POST | `/eip/rack-config` | Yes | *Via preHandler* | Create resource |
 | POST | `/eip/tags/:id/bulk-save` | Yes | *Via preHandler* | API endpoint |
-| GET | `/tags/:connectionId/export` | Yes | *Via preHandler* | Export tags as JSON for backup/restore |
-| POST | `/tags/:connectionId/import` | Yes | *Via preHandler* | Import tags from JSON backup |
-| GET | `/tags/:connectionId/export-csv` | Yes | *Via preHandler* | Export tags as CSV for Excel editing (S7/EIP/OPC UA) |
-| POST | `/tags/:connectionId/import-csv` | Yes | *Via preHandler* | Import tags from CSV (bulk tag creation/editing) |
+| GET | `/tags/:connectionId/export` | Yes | *Via preHandler* | Get single resource |
+| POST | `/tags/:connectionId/import` | Yes | *Via preHandler* | API endpoint |
+| GET | `/tags/:connectionId/export-csv` | Yes | *Via preHandler* | Get single resource |
+| POST | `/tags/:connectionId/import-csv` | Yes | *Via preHandler* | API endpoint |
 
 ## Dashboards Routes
 
@@ -197,6 +197,7 @@ Permissions follow the pattern: `feature:operation`
 | GET | `/resources` | Yes | *Via preHandler* | List resources |
 | GET | `/services/status` | Yes | `diagnostic.system:read` | List resources |
 | POST | `/services/:serviceName/restart` | Yes | `diagnostic.system:update` | API endpoint |
+| POST | `/recalculate-capacity` | Yes | `diagnostic.system:update` | Create resource |
 
 ## Folders Routes
 
@@ -287,9 +288,9 @@ node ops/validate-permissions.js --verbose
 
 ## Statistics
 
-- **Total Endpoints:** 116
-- **Protected:** 182
+- **Total Endpoints:** 117
+- **Protected:** 184
 - **Public:** 17
 - **Coverage:** 172%
 
-*Generated on 2025-10-29*
+*Generated on 2025-11-10*

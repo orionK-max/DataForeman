@@ -4,6 +4,12 @@ import net from 'net';
 export async function connectivityRoutes(app) {
   // Viewer-level access; permission-gated features
 
+  // Helper: Clean connection config for NATS publishing (remove database-specific fields)
+  const cleanConnForNats = (conn) => {
+    const { max_tags_per_group, max_concurrent_connections, ...cleaned } = conn;
+    return cleaned;
+  };
+
   // Helper: Load connection config by ID
   const loadConnectionConfig = async (client, connectionId) => {
     const { rows } = await client.query(
@@ -340,6 +346,10 @@ export async function connectivityRoutes(app) {
       if (!msg.op || !['upsert', 'delete'].includes(msg.op)) return reply.code(400).send({ error: 'invalid op' });
       if (msg.op === 'upsert' && !msg.conn) return reply.code(400).send({ error: 'missing conn' });
       if (msg.op === 'delete' && !msg.id) return reply.code(400).send({ error: 'missing id' });
+      // Clean conn if upsert
+      if (msg.op === 'upsert' && msg.conn) {
+        msg.conn = cleanConnForNats(msg.conn);
+      }
       app.nats.publish('df.connectivity.config.v1', msg);
       try { await app.audit('connectivity.config.publish', { outcome: 'success', actor_user_id: req.user?.sub }); } catch {}
       return { ok: true };
@@ -408,7 +418,7 @@ export async function connectivityRoutes(app) {
           const saved = await loadConnectionConfig(app.db, id);
           if (saved) {
             const wasEnabled = saved.enabled !== false;
-            try { app.nats.publish('df.connectivity.config.v1', { schema: 'connectivity.config@v1', ts: new Date().toISOString(), op: 'upsert', conn: { ...saved, enabled: true } }); } catch {}
+            try { app.nats.publish('df.connectivity.config.v1', { schema: 'connectivity.config@v1', ts: new Date().toISOString(), op: 'upsert', conn: { ...cleanConnForNats(saved), enabled: true } }); } catch {}
             const start = Date.now();
             while (Date.now() - start < 8000) {
               const s = app.connectivityStatus.get(id);
@@ -485,7 +495,7 @@ export async function connectivityRoutes(app) {
             schema: 'connectivity.config@v1', 
             ts: new Date().toISOString(), 
             op: 'upsert', 
-            conn: { ...saved, enabled: true } 
+            conn: { ...cleanConnForNats(saved), enabled: true } 
           });
           
           // Wait up to 8s for connection to be ready
@@ -556,7 +566,7 @@ export async function connectivityRoutes(app) {
           const saved = await loadConnectionConfig(app.db, id);
           if (saved) {
             const wasEnabled = saved.enabled !== false;
-            try { app.nats.publish('df.connectivity.config.v1', { schema: 'connectivity.config@v1', ts: new Date().toISOString(), op: 'upsert', conn: { ...saved, enabled: true } }); } catch {}
+            try { app.nats.publish('df.connectivity.config.v1', { schema: 'connectivity.config@v1', ts: new Date().toISOString(), op: 'upsert', conn: { ...cleanConnForNats(saved), enabled: true } }); } catch {}
             const start = Date.now();
             while (Date.now() - start < 8000) {
               const s = app.connectivityStatus.get(id);
@@ -609,7 +619,7 @@ export async function connectivityRoutes(app) {
                 schema: 'connectivity.config@v1',
                 ts: new Date().toISOString(),
                 op: 'upsert',
-                conn: { ...saved, enabled: true },
+                conn: { ...cleanConnForNats(saved), enabled: true },
               });
             } catch {}
             // Wait up to 8s for connected or error state
@@ -780,7 +790,7 @@ export async function connectivityRoutes(app) {
         schema: 'connectivity.config@v1',
         ts: new Date().toISOString(),
         op: 'upsert',
-        conn,
+        conn: cleanConnForNats(conn),
       });
     } catch (e) {
       return reply.code(503).send({ error: 'publish_failed' });
@@ -1065,7 +1075,7 @@ export async function connectivityRoutes(app) {
             schema: 'connectivity.config@v1', 
             ts: new Date().toISOString(), 
             op: 'upsert', 
-            conn 
+            conn: cleanConnForNats(conn)
           }); 
           
           // Send specific tag addition notifications
@@ -1148,7 +1158,7 @@ export async function connectivityRoutes(app) {
               schema: 'connectivity.config@v1', 
               ts: new Date().toISOString(), 
               op: 'upsert', 
-              conn 
+              conn: cleanConnForNats(conn)
             });
           }
         } catch {}
@@ -1504,7 +1514,7 @@ export async function connectivityRoutes(app) {
       conn.poll_ms = pollMs;
       await saveConnectionConfig(app.db, id, conn);
       try {
-        if (app.nats?.healthy()) app.nats.publish('df.connectivity.config.v1', { schema: 'connectivity.config@v1', ts: new Date().toISOString(), op: 'upsert', conn: { id, name: conn.name, enabled: conn.enabled, ...conn } });
+        if (app.nats?.healthy()) app.nats.publish('df.connectivity.config.v1', { schema: 'connectivity.config@v1', ts: new Date().toISOString(), op: 'upsert', conn: cleanConnForNats({ id, name: conn.name, enabled: conn.enabled, ...conn }) });
       } catch {}
       return { ok: true, poll_ms: pollMs };
     } catch (e) {
@@ -1544,7 +1554,7 @@ export async function connectivityRoutes(app) {
 
       try {
         if (app.nats?.healthy()) {
-          app.nats.publish('df.connectivity.config.v1', { schema: 'connectivity.config@v1', ts: new Date().toISOString(), op: 'upsert', conn: { id, name: conn.name, enabled: conn.enabled, ...conn } });
+          app.nats.publish('df.connectivity.config.v1', { schema: 'connectivity.config@v1', ts: new Date().toISOString(), op: 'upsert', conn: cleanConnForNats({ id, name: conn.name, enabled: conn.enabled, ...conn }) });
           app.nats.publish('df.connectivity.tags.changed.v1', { schema: 'connectivity.tags.changed@v1', ts: new Date().toISOString(), connection_id: id, op: 'tag_pending_delete', removed_tag_id: tagId });
         }
       } catch {}
@@ -1622,7 +1632,7 @@ export async function connectivityRoutes(app) {
             schema: 'connectivity.config@v1', 
             ts: new Date().toISOString(), 
             op: 'upsert', 
-            conn: { id, name: conn.name, enabled: conn.enabled, ...conn }
+            conn: cleanConnForNats({ id, name: conn.name, enabled: conn.enabled, ...conn })
           });
           for (const tagId of normalizedTagIds) {
             app.nats.publish('df.connectivity.tags.changed.v1', { 

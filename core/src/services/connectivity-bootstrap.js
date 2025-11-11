@@ -1,5 +1,11 @@
 import fp from 'fastify-plugin';
 
+// Helper: Clean connection config for NATS publishing (remove database-specific fields)
+function cleanConnForNats(conn) {
+  const { max_tags_per_group, max_concurrent_connections, ...cleaned } = conn;
+  return cleaned;
+}
+
 // Periodically republish saved connectivity connections to NATS so drivers can recover after restarts
 export const connectivityBootstrap = fp(async (app, opts = {}) => {
   const intervalMs = Math.max(10_000, Math.min(10 * 60_000, Number(process.env.CONNECTIVITY_REPUBLISH_MS || 60_000)));
@@ -32,6 +38,8 @@ export const connectivityBootstrap = fp(async (app, opts = {}) => {
     }
     const items = await loadSaved();
     for (const conn of items) {
+      // Skip system connections (not handled by connectivity service)
+      if (conn.type === 'system') continue;
       // Do not republish disabled connections
       if (conn.enabled === false) continue;
       try {
@@ -39,7 +47,7 @@ export const connectivityBootstrap = fp(async (app, opts = {}) => {
           schema: 'connectivity.config@v1',
           ts: new Date().toISOString(),
           op: 'upsert',
-          conn,
+          conn: cleanConnForNats(conn),
         });
       } catch (e) {
         app.log.warn({ err: e, id: conn.id }, 'connectivity: failed to republish saved connection');
