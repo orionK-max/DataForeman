@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
       POSTGRES_DB: ${PGDATABASE:-dataforeman}
     ports:
-      - "127.0.0.1:5432:5432"  # Only accessible from localhost (not internet)
+      - "127.0.0.1:5432:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
@@ -24,9 +24,9 @@ services:
   nats:
     image: nats:2-alpine
     command: ["-js", "-l", "/var/log/nats/nats.current"]
-    # ports:
-    #   - "4222:4222"  # REMOVED - NATS should not be exposed to internet
-    #   - "8222:8222"  # REMOVED - NATS HTTP should not be exposed to internet
+    ports:
+      - "127.0.0.1:4222:4222"  # Only accessible from localhost (needed for connectivity service with host network)
+      # - "8222:8222"  # REMOVED - NATS HTTP should not be exposed
     volumes:
       - ./logs/nats:/var/log/nats
 
@@ -37,7 +37,7 @@ services:
       POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       POSTGRES_DB: ${TSDB_DATABASE:-telemetry}
     ports:
-      - "127.0.0.1:5433:5432"  # Only accessible from localhost (not internet)
+      - "127.0.0.1:5433:5432"
     volumes:
       - tsdb-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
@@ -101,22 +101,18 @@ services:
 
   connectivity:
     build: ./connectivity
+    network_mode: host  # Required for EIP autodiscovery to access physical network
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
-      NATS_URL: nats://nats:4222
+      NATS_URL: nats://localhost:4222  # Use localhost since we're on host network
       SERVICE_ID: connectivity-1
       HOST: 0.0.0.0
       PORT: 3100
       LOG_FILE: /var/log/connectivity/connectivity.current
       ENABLE_MULTIRATE: "true"
       CONNECTIVITY_SCRIPT: src/index-multirate.mjs
-      EIP_DRIVER: "${EIP_DRIVER:-libplctag}"  # Options: libplctag (default), pycomm3, javascript
       PYCOMM3_ARRAY_MODE: "${PYCOMM3_ARRAY_MODE:-batch}"  # Options: batch (default), individual
-      PYCOMM3_MAX_TAGS_PER_GROUP: "${PYCOMM3_MAX_TAGS_PER_GROUP:-500}"  # Max tags per poll group (lower for stability)
-      PYCOMM3_MAX_CONNECTIONS: "${PYCOMM3_MAX_CONNECTIONS:-8}"  # Max concurrent CIP connections to PLC
-      EIP_TAGGROUP_BYTE_BUDGET: "${EIP_TAGGROUP_BYTE_BUDGET:-1800}"  # Bytes per shard, higher = fewer shards
-      EIP_SHARD_BUDGET_FRAC: "${EIP_SHARD_BUDGET_FRAC:-0.85}"  # Fraction of poll interval for shard processing
-      PGHOST: db
+      PGHOST: localhost  # Use localhost since we're on host network
       PGPORT: 5432
       PGDATABASE: dataforeman
       PGUSER: ${PGUSER:-postgres}
@@ -125,12 +121,7 @@ services:
       - nats
       - tsdb
       - db
-    extra_hosts:
-      - "host-gateway:host-gateway"
-      - "mtssrv1:138.128.244.15"
-    ports:
-      - "3102:3100"
-      - "4841:4841"
+    # Note: extra_hosts and ports are not used with network_mode: host
     volumes:
       - ./logs/connectivity:/var/log/connectivity
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro

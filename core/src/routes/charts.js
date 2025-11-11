@@ -15,8 +15,6 @@ export async function chartsRoutes(app) {
     }
   }
 
-  // (Debug route removed)
-
   const uuidRe = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
   function ensureValidId(req, reply) {
     if (!uuidRe.test(req.params.id || '')) return reply.code(400).send({ error: 'invalid_id' });

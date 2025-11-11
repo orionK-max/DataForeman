@@ -330,7 +330,7 @@ export async function authRoutes(app) {
     return { ok: true };
   });
 
-  // Extras kept from legacy: dev-token and license stubs
+  // Extras kept from legacy: dev-token
   if (String(process.env.AUTH_DEV_TOKEN) === '1') {
     app.get('/dev-token', async () => {
       // Stable development UUID for local testing
@@ -339,5 +339,5 @@ export async function authRoutes(app) {
       return { token, role: 'admin', sub: devSub };
     });
   }
-  // legacy license stub removed; real license endpoints are registered in server.js
+  
 }

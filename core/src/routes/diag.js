@@ -74,8 +74,8 @@ export async function diagRoutes(app) {
     let connectivity = { ok: null };
     try {
       const ac = new AbortController();
-      const to = setTimeout(() => ac.abort(), 800);
-      const res = await fetch('http://connectivity:3100/health', { signal: ac.signal });
+      const to = setTimeout(() => ac.abort(), 2000); // Increased timeout for host-gateway network hop
+      const res = await fetch('http://host-gateway:3100/health', { signal: ac.signal });
       clearTimeout(to);
       if (res.ok) {
         let data = null; try { data = await res.json(); } catch {}
@@ -238,7 +238,7 @@ export async function diagRoutes(app) {
       // Ask connectivity to write a debug line
       const ac = new AbortController();
       const to = setTimeout(() => ac.abort(), 1500);
-      const res = await fetch('http://connectivity:3100/debug/log', { signal: ac.signal });
+      const res = await fetch('http://host-gateway:3100/debug/log', { signal: ac.signal });
       clearTimeout(to);
       result.connectivity = res.ok;
     } catch {}

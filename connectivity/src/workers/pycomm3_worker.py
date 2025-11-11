@@ -418,26 +418,49 @@ class PyComm3Worker:
             
             result_devices = []
             for device in devices:
-                # Handle revision - PyComm3 returns Revision object with major/minor attributes
-                if hasattr(device.Revision, 'major') and hasattr(device.Revision, 'minor'):
-                    revision_major = device.Revision.major
-                    revision_minor = device.Revision.minor
+                # PyComm3 1.2.14+ returns dictionaries, not objects
+                if isinstance(device, dict):
+                    # Dictionary format (PyComm3 1.2.14+)
+                    revision = device.get('revision', {})
+                    if isinstance(revision, dict):
+                        revision_major = revision.get('major', 0)
+                        revision_minor = revision.get('minor', 0)
+                    else:
+                        # Fallback if revision is just an integer
+                        revision_major = int(revision) if revision else 0
+                        revision_minor = 0
+                    
+                    result_devices.append({
+                        'ip': device.get('ip_address', 'unknown'),
+                        'vendor': device.get('vendor', 'unknown'),
+                        'product_name': device.get('product_name', 'unknown'),
+                        'product_code': device.get('product_code', 0),
+                        'serial': device.get('serial', 'unknown'),
+                        'revision': {
+                            'major': revision_major,
+                            'minor': revision_minor
+                        }
+                    })
                 else:
-                    # Fallback if Revision is just an integer
-                    revision_major = int(device.Revision) if device.Revision else 0
-                    revision_minor = 0
-                
-                result_devices.append({
-                    'ip': device.IPAddress,
-                    'vendor': device.Vendor,
-                    'product_name': device.ProductName,
-                    'product_code': device.ProductCode,
-                    'serial': device.SerialNumber,
-                    'revision': {
-                        'major': revision_major,
-                        'minor': revision_minor
-                    }
-                })
+                    # Object format (older PyComm3 versions)
+                    if hasattr(device.Revision, 'major') and hasattr(device.Revision, 'minor'):
+                        revision_major = device.Revision.major
+                        revision_minor = device.Revision.minor
+                    else:
+                        revision_major = int(device.Revision) if device.Revision else 0
+                        revision_minor = 0
+                    
+                    result_devices.append({
+                        'ip': device.IPAddress,
+                        'vendor': device.Vendor,
+                        'product_name': device.ProductName,
+                        'product_code': device.ProductCode,
+                        'serial': device.SerialNumber,
+                        'revision': {
+                            'major': revision_major,
+                            'minor': revision_minor
+                        }
+                    })
             
             logger.info(f"Found {len(result_devices)} devices")
             return {'devices': result_devices}

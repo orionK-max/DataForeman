@@ -71,13 +71,6 @@ export async function buildServer() {
   // Ensure log directories exist with open permissions
   ensureLoggingDirsSync();
   const app = Fastify({ logger });
-  // TEMP DEBUG INSTRUMENTATION (remove after diagnosing /jobs 500s)
-  app.addHook('onRequest', (req, reply, done) => {
-    try {
-      app.log.info({ evt: 'onRequest', method: req.method, url: req.url, auth: !!req.headers.authorization }, 'incoming request');
-    } catch {}
-    done();
-  });
   // App version from core/package.json
   try {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -110,7 +103,7 @@ export async function buildServer() {
   await app.register(helmet, { global: true });
   await app.register(multipart, { 
     limits: { 
-      fileSize: 10 * 1024 * 1024 // 10MB max file size
+      fileSize: Number(process.env.MAX_FILE_SIZE_BYTES || 10 * 1024 * 1024) // Default: 10MB
     } 
   });
 
