@@ -51,25 +51,32 @@ if not exist ".env" (
     echo.
 )
 
-REM Fix permissions via batch file (no PowerShell required)
-REM Pass /SKIPCHECK if we were called with it (from installer)
+REM Check and fix directory permissions automatically
 echo [1.5/3] Setting up directory permissions...
 echo This ensures Docker containers can write to log directories...
-if /i "%~1"=="/SKIPCHECK" (
-    call "%~dp0fix-permissions.bat" /SILENT /SKIPCHECK
+
+REM Quick check if directories exist and are writable
+if not exist "logs" (
+    echo Creating missing log directories...
+    if /i "%~1"=="/SKIPCHECK" (
+        call "%~dp0fix-permissions.bat" /SILENT /SKIPCHECK
+    ) else (
+        call "%~dp0fix-permissions.bat" /SILENT
+    )
 ) else (
-    call "%~dp0fix-permissions.bat" /SILENT
-)
-if errorlevel 1 (
-    echo [ERROR] Permission fix via WSL failed!
-    echo.
-    echo WSL is required for DataForeman to run on Windows.
-    echo Please ensure Docker Desktop is running and WSL is installed.
-    echo.
-    echo Try running fix-permissions.bat manually from the Start Menu.
-    echo.
-    pause
-    exit /b 1
+    REM Test if we can write to logs directory
+    echo test > "logs\write_test.tmp" 2>nul
+    if errorlevel 1 (
+        echo Permission issue detected, fixing permissions...
+        if /i "%~1"=="/SKIPCHECK" (
+            call "%~dp0fix-permissions.bat" /SILENT /SKIPCHECK
+        ) else (
+            call "%~dp0fix-permissions.bat" /SILENT
+        )
+    ) else (
+        del "logs\write_test.tmp" 2>nul
+        echo Directory permissions are OK
+    )
 )
 
 echo [2/3] Building and starting DataForeman services...
@@ -98,10 +105,33 @@ docker-compose up -d
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to start DataForeman.
-    echo Check the error messages above for details.
+    echo This might be a permission issue. Attempting automatic fix...
     echo.
-    pause
-    exit /b 1
+    
+    REM Force permission fix and try again
+    if /i "%~1"=="/SKIPCHECK" (
+        call "%~dp0fix-permissions.bat" /SILENT /SKIPCHECK
+    ) else (
+        call "%~dp0fix-permissions.bat" /SILENT
+    )
+    
+    echo.
+    echo Retrying startup...
+    docker-compose up -d
+    
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] Still failing after permission fix.
+        echo.
+        echo Please try the following troubleshooting steps:
+        echo 1. Right-click and run fix-permissions.bat as Administrator
+        echo 2. Run diagnose-permissions.ps1 for detailed analysis
+        echo 3. Ensure Docker Desktop is running and WSL2 is enabled
+        echo 4. Check that no other services are using ports 3000 or 8080
+        echo.
+        pause
+        exit /b 1
+    )
 )
 
 echo.

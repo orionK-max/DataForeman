@@ -76,19 +76,64 @@ if (-not (Test-Path ".env")) {
 }
 Write-Host ""
 
-# Log directories are created by the installer itself with proper admin permissions
-Write-ColorOutput "[3/4] Creating directories..." "Yellow"
-$wslPath = $InstallDir -replace '\\', '/' -replace '^([A-Z]):', {'/mnt/' + $_.Groups[1].Value.ToLower()}
+# Create directories and fix permissions using the same logic as fix-permissions.ps1
+Write-ColorOutput "[3/4] Creating directories and setting permissions..." "Yellow"
 
+# Create directories using Windows native commands
+$logDirs = @(
+    "logs",
+    "logs\postgres", 
+    "logs\core",
+    "logs\connectivity", 
+    "logs\front",
+    "logs\ingestor",
+    "logs\nats", 
+    "logs\ops",
+    "logs\tsdb",
+    "var"
+)
+
+$allDirsCreated = $true
+foreach ($dir in $logDirs) {
+    $fullPath = Join-Path $InstallDir $dir
+    try {
+        if (-not (Test-Path $fullPath)) {
+            New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
+        }
+    } catch {
+        $allDirsCreated = $false
+    }
+}
+
+# Set Windows permissions using icacls (more reliable during installation)
 try {
-    # Create all required directories via WSL to ensure proper permissions
-    wsl -e bash -c "mkdir -p '$wslPath/logs' '$wslPath/var' '$wslPath/logs/postgres' '$wslPath/logs/core' '$wslPath/logs/connectivity' '$wslPath/logs/front' '$wslPath/logs/ingestor' '$wslPath/logs/nats' '$wslPath/logs/ops' '$wslPath/logs/tsdb' 2>/dev/null || true"
-    wsl -e bash -c "chmod -R 777 '$wslPath/logs' 2>/dev/null || true"
-    wsl -e bash -c "chmod -R 755 '$wslPath/var' 2>/dev/null || true"
-    Write-ColorOutput "✓ Directories created with proper permissions" "Green"
+    $logsPath = Join-Path $InstallDir "logs"
+    $varPath = Join-Path $InstallDir "var"
+    
+    if (Test-Path $logsPath) {
+        Start-Process -FilePath "icacls" -ArgumentList "`"$logsPath`"", "/grant", "Everyone:(OI)(CI)F", "/T" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $varPath) {
+        Start-Process -FilePath "icacls" -ArgumentList "`"$varPath`"", "/grant", "Everyone:(OI)(CI)F", "/T" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+    }
+    
+    Write-ColorOutput "✓ Directories created and Windows permissions set" "Green"
 } catch {
-    Write-ColorOutput "⚠ Could not create directories via WSL" "Yellow"
-    Write-ColorOutput "  Directories will be created on first run" "Gray"
+    Write-ColorOutput "⚠ Windows permissions could not be set" "Yellow"
+    Write-ColorOutput "  This is normal during installation, fix-permissions.ps1 can be run later" "Gray"
+}
+
+# Also try WSL permissions if available (optional during install)
+$wslPath = $InstallDir -replace '\\', '/' -replace '^([A-Z]):', {'/mnt/' + $_.Groups[1].Value.ToLower()}
+try {
+    $wslTest = wsl -e bash -c "echo 'WSL_TEST'" 2>$null
+    if ($wslTest -eq "WSL_TEST") {
+        wsl -e bash -c "mkdir -p '$wslPath/logs' '$wslPath/var' 2>/dev/null || true" 2>$null
+        wsl -e bash -c "chmod -R 777 '$wslPath/logs' 2>/dev/null || true" 2>$null
+        wsl -e bash -c "chmod -R 755 '$wslPath/var' 2>/dev/null || true" 2>$null
+    }
+} catch {
+    # WSL not available during installation - this is fine
 }
 Write-Host ""
 

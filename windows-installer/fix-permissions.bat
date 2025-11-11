@@ -69,37 +69,78 @@ set "WSL_PATH=/mnt/%DRIVE_LETTER%/%REST_OF_PATH%"
 if %SILENT_MODE%==0 echo WSL path: %WSL_PATH%
 if %SILENT_MODE%==0 echo.
 
-REM First create directories using Windows commands to ensure they exist in Windows filesystem
-if %SILENT_MODE%==0 echo Creating directories in Windows...
+REM Step 1: Create directories using Windows commands
+if %SILENT_MODE%==0 echo [1/4] Creating directories in Windows...
 if not exist "logs" mkdir "logs"
 if not exist "logs\postgres" mkdir "logs\postgres"
 if not exist "logs\core" mkdir "logs\core"
 if not exist "logs\connectivity" mkdir "logs\connectivity"
 if not exist "logs\front" mkdir "logs\front"
+if not exist "logs\ingestor" mkdir "logs\ingestor"
 if not exist "logs\nats" mkdir "logs\nats"
 if not exist "logs\ops" mkdir "logs\ops"
 if not exist "logs\tsdb" mkdir "logs\tsdb"
 if not exist "var" mkdir "var"
 
+if %SILENT_MODE%==0 echo Directories created successfully
+
+REM Step 2: Set Windows permissions using icacls (more reliable than ACL)
+if %SILENT_MODE%==0 echo [2/4] Setting Windows permissions...
+icacls "logs" /grant Everyone:(OI)(CI)F /T >nul 2>&1
+if errorlevel 1 (
+    if %SILENT_MODE%==0 echo [WARNING] Could not set Windows permissions on logs directory
+) else (
+    if %SILENT_MODE%==0 echo Windows permissions set for logs directory
+)
+
+icacls "var" /grant Everyone:(OI)(CI)F /T >nul 2>&1
+if errorlevel 1 (
+    if %SILENT_MODE%==0 echo [WARNING] Could not set Windows permissions on var directory
+) else (
+    if %SILENT_MODE%==0 echo Windows permissions set for var directory
+)
+
+REM Step 3: Check Docker availability
+if %SILENT_MODE%==0 echo [3/4] Checking Docker...
+docker --version >nul 2>&1
+if errorlevel 1 (
+    if %SILENT_MODE%==0 echo [WARNING] Docker is not installed or not in PATH
+) else (
+    if %SILENT_MODE%==0 echo Docker is available
+)
+
+REM Step 4: Set WSL permissions if available
+if %SILENT_MODE%==0 echo [4/4] Setting WSL permissions (if available)...
+
+REM Test if WSL is available first
+wsl echo WSL_TEST >nul 2>&1
+if errorlevel 1 (
+    if %SILENT_MODE%==0 echo WSL is not available, using Windows permissions only
+    goto :skip_wsl
+)
+
 REM Give WSL a moment to sync filesystem
 timeout /t 1 /nobreak >nul 2>&1
 
 REM Verify directories exist in WSL before setting permissions
-if %SILENT_MODE%==0 echo Verifying directories in WSL...
-wsl sh -c "test -d '%WSL_PATH%/logs' || mkdir -p '%WSL_PATH%/logs'" 2>nul
-wsl sh -c "test -d '%WSL_PATH%/var' || mkdir -p '%WSL_PATH%/var'" 2>nul
+wsl sh -c "mkdir -p '%WSL_PATH%/logs' '%WSL_PATH%/var' '%WSL_PATH%/logs/postgres' '%WSL_PATH%/logs/core' '%WSL_PATH%/logs/connectivity' '%WSL_PATH%/logs/front' '%WSL_PATH%/logs/ingestor' '%WSL_PATH%/logs/nats' '%WSL_PATH%/logs/ops' '%WSL_PATH%/logs/tsdb' 2>/dev/null || true" >nul 2>&1
 
-REM Now set permissions via WSL
-if %SILENT_MODE%==0 echo Setting permissions via WSL...
-wsl sh -c "chmod -R 777 '%WSL_PATH%/logs'" 2>nul
+REM Set permissions via WSL
+wsl sh -c "chmod -R 777 '%WSL_PATH%/logs'" >nul 2>&1
 if errorlevel 1 (
-    if %SILENT_MODE%==0 echo [WARNING] Could not set permissions on logs directory
+    if %SILENT_MODE%==0 echo [WARNING] Could not set WSL permissions on logs directory
+) else (
+    if %SILENT_MODE%==0 echo WSL permissions set for logs directory
 )
 
-wsl sh -c "chmod -R 755 '%WSL_PATH%/var'" 2>nul
+wsl sh -c "chmod -R 755 '%WSL_PATH%/var'" >nul 2>&1
 if errorlevel 1 (
-    if %SILENT_MODE%==0 echo [WARNING] Could not set permissions on var directory
+    if %SILENT_MODE%==0 echo [WARNING] Could not set WSL permissions on var directory
+) else (
+    if %SILENT_MODE%==0 echo WSL permissions set for var directory
 )
+
+:skip_wsl
 
 if %SILENT_MODE%==0 (
     echo.
