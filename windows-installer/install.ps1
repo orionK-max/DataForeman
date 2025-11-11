@@ -70,36 +70,9 @@ if (-not (Test-Path ".env")) {
     Write-ColorOutput "[OK] .env file already exists" "Green"
 }
 
-# Configure Windows-specific Docker networking settings
-if (Test-Path ".env") {
-    try {
-        $envContent = Get-Content ".env" -Raw
-        
-        # Set network mode to bridge for Windows (Docker Desktop doesn't support host mode)
-        if ($envContent -notmatch "NETWORK_MODE=") {
-            Add-Content ".env" "`n# Windows Docker networking configuration (set by installer)"
-            Add-Content ".env" "NETWORK_MODE=bridge"
-        }
-        
-        # Set service hostnames for bridge networking
-        if ($envContent -notmatch "NATS_URL=") {
-            Add-Content ".env" "NATS_URL=nats://nats:4222"
-        }
-        if ($envContent -notmatch "^PGHOST=") {
-            Add-Content ".env" "PGHOST=db"
-        }
-        if ($envContent -notmatch "^TSDB_HOST=") {
-            Add-Content ".env" "TSDB_HOST=tsdb"
-        }
-        if ($envContent -notmatch "CONNECTIVITY_PORT=") {
-            Add-Content ".env" "CONNECTIVITY_PORT=3100"
-        }
-        
-        Write-ColorOutput "[OK] Configured Docker networking for Windows" "Green"
-    } catch {
-        Write-ColorOutput "[WARN] Could not configure Windows networking settings" "Yellow"
-    }
-}
+# Note: Windows Docker networking configuration
+# Docker Compose defaults now work for Windows (uses bridge networking with service names)
+Write-ColorOutput "[OK] Docker Compose configured for Windows" "Green"
 Write-Host ""
 
 # Create directories and fix permissions

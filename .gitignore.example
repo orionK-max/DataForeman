@@ -7,6 +7,9 @@ npm-debug.log*
 .env.local
 .env.*.local
 
+# Git ignore file (use .gitignore.example as template)
+.gitignore
+
 # Logs
 *.log
 logs/

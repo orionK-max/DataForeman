@@ -82,6 +82,7 @@ DataForeman is available for both **Windows** and **Linux** systems:
 
 **Notes:**
 - Windows installer automatically handles Docker networking configuration
+- **EIP Autodiscovery limitation**: Windows Docker Desktop doesn't support host networking, so EIP autodiscovery won't find devices. You can still connect to PLCs manually by IP address.
 - If Docker Desktop prompts to update WSL, open PowerShell as Administrator and run:
   ```powershell
   wsl --update

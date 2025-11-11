@@ -107,12 +107,13 @@ services:
 
   connectivity:
     build: ./connectivity
-    network_mode: "${NETWORK_MODE:-host}"  # host (Linux) for EIP autodiscovery, bridge (Windows)
+    # Uncomment for Linux to enable host networking for EIP autodiscovery:
+    # network_mode: host
     ports:
-      - "${CONNECTIVITY_PORT:-3100}:3100"  # Only used when network_mode is bridge (Windows)
+      - "3100:3100"
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
-      NATS_URL: "${NATS_URL:-nats://localhost:4222}"  # localhost for host mode (Linux), nats://nats:4222 for bridge (Windows)
+      NATS_URL: "${NATS_URL:-nats://nats:4222}"  # Use service name for Docker Compose networking
       SERVICE_ID: connectivity-1
       HOST: 0.0.0.0
       PORT: 3100
@@ -120,13 +121,13 @@ services:
       ENABLE_MULTIRATE: "true"
       CONNECTIVITY_SCRIPT: src/index-multirate.mjs
       PYCOMM3_ARRAY_MODE: "${PYCOMM3_ARRAY_MODE:-batch}"  # Options: batch (default), individual
-      PGHOST: "${PGHOST:-localhost}"  # localhost for host mode (Linux), db for bridge (Windows)
+      PGHOST: "${PGHOST:-db}"  # Use service name for Docker Compose networking
       PGPORT: 5432
       PGDATABASE: dataforeman
       PGUSER: ${PGUSER:-postgres}
       PGPASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
       # TimescaleDB connection
-      TSDB_HOST: "${TSDB_HOST:-localhost}"  # localhost for host mode (Linux), tsdb for bridge (Windows)
+      TSDB_HOST: "${TSDB_HOST:-tsdb}"  # Use service name for Docker Compose networking
       TSDB_PORT: 5432
       TSDB_USER: ${TSDB_USER:-tsdb}
       TSDB_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
