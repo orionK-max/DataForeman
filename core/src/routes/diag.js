@@ -71,22 +71,35 @@ export async function diagRoutes(app) {
     try { await app.tsdb?.query('select 1'); tsdb = 'up'; } catch {}
 
     // connectivity service health via HTTP JSON endpoint
+    // Try multiple URLs to support both Linux (host network) and Windows (bridge network)
     let connectivity = { ok: null };
-    try {
-      const ac = new AbortController();
-      const to = setTimeout(() => ac.abort(), 2000); // Increased timeout for host-gateway network hop
-      const res = await fetch('http://host-gateway:3100/health', { signal: ac.signal });
-      clearTimeout(to);
-      if (res.ok) {
-        let data = null; try { data = await res.json(); } catch {}
-        app.log.info({ connectivityHealthData: data }, 'connectivity health response');
-        connectivity = { ok: true, nats: !!data?.nats, connections: Number(data?.connections ?? 0) };
-      } else {
-        connectivity = { ok: false, status: res.status };
+    const connectivityUrls = [
+      'http://connectivity:3100/health',  // Windows/bridge network
+      'http://host-gateway:3100/health'   // Linux/host network
+    ];
+    
+    for (const url of connectivityUrls) {
+      try {
+        const ac = new AbortController();
+        const to = setTimeout(() => ac.abort(), 2000);
+        const res = await fetch(url, { signal: ac.signal });
+        clearTimeout(to);
+        if (res.ok) {
+          let data = null; try { data = await res.json(); } catch {}
+          app.log.info({ connectivityHealthData: data, url }, 'connectivity health response');
+          connectivity = { ok: true, nats: !!data?.nats, connections: Number(data?.connections ?? 0) };
+          break; // Success - stop trying other URLs
+        } else {
+          connectivity = { ok: false, status: res.status };
+        }
+      } catch (e) {
+        // Continue to next URL if this one fails
+        connectivity = { ok: false, error: e?.name === 'AbortError' ? 'timeout' : (e?.message || 'error') };
       }
-    } catch (e) {
-      app.log.warn({ error: e?.message, name: e?.name }, 'connectivity health check failed');
-      connectivity = { ok: false, error: e?.name === 'AbortError' ? 'timeout' : (e?.message || 'error') };
+    }
+    
+    if (!connectivity.ok) {
+      app.log.warn({ connectivity, triedUrls: connectivityUrls }, 'connectivity health check failed on all URLs');
     }
 
     // simple TCP reachability for frontend and caddy (TLS proxy when profile enabled)
@@ -236,11 +249,20 @@ export async function diagRoutes(app) {
     } catch {}
     try {
       // Ask connectivity to write a debug line
-      const ac = new AbortController();
-      const to = setTimeout(() => ac.abort(), 1500);
-      const res = await fetch('http://host-gateway:3100/debug/log', { signal: ac.signal });
-      clearTimeout(to);
-      result.connectivity = res.ok;
+      // Try both URLs to support Linux (host) and Windows (bridge) networking
+      const urls = ['http://connectivity:3100/debug/log', 'http://host-gateway:3100/debug/log'];
+      for (const url of urls) {
+        try {
+          const ac = new AbortController();
+          const to = setTimeout(() => ac.abort(), 1500);
+          const res = await fetch(url, { signal: ac.signal });
+          clearTimeout(to);
+          if (res.ok) {
+            result.connectivity = true;
+            break;
+          }
+        } catch {}
+      }
     } catch {}
     return { ok: true, result };
   });
