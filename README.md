@@ -81,6 +81,7 @@ DataForeman is available for both **Windows** and **Linux** systems:
 - **Internet connection** (only needed for initial installation to download Docker images)
 
 **Notes:**
+- Windows installer automatically handles Docker networking configuration
 - If Docker Desktop prompts to update WSL, open PowerShell as Administrator and run:
   ```powershell
   wsl --update
@@ -88,14 +89,14 @@ DataForeman is available for both **Windows** and **Linux** systems:
 - For Virtual Machines (VirtualBox, VMware, Parallels, etc.): Enable **virtualization** in VM settings under the "Processors" section (also called VT-x/AMD-V or nested virtualization)
 
 #### 🐧 Linux Installation (Docker)
-**Standard Docker Compose deployment**
+**Standard Docker Compose deployment with host networking**
 
 ### Prerequisites
 - **Docker** and **Docker Compose** installed
 - **Git** installed (to download DataForeman)
 - **Internet connection** (only needed for initial installation to download Docker images)
 
-**Note:** After installation, DataForeman works completely offline. Internet is only required to download the software during first-time setup and for updates.
+**Note:** Linux version uses host networking for EIP device autodiscovery. After installation, DataForeman works completely offline.
 
 **For Virtual Machines (VirtualBox, Parallels, VMware, etc.):**
 - **Network Adapter**: Must use **Bridged Network** mode (not NAT/Shared)

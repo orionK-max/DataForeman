@@ -1,95 +1,104 @@
-# DataForeman Docker Compose Configuration (Linux/Unix)
-# This configuration uses host networking for EIP autodiscovery support on Linux systems.
-# For Windows installations, use docker-compose.windows.yml instead.
+# Docker Compose configuration for Windows
+# This file replaces docker-compose.yml during Windows installation
+
+name: dataforeman
 
 services:
   db:
     image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: ${PGUSER:-postgres}
       POSTGRES_PASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
       POSTGRES_DB: ${PGDATABASE:-dataforeman}
-    ports:
-      - "127.0.0.1:5432:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
-    command: [
-      "postgres",
-      "-c","logging_collector=on",
-      "-c","log_destination=csvlog",
-      "-c","log_directory=/var/log/postgresql",
-      "-c","log_filename=postgres-%Y-%m-%d_%H%M",
-      "-c","log_rotation_age=60",
-      "-c","log_rotation_size=0",
-      "-c","log_min_duration_statement=500"
-    ]
-
-  nats:
-    image: nats:2-alpine
-    command: ["-js", "-l", "/var/log/nats/nats.current"]
-    ports:
-      - "127.0.0.1:4222:4222"  # Only accessible from localhost (needed for connectivity service with host network)
-      # - "8222:8222"  # REMOVED - NATS HTTP should not be exposed
-    volumes:
-      - ./logs/nats:/var/log/nats
+    command: 
+      - postgres
+      - -c
+      - logging_collector=on
+      - -c
+      - log_destination=csvlog
+      - -c
+      - log_directory=/var/log/postgresql
+      - -c
+      - log_filename=postgres-%Y-%m-%d_%H%M
+      - -c
+      - log_rotation_age=60
+      - -c
+      - log_rotation_size=0
+      - -c
+      - log_min_duration_statement=500
 
   tsdb:
     image: timescale/timescaledb:latest-pg16
+    ports:
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_USER: ${TSDB_USER:-tsdb}
       POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       POSTGRES_DB: ${TSDB_DATABASE:-telemetry}
-    ports:
-      - "127.0.0.1:5433:5432"
     volumes:
       - tsdb-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
-    command: [
-      "postgres",
-      "-c","logging_collector=on",
-      "-c","log_destination=csvlog",
-      "-c","log_directory=/var/log/postgresql",
-      "-c","log_filename=tsdb-%Y-%m-%d_%H%M",
-      "-c","log_rotation_age=60",
-      "-c","log_rotation_size=0",
-      "-c","log_min_duration_statement=500"
-    ]
+    command: 
+      - postgres
+      - -c
+      - logging_collector=on
+      - -c
+      - log_destination=csvlog
+      - -c
+      - log_directory=/var/log/postgresql
+      - -c
+      - log_filename=tsdb-%Y-%m-%d_%H%M
+      - -c
+      - log_rotation_age=60
+      - -c
+      - log_rotation_size=0
+      - -c
+      - log_min_duration_statement=500
+
+  nats:
+    image: nats:2-alpine
+    ports:
+      - "127.0.0.1:4222:4222"
+    volumes:
+      - ./logs/nats:/var/log/nats
+    command: ["-js", "-l", "/var/log/nats/nats.current"]
 
   core:
     build: ./core
+    ports:
+      - "${CORE_PORT:-3000}:3000"
+    depends_on:
+      - db
+      - nats
+      - tsdb
     environment:
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      JWT_SECRET: "${JWT_SECRET:-change-me}"
       PORT: 3000
       HOST: 0.0.0.0
-      LOG_LEVEL: "${LOG_LEVEL:-info}"
       LOG_FILE: /var/log/core/core.current
-      LOG_ROTATE_PERIOD_MINUTES: ${LOG_ROTATE_PERIOD_MINUTES:-1440}
-      AUTH_DEV_TOKEN: ${AUTH_DEV_TOKEN:-0}
+      LOG_ROTATE_PERIOD_MINUTES: "${LOG_ROTATE_PERIOD_MINUTES:-1440}"
+      # Admin settings
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-password}"
+      # Main Postgres connection
       PGHOST: db
       PGPORT: 5432
+      PGDATABASE: ${PGDATABASE:-dataforeman}
       PGUSER: ${PGUSER:-postgres}
       PGPASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
-      PGDATABASE: ${PGDATABASE:-dataforeman}
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      # Demo mode configuration
-      DEMO_MODE: ${DEMO_MODE:-0}
-      DEMO_INACTIVE_MINUTES: ${DEMO_INACTIVE_MINUTES:-60}
-      DEMO_PASSWORD_PREFIX: ${DEMO_PASSWORD_PREFIX:-Demo}
       # TimescaleDB connection
       TSDB_HOST: tsdb
       TSDB_PORT: 5432
       TSDB_USER: ${TSDB_USER:-tsdb}
       TSDB_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       TSDB_DATABASE: ${TSDB_DATABASE:-telemetry}
-    depends_on:
-      - db
-      - nats
-      - tsdb
     extra_hosts:
       - "host-gateway:host-gateway"
-    ports:
-      - "${CORE_PORT:-3000}:3000"
     volumes:
       - ./logs/core:/var/log/core
       - ./logs/nats:/var/log/nats
@@ -105,66 +114,62 @@ services:
 
   connectivity:
     build: ./connectivity
-    network_mode: host  # Required for EIP autodiscovery to access physical network (Linux)
+    # Windows: Use bridge networking instead of host networking
+    ports:
+      - "3100:3100"
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
-      NATS_URL: nats://localhost:4222  # Use localhost since we're on host network (Linux)
+      NATS_URL: nats://nats:4222  # Use service name for container networking
       SERVICE_ID: connectivity-1
       HOST: 0.0.0.0
       PORT: 3100
       LOG_FILE: /var/log/connectivity/connectivity.current
-      ENABLE_MULTIRATE: "true"
       CONNECTIVITY_SCRIPT: src/index-multirate.mjs
-      PYCOMM3_ARRAY_MODE: "${PYCOMM3_ARRAY_MODE:-batch}"  # Options: batch (default), individual
-      PGHOST: localhost  # Use localhost since we're on host network (Linux)
+      ENABLE_MULTIRATE: "${ENABLE_MULTIRATE:-true}"
+      PYCOMM3_ARRAY_MODE: "${PYCOMM3_ARRAY_MODE:-batch}"
+      PGHOST: db  # Use service name for container networking
       PGPORT: 5432
       PGDATABASE: dataforeman
       PGUSER: ${PGUSER:-postgres}
       PGPASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
+      # TimescaleDB connection
+      TSDB_HOST: tsdb
+      TSDB_PORT: 5432
+      TSDB_USER: ${TSDB_USER:-tsdb}
+      TSDB_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
+      TSDB_DATABASE: ${TSDB_DATABASE:-telemetry}
     depends_on:
+      - db
       - nats
       - tsdb
-      - db
-    # Note: extra_hosts and ports are not used with network_mode: host
     volumes:
       - ./logs/connectivity:/var/log/connectivity
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
 
   front:
     build: ./front
-    depends_on:
-      - core
     ports:
       - "${FRONT_PORT:-8080}:80"
+    depends_on:
+      - core
     volumes:
       - ./logs/front:/var/log/front
 
   rotator:
     image: node:22-alpine
     working_dir: /app
+    entrypoint: ["node", "/app/ops/rotator-daemon.js"]
+    environment:
+      LOG_ROTATE_PERIOD_MINUTES: "${LOG_ROTATE_PERIOD_MINUTES:-1440}"
     volumes:
-      - ./:/app
+      - .:/app
       - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
-    entrypoint: ["node","/app/ops/rotator-daemon.js"]
-    environment:
-      LOG_ROTATE_PERIOD_MINUTES: ${LOG_ROTATE_PERIOD_MINUTES:-1440}
     depends_on:
       - core
-      - nats
       - db
+      - nats
       - tsdb
-
-  caddy:
-    image: caddy:2-alpine
-    profiles: ["tls"]
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    depends_on:
-      - front
 
 volumes:
   db-data:
