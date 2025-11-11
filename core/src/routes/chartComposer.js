@@ -21,7 +21,7 @@ export async function chartComposerRoutes(app) {
     } catch {}
     const { conn_id, tag_id, tag_ids, from, to, limit } = req.query || {};
     const requestedLimit = Number(limit || 1000);
-    // Allow users to set max points up to 50,000 for industrial troubleshooting
+    // Allow users to set max points up to 50,000
     // Higher limits may impact performance but are necessary for detailed analysis
     
     // Helper function to fetch tag metadata for write-on-change support
@@ -43,9 +43,6 @@ export async function chartComposerRoutes(app) {
         `;
         const { rows: metaRows } = await app.db.query(metaQuery, [tagIds]);
         
-        // DEBUG: Log what metadata was fetched
-        req.log.info({ tagIds, metaRowsCount: metaRows.length, metaRows }, '[WOC DEBUG] Tag metadata query result');
-        
         for (const row of metaRows) {
           tagMetadata[row.tag_id] = {
             on_change_enabled: row.on_change_enabled || false,
@@ -55,11 +52,7 @@ export async function chartComposerRoutes(app) {
           };
         }
         
-        // DEBUG: Log what metadata was built
-        req.log.info({ tagMetadata, tagMetadataKeys: Object.keys(tagMetadata) }, '[WOC DEBUG] Built tagMetadata object');
-        
         // For write-on-change tags with a time range, fetch last value before range
-        // OPTIMIZED: Use UNION ALL of per-tag queries instead of expensive DISTINCT ON
         if (from && Object.keys(tagMetadata).some(tid => tagMetadata[tid].on_change_enabled)) {
           const writeOnChangeTagIds = Object.keys(tagMetadata)
             .filter(tid => tagMetadata[tid].on_change_enabled)
@@ -67,7 +60,6 @@ export async function chartComposerRoutes(app) {
           
           if (writeOnChangeTagIds.length > 0) {
             // Build individual subqueries per tag and UNION them
-            // This is much faster than DISTINCT ON across 39M rows
             const subqueries = writeOnChangeTagIds.map(tagId => 
               useSystemMetricsTable
                 ? `(SELECT ${tagId} as tag_id, ts, v_num as v
@@ -96,14 +88,6 @@ export async function chartComposerRoutes(app) {
       } catch (err) {
         req.log.warn({ err: err.message }, 'Failed to fetch tag metadata for write-on-change support');
       }
-      
-      // DEBUG: Log what's being returned
-      req.log.info({ 
-        tagMetadataKeys: Object.keys(tagMetadata), 
-        lastValuesBeforeKeys: Object.keys(lastValuesBefore),
-        tagMetadata,
-        lastValuesBefore
-      }, '[WOC DEBUG] Returning tag_metadata and last_values_before from helper');
       
       return { tagMetadata, lastValuesBefore };
     };
@@ -289,12 +273,6 @@ export async function chartComposerRoutes(app) {
       }
 
       // Mode B: Smart Compression ON - Min/Max Envelope Preservation Algorithm
-      // CRITICAL FOR INDUSTRIAL TROUBLESHOOTING:
-      // - Preserves extreme values (spikes and dips) that may indicate process faults
-      // - Guarantees that short-duration alarms/events are never missed
-      // - Uses per-tag proportional quotas based on poll rates (faster tags get more points)
-      // - Divides time range into buckets and captures MIN + MAX from each bucket
-      // - Industry standard approach used by OSIsoft PI, Wonderware, etc.
       // Fetch poll rates for selected tags
       try {
         let tagIdsForQuota = selectedTagIds;
@@ -394,12 +372,7 @@ export async function chartComposerRoutes(app) {
         const quotaTagIds = quotas.map(q => q.tag_id);
         const quotaValues = quotas.map(q => q.quota);
         
-        // OPTIMIZATION: Skip expensive COUNT query - sample data instead
-        // The old query does COUNT(*) GROUP BY which is expensive on 39M rows
-        
-        // Min/Max Envelope Preservation Algorithm - OPTIMIZED VERSION
-        // Uses simple subqueries per tag instead of expensive window functions
-        // Build UNION ALL for each tag to avoid ROW_NUMBER() OVER PARTITION BY
+        // Build UNION ALL query for each tag to optimize min/max envelope extraction
         const envelopeQueries = [];
         
         for (let i = 0; i < quotas.length; i++) {
@@ -536,13 +509,6 @@ export async function chartComposerRoutes(app) {
         
         // Fetch tag metadata for write-on-change support
         const { tagMetadata, lastValuesBefore } = await fetchTagMetadata(tagIdsForQuota, from, useSystemMetricsTable, tableName);
-        
-        req.log.info({ 
-          returningTagMetadata: tagMetadata, 
-          returningLastValuesBefore: lastValuesBefore,
-          tagMetadataKeys: Object.keys(tagMetadata),
-          lastValuesBeforeKeys: Object.keys(lastValuesBefore)
-        }, '[WOC DEBUG] About to return response with metadata');
         
         return { 
           items, 
@@ -731,19 +697,6 @@ export async function chartComposerRoutes(app) {
       items = items.reverse();
     }
     
-    // Log detailed range information for debugging
-    const firstTs = items.length > 0 ? items[0].ts : null;
-    const lastTs = items.length > 0 ? items[items.length - 1].ts : null;
-    req.log.info({ 
-      route: 'chart_composer.points.regular_no_range',
-      requested: { from, to },
-      actual: { firstTs, lastTs, count: items.length }
-    }, 'REGULAR DATA RANGE DEBUG (no range)');
-    
-    try {
-      req.log.debug({ requestedRange: { from, to }, actualDataRange: { firstTs, lastTs }, itemCount: items.length, method: 'latest_desc_limit' }, 'chart_composer.points response (no range)');
-    } catch {}
-    
     // Fetch tag metadata for write-on-change support
     const tagMetadata = {};
     const lastValuesBefore = {};
@@ -759,9 +712,6 @@ export async function chartComposerRoutes(app) {
         `;
         const { rows: metaRows } = await app.db.query(metaQuery, [selectedTagIds]);
         
-        // DEBUG: Log what metadata was fetched
-        req.log.info({ selectedTagIds, metaRowsCount: metaRows.length, metaRows }, '[WOC DEBUG] Tag metadata query result');
-        
         for (const row of metaRows) {
           tagMetadata[row.tag_id] = {
             on_change_enabled: row.on_change_enabled || false,
@@ -770,9 +720,6 @@ export async function chartComposerRoutes(app) {
             on_change_deadband_type: row.on_change_deadband_type || 'absolute'
           };
         }
-        
-        // DEBUG: Log what metadata was built
-        req.log.info({ tagMetadata, tagMetadataKeys: Object.keys(tagMetadata) }, '[WOC DEBUG] Built tagMetadata object');
         
         // For write-on-change tags with a time range, fetch last value before range
         if (from && Object.keys(tagMetadata).some(tid => tagMetadata[tid].on_change_enabled)) {
@@ -814,14 +761,6 @@ export async function chartComposerRoutes(app) {
         req.log.warn({ err: err.message }, 'Failed to fetch tag metadata for write-on-change support');
       }
     }
-    
-    // DEBUG: Log what's being returned
-    req.log.info({ 
-      tagMetadataKeys: Object.keys(tagMetadata), 
-      lastValuesBeforeKeys: Object.keys(lastValuesBefore),
-      tagMetadata,
-      lastValuesBefore
-    }, '[WOC DEBUG] Returning tag_metadata and last_values_before');
     
     return { 
       items, 

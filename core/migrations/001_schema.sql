@@ -3,16 +3,15 @@
 -- Initial Installation Migration
 -- =====================================================
 -- This migration creates the complete database schema for a fresh installation.
--- It combines all incremental migrations into a single, efficient schema definition.
 
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- TimescaleDB extension (optional, only if available)
+-- TimescaleDB extension
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb') THEN
-    RAISE NOTICE 'TimescaleDB extension not available, skipping';
+    RAISE NOTICE 'TimescaleDB extension not available';
   ELSE
     CREATE EXTENSION IF NOT EXISTS timescaledb;
   END IF;
@@ -202,7 +201,7 @@ INSERT INTO poll_groups (group_id, name, poll_rate_ms, description) VALUES
 (6,  'Slow',          2000,  'Slow changing values (2s)'),
 (7,  'Very Slow',     5000,  'Infrequent updates (5s)'),
 (8,  'Diagnostic',    10000, 'Equipment diagnostics (10s)'),
-(9,  'Hourly',        60000, 'Hourly statistics (1min)'),
+(9,  'Minute',    60000, 'Per minute polling (1min)'),
 (10, 'Custom',        30000, 'Custom/flexible rate (30s)')
 ON CONFLICT (group_id) DO NOTHING;
 
@@ -344,7 +343,7 @@ CREATE TABLE IF NOT EXISTS dashboard_configs (
     is_shared boolean NOT NULL DEFAULT false,
     is_deleted boolean NOT NULL DEFAULT false,
     layout jsonb NOT NULL DEFAULT '{}'::jsonb,
-    options jsonb NOT NULL DEFAULT '{}'::jsonb, -- Added in migration 017
+    options jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
