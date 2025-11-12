@@ -379,13 +379,24 @@ export async function chartComposerRoutes(app) {
           const { tag_id, quota } = quotas[i];
           const bucketsPerTag = Math.max(Math.floor(quota / 2), 1);
           
+          // Build WHERE clause with correct parameter positions for this envelope query
+          // Since we're using literal tag_id, we need to rebuild the WHERE with sequential params
+          const envelopeWhere = [];
+          let paramIdx = 1;
+          if (!useSystemMetricsTable && conn_id) {
+            envelopeWhere.push(`connection_id = $${paramIdx++}`);
+          }
+          envelopeWhere.push(`tv.tag_id = ${tag_id}`); // Literal tag_id
+          if (from) envelopeWhere.push(`ts >= $${paramIdx++}`);
+          if (to) envelopeWhere.push(`ts <= $${paramIdx++}`);
+          
           if (useSystemMetricsTable) {
             envelopeQueries.push(`
               (WITH tag_data AS (
                 SELECT tv.ts, tv.tag_id, tv.v_num,
                        ntile(${bucketsPerTag}) OVER (ORDER BY tv.ts ASC) as bucket
                 FROM ${tableName} tv
-                WHERE ${where.join(' and ').replace('tag_id = ANY($' + params.length + '::int[])', 'tv.tag_id = ' + tag_id)}
+                WHERE ${envelopeWhere.join(' AND ')}
                   AND tv.v_num IS NOT NULL
               ),
               min_max AS (
@@ -415,7 +426,7 @@ export async function chartComposerRoutes(app) {
                        tv.v_num, tv.v_text, tv.v_json,
                        ntile(${bucketsPerTag}) OVER (ORDER BY tv.ts ASC) as bucket
                 FROM ${tableName} tv
-                WHERE ${where.join(' and ').replace('tag_id = ANY($' + params.length + '::int[])', 'tv.tag_id = ' + tag_id)}
+                WHERE ${envelopeWhere.join(' AND ')}
               ),
               sampled AS (
                 SELECT DISTINCT ON (bucket, sample_type)
@@ -442,8 +453,14 @@ export async function chartComposerRoutes(app) {
         
         const q = envelopeQueries.join(' UNION ALL ') + ' ORDER BY tag_id ASC, ts ASC';
         
-        // Remove tag_ids and quotas from params since we're using literals
-        const adjustedParams = params.filter((_, idx) => idx !== params.length - 1);
+        // Build adjusted params: envelope queries use literal tag_ids, so we only need connection_id, from, to
+        // Original params array: [connection_id?, tag_ids_array, from, to]
+        const adjustedParams = [];
+        if (!useSystemMetricsTable && conn_id) {
+          adjustedParams.push(conn_id); // $1
+        }
+        if (from) adjustedParams.push(from); // $2 or $1 if no conn_id
+        if (to) adjustedParams.push(to);     // $3 or $2 if no conn_id
         
         const { rows } = await db.query(q, adjustedParams);
         
@@ -520,7 +537,6 @@ export async function chartComposerRoutes(app) {
           compression: {
             method: 'min_max_envelope',
             extremesPreserved: true,
-            originalCounts: availablePerTag,
             quotas: quotas.reduce((acc, q) => { acc[q.tag_id] = q.quota; return acc; }, {})
           }
         };
