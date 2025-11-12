@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS tag_values (
 -- Indexes for tag_values
 CREATE INDEX IF NOT EXISTS idx_tag_values_ts_desc ON tag_values (connection_id, tag_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_tag_values_ts ON tag_values (ts DESC);
+-- Index for queries filtering by tag_id without connection_id (e.g., chart composer queries)
+-- Fixes slow queries when checking data existence: SELECT 1 FROM tag_values WHERE tag_id = ANY(...) AND ts >= ... LIMIT 1
+CREATE INDEX IF NOT EXISTS idx_tag_values_tag_id_ts ON tag_values (tag_id, ts DESC);
 
 -- Convert to hypertable
 DO $$
