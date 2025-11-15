@@ -34,118 +34,71 @@ These schemas are actively used at runtime to validate messages between services
 
 ## Migration Files
 
-
-
 DataForeman uses **two separate migration directories** for different databases:
-
-These schemas are actively used at runtime to validate messages between services. See [spec/connectivity/SCHEMA_MAINTENANCE.md](../spec/connectivity/SCHEMA_MAINTENANCE.md) for details.These schemas are actively used at runtime to validate messages between services. See [spec/connectivity/SCHEMA_MAINTENANCE.md](../spec/connectivity/SCHEMA_MAINTENANCE.md) for details.
 
 ### PostgreSQL Migrations (core/migrations/)
 
-
-
 ```
-
-core/migrations/**Common changes requiring schema updates:****Common changes requiring schema updates:**
-
+core/migrations/
 ├── .gitkeep
-
-├── 001_schema.sql      # Complete database schema (all tables)- Renaming database columns used in messages (e.g., `conn_id` → `connection_id`)- Renaming database columns used in messages (e.g., `conn_id` → `connection_id`)
-
+├── 001_schema.sql      # Complete database schema (all tables)
 └── 002_seed_data.sql   # Initial seed data
-
-```- Adding/removing fields in connection configs- Adding/removing fields in connection configs
-
-
-
-### TimescaleDB Migrations (core/migrations-tsdb/)- Changing telemetry message structure- Changing telemetry message structure
-
-
-
 ```
 
+### TimescaleDB Migrations (core/migrations-tsdb/)
+
+```
 core/migrations-tsdb/
-
-└── 001_timescale_schema.sql   # Time-series tables with hypertables## Migration Files## Migration Files Location
-
+└── 001_timescale_schema.sql   # Time-series tables with hypertables
 ```
 
+## Migration Strategy
 
+DataForeman uses a **per-release migration approach** aligned with the git workflow:
 
-### Migration Strategy
+### Beta Phase (v0.x.y - Current)
 
-Migrations are located in `core/migrations/`:- **PostgreSQL migrations**: `core/migrations/` (executable migration files)
+- **One migration per release version** (e.g., `003_v0.2_release.sql`, `004_v0.3_release.sql`)
+- During development between releases, the in-progress migration **can be modified**
+- Reset dev database when modifying: `docker compose down -v postgres && docker compose up -d`
+- **Migration naming**: `XXX_v0.Y_release.sql` where 0.Y matches the git tag version
+- Example: `003_v0.2_release.sql` corresponds to git tag `v0.2.0`
 
-The current system uses a **consolidated schema approach** with separate databases:
+### Stable Release (v1.0+)
 
-- **SQL source files**: `core/migrations/sql-source/` (SQL referenced by .cjs wrappers)
+- **Baseline migrations are locked** - never modify existing migrations
+- All new changes require **new migration files**
+- Continue one migration per release for clean version history
+- Each migration must be tagged with the corresponding release version in git
+- **Migration naming**: `XXX_vX.Y_release.sql` (e.g., `010_v1.1_release.sql`)
 
-#### PostgreSQL (db container, port 5432)
+### Current Baseline (v0.1)
 
-**Purpose**: Metadata, configuration, authentication```- **Migration runner**: Configured in `core/start.sh`
+#### 001_schema.sql
+Creates the complete database schema in a single migration:
+- All tables defined in one file for consistency
+- Uses `CREATE TABLE IF NOT EXISTS` for idempotency
+- Includes proper foreign key relationships and indexes
+- Creates approximately 20 tables covering all application features
 
+#### 002_seed_data.sql
+Inserts essential seed data:
+- System user (UUID: 00000000-0000-0000-0000-000000000000)
+- System connection for monitoring
+- Default units of measure
+- Uses `ON CONFLICT DO NOTHING` for safe re-runs
 
+**Important**: During beta (v0.x.y), in-progress migrations can be modified. After v1.0 stable release, all migration files will be **permanently locked** and should never be modified.
 
-- **001_schema.sql**: Creates the complete database schema in a single migrationcore/migrations/- **Connection**: Uses `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` environment variables
+## Tables Created by PostgreSQL Migrations
 
-  - All tables defined in one file for consistency
-
-  - Uses `CREATE TABLE IF NOT EXISTS` for idempotency├── .gitkeep
-
-  - Includes proper foreign key relationships and indexes
-
-  - Creates approximately 20 tables covering all application features├── 001_schema.sql      # Complete database schema (all tables)## Migration File Structure
-
-
-
-- **002_seed_data.sql**: Inserts essential seed data└── 002_seed_data.sql   # Initial seed data
-
-  - System user (UUID: 00000000-0000-0000-0000-000000000000)
-
-  - System connection for monitoring```To prevent duplicate migrations, the system uses this structure:
-
-  - Default units of measure
-
-  - Uses `ON CONFLICT DO NOTHING` for safe re-runs
-
-
-
-#### TimescaleDB (tsdb container, port 5433)### Migration Strategy- **Main directory** (`core/migrations/`): Only files that `node-pg-migrate` should execute
-
-**Purpose**: Time-series tag data storage
-
-  - Standalone `.sql` files (run directly)
-
-- **001_timescale_schema.sql**: Creates time-series optimized tables
-
-  - `tag_values` hypertable (partitioned by timestamp, 1-day chunks)The current system uses a **consolidated schema approach**:  - `.cjs` wrapper files (read SQL from `sql-source/` subdirectory)
-
-  - `system_metrics` hypertable (monitoring data)
-
-  - Optimized indexes for time-based queries  
-
-
-
-This approach is simpler than incremental migrations and ensures consistent schema across fresh installations.- **001_schema.sql**: Creates the complete database schema in a single migration- **SQL source directory** (`core/migrations/sql-source/`): SQL files referenced by `.cjs` wrappers
-
-
-
-## Tables Created by PostgreSQL Migrations  - All tables defined in one file for consistency  - Not scanned by `node-pg-migrate`
-
-
-
-### Authentication & Authorization  - Uses `CREATE TABLE IF NOT EXISTS` for idempotency  - Keeps complex SQL separate from migration logic
+### Authentication & Authorization
 
 - **users**: User accounts with email, display name, and active status
-
-- **auth_identities**: Authentication credentials (bcrypt password hashes)  - Includes proper foreign key relationships and indexes
-
+- **auth_identities**: Authentication credentials (bcrypt password hashes)
 - **roles**: User roles (admin, viewer, etc.)
-
-- **user_roles**: User-to-role assignments (many-to-many)  - Creates approximately 20 tables covering all application features**Why**: `node-pg-migrate` treats `.cjs` and `.sql` files with the same name as separate migrations, causing duplicates and unpredictable execution order. The subdirectory approach eliminates this issue.
-
+- **user_roles**: User-to-role assignments (many-to-many)
 - **user_permissions**: Individual permission overrides for users
-
 - **sessions**: Active user sessions with refresh tokens
 
 

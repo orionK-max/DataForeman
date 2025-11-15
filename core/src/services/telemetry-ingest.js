@@ -177,7 +177,7 @@ export const telemetryIngestPlugin = fp(async (app) => {
   const sc = { decode: (d) => { try { return JSON.parse(Buffer.from(d).toString('utf8')); } catch { return null; } } };
 
   try {
-    const sub = await nats.subscribe(subject, (msg) => {
+    const sub = nats.subscribe(subject, (msg) => {
       try {
         const obj = typeof msg === 'object' && msg?.connection_id ? msg : sc.decode(msg.data || msg);
         if (!obj || !obj.connection_id || obj.tag_id == null || obj.ts == null) return;
@@ -211,4 +211,4 @@ export const telemetryIngestPlugin = fp(async (app) => {
   } catch (err) {
     app.log.error({ err }, 'telemetry-ingest failed to subscribe');
   }
-});
+}, { name: 'telemetry-ingest' });

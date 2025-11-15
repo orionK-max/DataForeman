@@ -121,12 +121,12 @@ export const tsdbPoliciesPlugin = fp(async function (app) {
   // Expose a method so routes (e.g., /config) can trigger apply after saving
   app.decorate('applyTsdbPolicies', async () => { await applyPolicies(app); });
 
-  // Best-effort apply on startup
-  try { 
-    await applyPolicies(app); 
-  } catch (err) {
-    app.log.error({ err, service: 'tsdb-policies' }, 'Failed to apply TimescaleDB policies on startup');
-  }
-});
+  // Best-effort apply on startup - run in background to avoid blocking server startup
+  setImmediate(() => {
+    applyPolicies(app).catch((err) => {
+      app.log.error({ err, service: 'tsdb-policies' }, 'Failed to apply TimescaleDB policies on startup');
+    });
+  });
+}, { name: 'tsdb-policies' });
 
 export { applyPolicies as _applyTsdbPoliciesImpl };

@@ -108,7 +108,7 @@ services:
   connectivity:
     build: ./connectivity
     # Uncomment for Linux to enable host networking for EIP autodiscovery:
-    # network_mode: host
+    network_mode: host
     ports:
       - "3100:3100"
     environment:

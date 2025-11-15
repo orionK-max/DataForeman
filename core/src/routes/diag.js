@@ -74,8 +74,9 @@ export async function diagRoutes(app) {
     // Try multiple URLs to support both Linux (host network) and Windows (bridge network)
     let connectivity = { ok: null };
     const connectivityUrls = [
+      'http://host-gateway:3100/health',  // Linux/host network (core bridge -> connectivity host mode via gateway)
       'http://connectivity:3100/health',  // Windows/bridge network
-      'http://host-gateway:3100/health'   // Linux/host network
+      'http://host.docker.internal:3100/health' // Fallback for some Docker configs
     ];
     
     for (const url of connectivityUrls) {
@@ -250,7 +251,7 @@ export async function diagRoutes(app) {
     try {
       // Ask connectivity to write a debug line
       // Try both URLs to support Linux (host) and Windows (bridge) networking
-      const urls = ['http://connectivity:3100/debug/log', 'http://host-gateway:3100/debug/log'];
+      const urls = ['http://host-gateway:3100/debug/log', 'http://connectivity:3100/debug/log', 'http://host.docker.internal:3100/debug/log'];
       for (const url of urls) {
         try {
           const ac = new AbortController();

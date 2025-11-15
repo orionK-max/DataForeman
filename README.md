@@ -701,7 +701,13 @@ Validation runs automatically during `npm start` and `npm run start:rebuild`.
 
 ### Database Migrations
 
-Migrations are located in `core/migrations/`. Use node-pg-migrate inside the core container.
+Migrations are located in `core/migrations/` and `core/migrations-tsdb/`. The project uses a **per-release migration strategy**:
+
+- **Beta (v0.x.y)** - current: One migration per release; in-progress migrations can be modified during development
+- **Stable (v1.0+)** - future: All migrations locked; changes require new migration files
+- **Naming**: `XXX_v0.Y_release.sql` (e.g., `003_v0.2_release.sql`) aligned with git tags
+
+See [Database Migration Guide](docs/database-migrations.md) for complete details.
 
 **Note:** The first user created automatically receives full administrative permissions. Set `AUTH_DEV_TOKEN=1` to bypass permission checks during development.
 
