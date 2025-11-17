@@ -1,0 +1,261 @@
+/**
+ * Flow Studio API Service
+ */
+
+const API_BASE = '/api';
+
+/**
+ * Get authentication headers
+ */
+function getHeaders() {
+  const token = localStorage.getItem('df_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` })
+  };
+}
+
+/**
+ * List flows (owned + shared)
+ */
+export async function listFlows() {
+  const response = await fetch(`${API_BASE}/flows`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch flows');
+  return response.json();
+}
+
+/**
+ * Get shared flows only
+ */
+export async function listSharedFlows() {
+  const response = await fetch(`${API_BASE}/flows/shared`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch shared flows');
+  return response.json();
+}
+
+/**
+ * Get flow by ID
+ */
+export async function getFlow(id) {
+  const response = await fetch(`${API_BASE}/flows/${id}`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch flow');
+  return response.json();
+}
+
+/**
+ * Create new flow
+ */
+export async function createFlow(data) {
+  const response = await fetch(`${API_BASE}/flows`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data)
+  });
+  if (!response.ok) throw new Error('Failed to create flow');
+  return response.json();
+}
+
+/**
+ * Update flow
+ */
+export async function updateFlow(id, data) {
+  const response = await fetch(`${API_BASE}/flows/${id}`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(data)
+  });
+  if (!response.ok) throw new Error('Failed to update flow');
+  return response.json();
+}
+
+/**
+ * Delete flow
+ */
+export async function deleteFlow(id) {
+  const response = await fetch(`${API_BASE}/flows/${id}`, {
+    method: 'DELETE',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to delete flow');
+  return response.json();
+}
+
+/**
+ * Deploy/undeploy flow
+ */
+export async function deployFlow(id, deployed) {
+  const response = await fetch(`${API_BASE}/flows/${id}/deploy`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ deployed })
+  });
+  if (!response.ok) throw new Error('Failed to deploy flow');
+  return response.json();
+}
+
+/**
+ * Duplicate flow
+ */
+export async function duplicateFlow(id) {
+  const response = await fetch(`${API_BASE}/flows/${id}/duplicate`, {
+    method: 'POST',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to duplicate flow');
+  return response.json();
+}
+
+/**
+ * Execute flow
+ */
+export async function executeFlow(id, triggerNodeId) {
+  const response = await fetch(`${API_BASE}/flows/${id}/execute`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ trigger_node_id: triggerNodeId })
+  });
+  if (!response.ok) throw new Error('Failed to execute flow');
+  return response.json();
+}
+
+/**
+ * Get flow dependencies
+ */
+export async function getFlowDependencies(id) {
+  const response = await fetch(`${API_BASE}/flows/${id}/dependencies`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch dependencies');
+  return response.json();
+}
+
+/**
+ * Update flow static data
+ */
+export async function updateFlowStaticData(id, staticData) {
+  const response = await fetch(`${API_BASE}/flows/${id}/static-data`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify({ static_data: staticData })
+  });
+  if (!response.ok) throw new Error('Failed to update static data');
+  return response.json();
+}
+
+/**
+ * Get internal tags
+ */
+export async function getInternalTags() {
+  const response = await fetch(`${API_BASE}/connectivity/tags/internal`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch internal tags');
+  return response.json();
+}
+
+/**
+ * Get execution history for a flow
+ */
+export async function getExecutionHistory(flowId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/history`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to get execution history');
+  const data = await response.json();
+  return data.executions || [];
+}
+
+/**
+ * Create internal tag
+ */
+export async function createInternalTag(data) {
+  const response = await fetch(`${API_BASE}/connectivity/tags/internal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data)
+  });
+  if (!response.ok) throw new Error('Failed to create internal tag');
+  return response.json();
+}
+
+/**
+ * Update tag configuration
+ */
+export async function updateTag(tagId, data) {
+  const response = await fetch(`${API_BASE}/connectivity/tags/${tagId}`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(data)
+  });
+  if (!response.ok) throw new Error('Failed to update tag');
+  return response.json();
+}
+
+/**
+ * Enable saving for internal tag
+ */
+export async function enableTagSaving(tagId, config) {
+  const response = await fetch(`${API_BASE}/connectivity/tags/${tagId}/save`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(config)
+  });
+  if (!response.ok) throw new Error('Failed to enable tag saving');
+  return response.json();
+}
+
+/**
+ * Disable saving for internal tag
+ */
+export async function disableTagSaving(tagId) {
+  const response = await fetch(`${API_BASE}/connectivity/tags/${tagId}/stop-saving`, {
+    method: 'PUT',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to disable tag saving');
+  return response.json();
+}
+
+/**
+ * Get flows that write to a tag
+ */
+export async function getTagWriters(tagId) {
+  const response = await fetch(`${API_BASE}/connectivity/tags/${tagId}/writers`, {
+    method: 'GET',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to get tag writers');
+  return response.json();
+}
+
+/**
+ * Test execute a single node
+ */
+export async function testExecuteNode(flowId, nodeId, mockInputData = null) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/nodes/${nodeId}/test`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ mockInputData })
+  });
+  if (!response.ok) throw new Error('Failed to execute node');
+  return response.json();
+}
+
+/**
+ * Execute flow from a specific node (partial execution)
+ * Executes the selected node and all downstream dependent nodes
+ */
+export async function executeFromNode(flowId, nodeId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/execute-from/${nodeId}`, {
+    method: 'POST',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to execute from node');
+  return response.json();
+}

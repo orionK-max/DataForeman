@@ -16,6 +16,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import CableIcon from '@mui/icons-material/Cable';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 
@@ -24,6 +25,7 @@ const drawerWidth = 240;
 const allMenuItems = [
   { text: 'Dashboards', icon: <DashboardIcon />, path: '/dashboards', feature: 'dashboards' },
   { text: 'Connectivity', icon: <CableIcon />, path: '/connectivity', feature: 'connectivity.devices' },
+  { text: 'Flow Studio', icon: <AccountTreeIcon />, path: '/flows', feature: 'flows' },
   { text: 'Chart Composer', icon: <TimelineIcon />, path: '/chart-composer', feature: 'chart_composer' },
   { text: 'Diagnostic', icon: <BugReportIcon />, path: '/diagnostic', feature: 'diagnostic.system' },
 ];

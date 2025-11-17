@@ -14,6 +14,8 @@ import ChartComposer from './pages/ChartComposer';
 import Diagnostic from './pages/Diagnostic';
 import Users from './pages/Users';
 import Profile from './pages/Profile';
+import FlowBrowser from './pages/FlowBrowser';
+import FlowEditor from './pages/FlowEditor';
 
 // Protected wrapper that redirects to login if not authenticated
 const ProtectedApp = () => {
@@ -31,6 +33,8 @@ const ProtectedApp = () => {
           <Route path="/dashboards" element={<DashboardList />} />
           <Route path="/dashboards/:id" element={<Dashboard />} />
           <Route path="/connectivity" element={<Connectivity />} />
+          <Route path="/flows" element={<FlowBrowser />} />
+          <Route path="/flows/:id" element={<FlowEditor />} />
           <Route path="/chart-composer" element={<ChartComposer />} />
           <Route path="/chart-composer/:id" element={<ChartComposer />} />
           <Route path="/diagnostic" element={<Diagnostic />} />

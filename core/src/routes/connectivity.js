@@ -2699,4 +2699,249 @@ export async function connectivityRoutes(app) {
       return reply.code(500).send({ error: String(err?.message || err) });
     }
   });
+
+  // =====================================================
+  // Internal Tags API (Flow Studio)
+  // =====================================================
+
+  // GET /api/connectivity/tags/internal - List all internal tags (system-wide)
+  app.get('/tags/internal', async (req, reply) => {
+    const userId = req.user?.sub;
+    
+    try {
+      const result = await app.db.query(`
+        SELECT 
+          tm.tag_id,
+          tm.tag_path,
+          tm.tag_name,
+          tm.data_type,
+          tm.unit_id,
+          tm.description,
+          tm.is_subscribed,
+          tm.on_change_enabled,
+          tm.on_change_deadband,
+          tm.on_change_deadband_type,
+          tm.on_change_heartbeat_ms,
+          tm.poll_group_id,
+          tm.status,
+          tm.created_at,
+          tm.updated_at,
+          c.id as connection_id,
+          c.name as connection_name,
+          u.name as unit_name,
+          u.symbol as unit_symbol,
+          pg.poll_rate_ms
+        FROM tag_metadata tm
+        JOIN connections c ON c.id = tm.connection_id
+        LEFT JOIN units_of_measure u ON u.id = tm.unit_id
+        LEFT JOIN poll_groups pg ON pg.group_id = tm.poll_group_id
+        WHERE tm.driver_type = 'INTERNAL'
+          AND tm.is_deleted = false
+        ORDER BY tm.tag_path ASC
+      `);
+
+      return reply.send({ tags: result.rows });
+    } catch (e) {
+      req.log.error({ err: e, userId }, 'failed to get internal tags');
+      return reply.code(500).send({ error: 'failed_to_get_internal_tags' });
+    }
+  });
+
+  // POST /api/connectivity/tags/internal - Create internal tag manually
+  app.post('/tags/internal', async (req, reply) => {
+    const userId = req.user?.sub;
+    const { tag_path, tag_name, data_type, unit_id, description } = req.body;
+
+    if (!tag_path || !tag_name || !data_type) {
+      return reply.code(400).send({ error: 'tag_path, tag_name, and data_type are required' });
+    }
+
+    try {
+      // Get System connection ID
+      const connResult = await app.db.query(
+        `SELECT id FROM connections WHERE type = 'system' AND name = 'System' LIMIT 1`
+      );
+
+      if (connResult.rows.length === 0) {
+        return reply.code(500).send({ error: 'system_connection_not_found' });
+      }
+
+      const systemConnectionId = connResult.rows[0].id;
+
+      // Check if tag already exists
+      const existing = await app.db.query(
+        `SELECT tag_id FROM tag_metadata 
+         WHERE connection_id = $1 AND tag_path = $2 AND driver_type = 'INTERNAL'`,
+        [systemConnectionId, tag_path]
+      );
+
+      if (existing.rows.length > 0) {
+        return reply.code(409).send({ error: 'tag_already_exists' });
+      }
+
+      // Create tag
+      const result = await app.db.query(`
+        INSERT INTO tag_metadata (
+          connection_id, 
+          driver_type, 
+          tag_path, 
+          tag_name, 
+          data_type,
+          unit_id,
+          description,
+          is_subscribed,
+          poll_group_id,
+          status,
+          created_at,
+          updated_at
+        ) VALUES ($1, 'INTERNAL', $2, $3, $4, $5, $6, false, 5, 'active', now(), now())
+        RETURNING *
+      `, [systemConnectionId, tag_path, tag_name, data_type, unit_id || null, description || null]);
+
+      req.log.info({ tag_id: result.rows[0].tag_id, tag_path, userId }, 'internal tag created');
+
+      return reply.send({ tag: result.rows[0] });
+    } catch (e) {
+      req.log.error({ err: e, tag_path, userId }, 'failed to create internal tag');
+      return reply.code(500).send({ error: 'failed_to_create_tag' });
+    }
+  });
+
+  // PUT /api/connectivity/tags/:tagId/save - Enable saving for internal tag
+  app.put('/tags/:tagId/save', async (req, reply) => {
+    const userId = req.user?.sub;
+    const tagId = parseInt(req.params.tagId);
+    const body = req.body || {};
+    const { 
+      on_change_enabled = true, 
+      on_change_deadband = 0, 
+      on_change_deadband_type = 'absolute',
+      on_change_heartbeat_ms = 60000,
+      poll_group_id = 5
+    } = body;
+
+    if (!Number.isInteger(tagId) || tagId <= 0) {
+      return reply.code(400).send({ error: 'invalid_tag_id' });
+    }
+
+    try {
+      // Verify tag exists and is internal
+      const tagCheck = await app.db.query(
+        `SELECT tag_id, driver_type FROM tag_metadata WHERE tag_id = $1`,
+        [tagId]
+      );
+
+      if (tagCheck.rows.length === 0) {
+        return reply.code(404).send({ error: 'tag_not_found' });
+      }
+
+      if (tagCheck.rows[0].driver_type !== 'INTERNAL') {
+        return reply.code(400).send({ error: 'not_an_internal_tag' });
+      }
+
+      // Update tag to enable saving
+      const result = await app.db.query(`
+        UPDATE tag_metadata
+        SET 
+          is_subscribed = true,
+          on_change_enabled = $1,
+          on_change_deadband = $2,
+          on_change_deadband_type = $3,
+          on_change_heartbeat_ms = $4,
+          poll_group_id = $5,
+          updated_at = now()
+        WHERE tag_id = $6
+        RETURNING *
+      `, [on_change_enabled, on_change_deadband, on_change_deadband_type, on_change_heartbeat_ms, poll_group_id, tagId]);
+
+      req.log.info({ tag_id: tagId, userId }, 'internal tag saving enabled');
+
+      return reply.send({ tag: result.rows[0] });
+    } catch (e) {
+      req.log.error({ err: e, tag_id: tagId, userId }, 'failed to enable tag saving');
+      return reply.code(500).send({ error: 'failed_to_save_tag' });
+    }
+  });
+
+  // PUT /api/connectivity/tags/:tagId/stop-saving - Disable saving for internal tag
+  app.put('/tags/:tagId/stop-saving', async (req, reply) => {
+    const userId = req.user?.sub;
+    const tagId = parseInt(req.params.tagId);
+
+    if (!Number.isInteger(tagId) || tagId <= 0) {
+      return reply.code(400).send({ error: 'invalid_tag_id' });
+    }
+
+    try {
+      // Verify tag exists and is internal
+      const tagCheck = await app.db.query(
+        `SELECT tag_id, driver_type, connection_id FROM tag_metadata WHERE tag_id = $1`,
+        [tagId]
+      );
+
+      if (tagCheck.rows.length === 0) {
+        return reply.code(404).send({ error: 'tag_not_found' });
+      }
+
+      if (tagCheck.rows[0].driver_type !== 'INTERNAL') {
+        return reply.code(400).send({ error: 'not_an_internal_tag' });
+      }
+
+      // Update tag to disable saving
+      const result = await app.db.query(`
+        UPDATE tag_metadata
+        SET 
+          is_subscribed = false,
+          on_change_enabled = false,
+          updated_at = now()
+        WHERE tag_id = $1
+        RETURNING *
+      `, [tagId]);
+
+      req.log.info({ tag_id: tagId, userId }, 'internal tag saving disabled');
+
+      // Note: Historical data remains in TimescaleDB - we don't delete it
+      // Users can manually delete data if needed via TimescaleDB queries
+
+      return reply.send({ tag: result.rows[0] });
+    } catch (e) {
+      req.log.error({ err: e, tag_id: tagId, userId }, 'failed to stop tag saving');
+      return reply.code(500).send({ error: 'failed_to_stop_saving' });
+    }
+  });
+
+  // GET /api/connectivity/tags/:tagId/writers - Get flows that write to this tag
+  app.get('/tags/:tagId/writers', async (req, reply) => {
+    const userId = req.user?.sub;
+    const tagId = parseInt(req.params.tagId);
+
+    if (!Number.isInteger(tagId) || tagId <= 0) {
+      return reply.code(400).send({ error: 'invalid_tag_id' });
+    }
+
+    try {
+      const result = await app.db.query(`
+        SELECT 
+          f.id as flow_id,
+          f.name as flow_name,
+          f.owner_user_id,
+          f.deployed,
+          f.shared,
+          u.display_name as owner_name,
+          ftd.node_id,
+          ftd.dependency_type
+        FROM flow_tag_dependencies ftd
+        JOIN flows f ON f.id = ftd.flow_id
+        LEFT JOIN users u ON u.id = f.owner_user_id
+        WHERE ftd.tag_id = $1 
+          AND ftd.dependency_type = 'output'
+        ORDER BY f.name ASC
+      `, [tagId]);
+
+      return reply.send({ writers: result.rows });
+    } catch (e) {
+      req.log.error({ err: e, tag_id: tagId, userId }, 'failed to get tag writers');
+      return reply.code(500).send({ error: 'failed_to_get_writers' });
+    }
+  });
 }

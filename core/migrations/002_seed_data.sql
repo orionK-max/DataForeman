@@ -84,5 +84,83 @@ SET
 -- and do not need to be seeded via migration
 
 -- =====================================================
+-- Flow Studio Tables (Phase 1 - v0.4)
+-- =====================================================
+
+-- Flows (workflow definitions)
+CREATE TABLE IF NOT EXISTS flows (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text,
+  owner_user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+  folder_id uuid,
+  deployed boolean DEFAULT false,
+  shared boolean DEFAULT false,
+  definition jsonb NOT NULL DEFAULT '{}'::jsonb,
+  static_data jsonb DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_flows_owner ON flows(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_flows_shared ON flows(shared) WHERE shared = true;
+
+-- Flow execution history
+CREATE TABLE IF NOT EXISTS flow_executions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  flow_id uuid REFERENCES flows(id) ON DELETE CASCADE,
+  trigger_node_id text,
+  started_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz,
+  status text NOT NULL DEFAULT 'running',
+  node_outputs jsonb DEFAULT '{}'::jsonb,
+  error_log jsonb DEFAULT '[]'::jsonb,
+  execution_time_ms integer
+);
+
+CREATE INDEX IF NOT EXISTS idx_flow_executions_flow_id_started ON flow_executions(flow_id, started_at DESC);
+
+-- Tag-Flow dependencies (cross-reference)
+CREATE TABLE IF NOT EXISTS flow_tag_dependencies (
+  flow_id uuid REFERENCES flows(id) ON DELETE CASCADE,
+  tag_id integer REFERENCES tag_metadata(tag_id) ON DELETE CASCADE,
+  node_id text NOT NULL,
+  dependency_type text NOT NULL CHECK (dependency_type IN ('input', 'output')),
+  PRIMARY KEY (flow_id, tag_id, node_id, dependency_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_flow_tag_deps_tag ON flow_tag_dependencies(tag_id);
+CREATE INDEX IF NOT EXISTS idx_flow_tag_deps_flow ON flow_tag_dependencies(flow_id);
+
+-- Extend driver_type enum for internal tags
+DO $$
+BEGIN
+  -- Drop existing constraint
+  ALTER TABLE tag_metadata DROP CONSTRAINT IF EXISTS tag_metadata_driver_type_check;
+  
+  -- Add new constraint with INTERNAL and MQTT
+  ALTER TABLE tag_metadata ADD CONSTRAINT tag_metadata_driver_type_check 
+    CHECK (driver_type IN ('EIP', 'OPCUA', 'S7', 'MQTT', 'SYSTEM', 'INTERNAL'));
+END$$;
+
+-- Note: Internal tags are system-wide shared resources (like PLC tags)
+-- - All internal tags visible to all users with connectivity.tags:read permission
+-- - No individual ownership (unlike flows which have owner_user_id)
+-- - Multiple flows can write to the same internal tag
+-- - Access controlled by feature permissions, not per-tag ownership
+-- - Tag metadata shows which flows write to each tag via flow_tag_dependencies table
+--
+-- To query internal tags:
+--   SELECT * FROM tag_metadata WHERE driver_type = 'INTERNAL'
+-- To see which flows write to a tag:
+--   SELECT f.* FROM flows f
+--   JOIN flow_tag_dependencies ftd ON ftd.flow_id = f.id
+--   WHERE ftd.tag_id = $tag_id AND ftd.dependency_type = 'output'
+
+-- Note: Flow permissions are managed through the user_permissions table
+-- Admins can grant users CRUD access to the 'flows' feature through the UI
+-- No default permissions are seeded here - admin assigns them as needed
+
+-- =====================================================
 -- End of Seed Data
 -- =====================================================

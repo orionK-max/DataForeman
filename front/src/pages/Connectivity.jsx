@@ -38,6 +38,7 @@ import S7TagEntry from '../components/connectivity/S7TagEntry';
 import EIPTagBrowser from '../components/connectivity/EIPTagBrowser';
 import PollGroupsManager from '../components/connectivity/PollGroupsManager';
 import UnitsOfMeasure from '../components/connectivity/UnitsOfMeasure';
+import InternalTagsManager from '../components/connectivity/InternalTagsManager';
 
 // Tab panel component
 function TabPanel({ children, value, index, ...other }) {
@@ -530,6 +531,7 @@ const Connectivity = () => {
               <Tab label="OPC UA" value="opcua" />
               <Tab label="Siemens S7" value="s7" />
               <Tab label="EtherNet/IP" value="eip" />
+              <Tab label="Internal" value="internal" />
             </Tabs>
           </Box>
 
@@ -587,6 +589,17 @@ const Connectivity = () => {
             <Alert severity="info">
               No EtherNet/IP connections configured. Go to the Devices tab to create a connection first.
             </Alert>
+          )}
+
+          {/* Internal Tags */}
+          {protocolTab === 'internal' && (
+            <Box>
+              <InternalTagsManager 
+                onSnackbar={(message, severity) => {
+                  showSnackbar(message, severity);
+                }}
+              />
+            </Box>
           )}
         </Box>
       )}

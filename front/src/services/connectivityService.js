@@ -213,6 +213,23 @@ export const connectivityService = {
     const url = `/connectivity/tags/${encodeURIComponent(connectionId)}${includeDeleted ? '?include_deleted=true' : ''}`;
     return apiClient.get(url);
   },
+
+  /**
+   * Get tags by connection ID (alias for getTagsByConnection)
+   * @param {string} connectionId - Connection ID
+   * @param {boolean} includeDeleted - Whether to include deleted tags
+   * @returns {Promise<{connection_id: string, tags: Array, schema: string, total_tags: number}>}
+   */
+  getTags: (connectionId, includeDeleted = false) => {
+    const url = `/connectivity/tags/${encodeURIComponent(connectionId)}${includeDeleted ? '?include_deleted=true' : ''}`;
+    return apiClient.get(url);
+  },
+
+  /**
+   * Get all internal tags (Flow Studio tags)
+   * @returns {Promise<{tags: Array}>}
+   */
+  getInternalTags: () => apiClient.get('/connectivity/tags/internal'),
   
   /**
    * Get EIP tag list (with optional snapshot)

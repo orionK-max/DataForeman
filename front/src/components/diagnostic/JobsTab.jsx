@@ -273,23 +273,23 @@ export default function JobsTab() {
                             Job Details
                           </Typography>
                           <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 1, fontSize: '0.75rem' }}>
-                            <Typography fontWeight={600}>ID:</Typography>
-                            <Typography>{job.id}</Typography>
+                            <Typography fontWeight={600} sx={{ color: '#000' }}>ID:</Typography>
+                            <Typography sx={{ color: '#000' }}>{job.id}</Typography>
                             
-                            <Typography fontWeight={600}>Type:</Typography>
-                            <Typography>{job.type}</Typography>
+                            <Typography fontWeight={600} sx={{ color: '#000' }}>Type:</Typography>
+                            <Typography sx={{ color: '#000' }}>{job.type}</Typography>
                             
-                            <Typography fontWeight={600}>Status:</Typography>
-                            <Typography>{job.status}</Typography>
+                            <Typography fontWeight={600} sx={{ color: '#000' }}>Status:</Typography>
+                            <Typography sx={{ color: '#000' }}>{job.status}</Typography>
                             
-                            <Typography fontWeight={600}>Created:</Typography>
-                            <Typography>{formatTimestamp(job.created_at)}</Typography>
+                            <Typography fontWeight={600} sx={{ color: '#000' }}>Created:</Typography>
+                            <Typography sx={{ color: '#000' }}>{formatTimestamp(job.created_at)}</Typography>
                             
-                            <Typography fontWeight={600}>Started:</Typography>
-                            <Typography>{formatTimestamp(job.started_at)}</Typography>
+                            <Typography fontWeight={600} sx={{ color: '#000' }}>Started:</Typography>
+                            <Typography sx={{ color: '#000' }}>{formatTimestamp(job.started_at)}</Typography>
                             
-                            <Typography fontWeight={600}>Completed:</Typography>
-                            <Typography>{formatTimestamp(job.completed_at)}</Typography>
+                            <Typography fontWeight={600} sx={{ color: '#000' }}>Completed:</Typography>
+                            <Typography sx={{ color: '#000' }}>{formatTimestamp(job.completed_at)}</Typography>
 
                             {job.error && (
                               <>
@@ -300,8 +300,8 @@ export default function JobsTab() {
 
                             {job.result && (
                               <>
-                                <Typography fontWeight={600}>Result:</Typography>
-                                <pre style={{ margin: 0, fontSize: '0.75rem', overflow: 'auto' }}>
+                                <Typography fontWeight={600} sx={{ color: '#000' }}>Result:</Typography>
+                                <pre style={{ margin: 0, fontSize: '0.75rem', overflow: 'auto', color: '#000' }}>
                                   {JSON.stringify(job.result, null, 2)}
                                 </pre>
                               </>
@@ -309,8 +309,8 @@ export default function JobsTab() {
 
                             {job.params && (
                               <>
-                                <Typography fontWeight={600}>Parameters:</Typography>
-                                <pre style={{ margin: 0, fontSize: '0.75rem', overflow: 'auto' }}>
+                                <Typography fontWeight={600} sx={{ color: '#000' }}>Parameters:</Typography>
+                                <pre style={{ margin: 0, fontSize: '0.75rem', overflow: 'auto', color: '#000' }}>
                                   {JSON.stringify(job.params, null, 2)}
                                 </pre>
                               </>

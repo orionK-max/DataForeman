@@ -84,6 +84,10 @@ services:
       TSDB_USER: ${TSDB_USER:-tsdb}
       TSDB_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       TSDB_DATABASE: ${TSDB_DATABASE:-telemetry}
+      # Flow script filesystem access
+      FLOW_ALLOWED_PATHS: ${FLOW_ALLOWED_PATHS:-/tmp,/var/dataforeman/flows}
+      # Job dispatcher concurrency (max concurrent jobs)
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-20}
     depends_on:
       - db
       - nats

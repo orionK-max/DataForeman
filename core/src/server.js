@@ -25,6 +25,8 @@ import { chartsRoutes } from './routes/charts.js';
 import { dashboardRoutes } from './routes/dashboards.js';
 import { unitsRoutes } from './routes/units.js';
 import { folderRoutes } from './routes/folders.js';
+import flowRoutes from './routes/flows.js';
+import adminFlowsRoutes from './routes/admin/flows.js';
 import { jobsPlugin } from './services/jobs.js';
 import { dbPlugin } from './services/db.js';
 import { tsdbPlugin } from './services/tsdb.js';
@@ -137,6 +139,8 @@ export async function buildServer() {
   await app.register(chartsRoutes, { prefix: '/api/charts' });
   await app.register(dashboardRoutes, { prefix: '/api/dashboards' });
   await app.register(folderRoutes, { prefix: '/api' }); // Handles /api/dashboard/folders and /api/chart/folders
+  await app.register(flowRoutes); // Flow studio routes
+  await app.register(adminFlowsRoutes, { prefix: '/api/admin/flows' }); // Admin flow configuration
   // Jobs plugin + routes (admin only) – register once then start dispatcher
   await app.register(jobsPlugin); // services.jobs
   await app.register(jobsRoutes, { prefix: '/api' }); // /api/jobs endpoints (admin)

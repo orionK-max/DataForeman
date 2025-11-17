@@ -169,9 +169,10 @@ export const jobsPlugin = fp(async (app) => {
 		return rows[0];
 	}
 
-// Simple dispatcher loop; in-process only for now
+	// Concurrent dispatcher loop with configurable concurrency
 	const workerId = `core-${process.pid}`;
-
+	const MAX_CONCURRENT_JOBS = Math.max(1, Math.min(100, parseInt(process.env.MAX_CONCURRENT_JOBS || '20')));
+	
 	async function dispatchOnce() {
 		const job = await _claimNext(workerId);
 		if (!job) return false;
@@ -191,9 +192,7 @@ export const jobsPlugin = fp(async (app) => {
 
 	async function _heartbeat(jobId) {
 		try { await app.db.query(`update jobs set last_heartbeat_at=now(), updated_at=now() where id=$1 and status='running'`, [jobId]); } catch {}
-	}
-
-	async function _recoverStale() {
+	}	async function _recoverStale() {
 		// Jobs running without heartbeat for > 2 minutes -> requeue (unless max attempts exceeded)
 		try {
 			const { rows } = await app.db.query(`select * from jobs where status='running' and (last_heartbeat_at is null or last_heartbeat_at < now() - interval '120 seconds') limit 20`);
@@ -428,23 +427,29 @@ export const jobsPlugin = fp(async (app) => {
 	}
 
 	async function dispatcherLoop() {
-		let idleMs = 500;
+		const activeJobs = new Map(); // jobId -> Promise
 		let lastRecover = 0;
 		let lastCancelEnforce = 0;
 		let lastReconcile = 0;
 		let iter = 0;
+		
+		log.info({ maxConcurrent: MAX_CONCURRENT_JOBS }, 'dispatcher: starting with concurrency limit');
+		
 		while (true) { // eslint-disable-line no-constant-condition
 			const now = Date.now();
 			iter++;
-			if (iter % 200 === 1) { // every ~200 iterations emit a heartbeat
-				// elevated to info to ensure visibility while diagnosing missing dispatcher logs
-				log.info({ iter, idleMs }, 'dispatcher: heartbeat');
+			
+			if (iter % 200 === 1) {
+				log.info({ iter, activeJobs: activeJobs.size, maxConcurrent: MAX_CONCURRENT_JOBS }, 'dispatcher: heartbeat');
 			}
+			
+			// Periodic maintenance tasks
 			if (now - lastRecover > 30_000) { await _recoverStale(); lastRecover = now; }
 			if (now - lastCancelEnforce > 5_000) { await _enforceCancellationRequests(); lastCancelEnforce = now; }
-			if (now % 10_000 < 50) { await _enforceRuntimeTimeout(); } // roughly every ~10s without extra timer bookkeeping
+			if (now % 10_000 < 50) { await _enforceRuntimeTimeout(); }
 			if (now - lastReconcile > 20_000) { await _reconcileOrphanedTagDeleteJobs(); lastReconcile = now; }
-			// Lightweight stalled check every cycle ~ adds minimal overhead (queries limited)
+			
+			// Lightweight stalled check
 			try {
 				log.debug('dispatcher: stalled reconcile invoke');
 				await _reconcileStalledTagDeleteJobs();
@@ -452,13 +457,40 @@ export const jobsPlugin = fp(async (app) => {
 			} catch (e) {
 				log.error({ err: e }, 'dispatcher: stalled reconcile invocation failed');
 			}
-			try {
-				const had = await dispatchOnce();
-				idleMs = had ? 25 : Math.min(5000, idleMs * (had ? 0.5 : 1.3));
-			} catch (e) {
-				log.error({ err: e }, 'dispatcher iteration failed');
-				idleMs = 1500;
+			
+			// Claim and dispatch jobs up to concurrency limit
+			while (activeJobs.size < MAX_CONCURRENT_JOBS) {
+				const job = await _claimNext(workerId);
+				if (!job) break; // No more jobs available
+				
+				const handler = handlers.get(job.type);
+				if (!handler) {
+					await fail(job.id, new Error(`No handler for job type ${job.type}`));
+					continue;
+				}
+				
+				// Launch job asynchronously (don't await - allows concurrent execution)
+				const jobPromise = (async () => {
+					const startTime = Date.now();
+					try {
+						log.info({ jobId: job.id, jobType: job.type }, 'job: starting execution');
+						await handler({ job, updateProgress, complete, fail, requestCancel, app });
+						log.info({ jobId: job.id, jobType: job.type, durationMs: Date.now() - startTime }, 'job: completed successfully');
+					} catch (e) {
+						log.error({ err: e, jobId: job.id, jobType: job.type, durationMs: Date.now() - startTime }, 'job: handler error');
+						try { await fail(job.id, e); } catch {}
+					} finally {
+						activeJobs.delete(job.id);
+						log.debug({ jobId: job.id, activeCount: activeJobs.size }, 'job: removed from active set');
+					}
+				})();
+				
+				activeJobs.set(job.id, jobPromise);
+				log.debug({ jobId: job.id, activeCount: activeJobs.size, maxConcurrent: MAX_CONCURRENT_JOBS }, 'job: added to active set');
 			}
+			
+			// Wait before next claim attempt (shorter idle when jobs are active)
+			const idleMs = activeJobs.size === 0 ? 1000 : 250;
 			await new Promise(r => setTimeout(r, idleMs));
 		}
 	}
@@ -612,6 +644,12 @@ export const jobsPlugin = fp(async (app) => {
 		const capacityCalculator = (await import('../workers/capacity-calculator.js')).default;
 		await capacityCalculator(ctx);
 	});
+
+	// Flow executor - executes deployed flows with node-by-node processing
+	register('flow_execution', async (ctx) => {
+		const { executeFlow } = await import('./flow-executor.js');
+		await executeFlow(ctx);
+	}, { maxAttempts: 1, description: 'Execute a flow with all its nodes' });
 
 
 	// Graceful shutdown hook
