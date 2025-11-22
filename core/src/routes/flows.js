@@ -15,6 +15,55 @@ export default async function flowRoutes(app) {
     return true;
   }
 
+  // GET /api/flows/node-types - Get all available node types
+  // Requires authentication but no specific permission (all authenticated users can see available node types)
+  // NOTE: This is the authoritative source for node type metadata. Frontend should eventually
+  // fetch this data instead of maintaining duplicate static metadata in nodeTypes.js
+  app.get('/api/flows/node-types', async (req, reply) => {
+    try {
+      const { NodeRegistry } = await import('../nodes/base/NodeRegistry.js');
+      const descriptions = NodeRegistry.getAllDescriptions();
+      
+      // Transform to array format for easier frontend consumption
+      const nodeTypes = Object.entries(descriptions).map(([type, desc]) => ({
+        type,
+        ...desc
+      }));
+      
+      reply.send({ 
+        nodeTypes,
+        count: nodeTypes.length
+      });
+    } catch (error) {
+      req.log.error({ err: error }, 'Failed to get node types');
+      reply.code(500).send({ error: 'Failed to retrieve node types' });
+    }
+  });
+
+  // GET /api/flows/node-types/:type - Get specific node type details
+  // Requires authentication but no specific permission (all authenticated users can see node type details)
+  // NOTE: Returns complete node description including inputs, outputs, and properties from NodeRegistry
+  app.get('/api/flows/node-types/:type', async (req, reply) => {
+    try {
+      const { type } = req.params;
+      const { NodeRegistry } = await import('../nodes/base/NodeRegistry.js');
+      
+      if (!NodeRegistry.has(type)) {
+        return reply.code(404).send({ error: `Node type '${type}' not found` });
+      }
+      
+      const description = NodeRegistry.getDescription(type);
+      
+      reply.send({
+        type,
+        ...description
+      });
+    } catch (error) {
+      req.log.error({ err: error, nodeType: req.params.type }, 'Failed to get node type details');
+      reply.code(500).send({ error: 'Failed to retrieve node type details' });
+    }
+  });
+
   // GET /api/flows - List all flows (own + shared)
   app.get('/api/flows', async (req, reply) => {
     const userId = req.user?.sub;

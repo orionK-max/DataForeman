@@ -70,13 +70,10 @@ export function inferOutputSchema(node, inputData = {}, flowDefinition = {}) {
         }
       };
 
-    case 'math-add':
-    case 'math-subtract':
-    case 'math-multiply':
-    case 'math-divide':
+    case 'math':
       return {
         type: 'object',
-        description: `Mathematical operation: ${node.type.replace('math-', '')}`,
+        description: `Mathematical operation: ${node.data?.operation || 'add'}`,
         properties: {
           value: { 
             type: 'number', 
@@ -86,18 +83,20 @@ export function inferOutputSchema(node, inputData = {}, flowDefinition = {}) {
           quality: { 
             type: 'number', 
             example: inputData?.quality ?? 192,
-            description: 'Inherited from input quality'
+            description: 'Minimum quality from all inputs'
+          },
+          operation: {
+            type: 'string',
+            example: node.data?.operation || 'add',
+            description: 'Operation performed (add, subtract, multiply, divide, average, min, max, formula)'
           }
         }
       };
 
-    case 'compare-gt':
-    case 'compare-lt':
-    case 'compare-eq':
-    case 'compare-neq':
+    case 'comparison':
       return {
         type: 'object',
-        description: `Comparison: ${node.type.replace('compare-', '')}`,
+        description: `Comparison: ${node.data?.operation || 'greater than'}`,
         properties: {
           value: { 
             type: 'boolean', 
@@ -107,12 +106,17 @@ export function inferOutputSchema(node, inputData = {}, flowDefinition = {}) {
           quality: { 
             type: 'number', 
             example: inputData?.quality ?? 192,
-            description: 'Inherited from input quality'
+            description: 'Minimum quality from inputs'
+          },
+          operator: {
+            type: 'string',
+            example: node.data?.operation || 'gt',
+            description: 'Comparison operator used (gt, lt, gte, lte, eq, neq)'
           }
         }
       };
 
-    case 'script':
+    case 'script-js':
       return {
         type: 'object',
         description: 'JavaScript execution result',
@@ -124,8 +128,13 @@ export function inferOutputSchema(node, inputData = {}, flowDefinition = {}) {
           },
           quality: { 
             type: 'number', 
-            example: 192,
-            description: 'Quality code'
+            example: inputData?.quality ?? 192,
+            description: 'Quality inherited from input'
+          },
+          logs: {
+            type: 'array',
+            example: [],
+            description: 'Console logs from script execution'
           }
         }
       };

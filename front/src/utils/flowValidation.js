@@ -86,18 +86,18 @@ const validateNodeConfig = (node) => {
       // Code validation happens at execution time, not deployment
       break;
 
-    case 'math-add':
-    case 'math-subtract':
-    case 'math-multiply':
-    case 'math-divide':
-      // Math nodes need input connections - checked separately
+    case 'math':
+      // Math node needs input connections - checked separately
+      if (node.data?.operation === 'formula' && !node.data?.formula) {
+        errors.push({ nodeId: node.id, message: 'Custom formula is required when operation is set to "formula"' });
+      }
       break;
 
-    case 'compare-gt':
-    case 'compare-lt':
-    case 'compare-eq':
-    case 'compare-neq':
-      // Compare nodes need input connections - checked separately
+    case 'comparison':
+      // Comparison node needs two input connections
+      if (!node.data?.operation) {
+        errors.push({ nodeId: node.id, message: 'Comparison operation is required' });
+      }
       break;
 
     case 'trigger-manual':
@@ -139,11 +139,9 @@ const validateConnections = (nodes, edges) => {
       errors.push({ nodeId: node.id, message: 'Node requires at least one input connection' });
     }
 
-    // Math and compare nodes typically need exactly 2 inputs
-    if (node.type.startsWith('math-') || node.type.startsWith('compare-')) {
-      if (inputCount < 2) {
-        errors.push({ nodeId: node.id, message: 'Math/Compare nodes require at least 2 input connections' });
-      }
+    // Math and comparison nodes need inputs (handled by unified nodes)
+    if ((node.type === 'math' || node.type === 'comparison') && inputCount === 0) {
+      errors.push({ nodeId: node.id, message: `${node.type} node requires at least one input connection` });
     }
   });
 

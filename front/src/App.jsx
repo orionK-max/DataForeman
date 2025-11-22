@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { PermissionsProvider } from './contexts/PermissionsContext';
 import { PermissionsLoader } from './components/PermissionsLoader';
 import { PageTitleProvider } from './contexts/PageTitleContext';
+import { fetchBackendNodeMetadata } from './constants/nodeTypes';
 import MainLayout from './layouts/MainLayout';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
@@ -20,6 +21,15 @@ import FlowEditor from './pages/FlowEditor';
 // Protected wrapper that redirects to login if not authenticated
 const ProtectedApp = () => {
   const { isAuthenticated } = useAuth();
+
+  // Fetch node metadata from backend when app initializes
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchBackendNodeMetadata().catch(err => {
+        console.error('Failed to load node types from backend:', err);
+      });
+    }
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return <LoginPage />;

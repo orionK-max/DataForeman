@@ -40,6 +40,7 @@ import { initDemoMode } from './services/demo-mode.js';
 import { systemMetricsSampler } from './services/system-metrics-sampler.js';
 import { tsdbPoliciesPlugin } from './services/tsdb-policies.js';
 import { registerSessionRetention } from './services/session-retention.js';
+import { registerAllNodes } from './nodes/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -101,6 +102,10 @@ export async function buildServer() {
   });
   // Start log retention cleaner (hourly)
   startRetentionScheduler(app.log);
+  
+  // Register all flow node types
+  registerAllNodes();
+  
   await app.register(cors, { origin: true, credentials: true });
   await app.register(helmet, { global: true });
   await app.register(multipart, { 

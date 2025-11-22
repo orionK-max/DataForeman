@@ -24,14 +24,42 @@ fi
 echo "Running migrations..."
 npx --yes node-pg-migrate -m core/migrations -d "postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" up || true
 
-echo "Starting Core and Web dev servers (logs below)."
-echo "Core: http://localhost:${PORT}  |  Web: http://localhost:5173"
+echo "Starting Core and Frontend dev servers in background..."
+echo "Core: http://localhost:${PORT}  |  Frontend: http://localhost:5174"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-npx concurrently \
-  -n core,web \
+# Ensure logs directory exists
+mkdir -p logs
+
+# Start services in background using concurrently
+nohup npx concurrently \
+  -n core,front \
   -c auto \
   "ops/bin/log-run.sh core env LOG_CONSOLE=0 node core/src/server.js" \
-  "ops/bin/log-run.sh web npm --workspace=web run dev"
+  "ops/bin/log-run.sh front npm --workspace=front run dev" \
+  > logs/dev-servers.log 2>&1 &
+
+DEV_PID=$!
+
+# Wait a moment to check if it started
+sleep 3
+
+if ps -p $DEV_PID > /dev/null 2>&1; then
+  echo ""
+  echo "✅ Development servers started successfully (PID: $DEV_PID)"
+  echo ""
+  echo "Services:"
+  echo "  Core API: http://localhost:${PORT}"
+  echo "  Frontend: http://localhost:5174"
+  echo ""
+  echo "Logs: logs/dev-servers.log"
+  echo "View logs: tail -f logs/dev-servers.log"
+  echo ""
+  echo "To stop: kill $DEV_PID"
+  echo "Or: pkill -f concurrently"
+else
+  echo "❌ Failed to start dev servers. Check logs/dev-servers.log"
+  exit 1
+fi

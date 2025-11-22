@@ -38,52 +38,16 @@ const nodeTypes = [
     description: 'Write tag value'
   },
   {
-    type: 'math-add',
-    label: 'Math: Add',
+    type: 'math',
+    label: 'Math',
     icon: <MathIcon />,
-    description: 'Add values'
+    description: 'Perform mathematical operations'
   },
   {
-    type: 'math-subtract',
-    label: 'Math: Subtract',
-    icon: <MathIcon />,
-    description: 'Subtract values'
-  },
-  {
-    type: 'math-multiply',
-    label: 'Math: Multiply',
-    icon: <MathIcon />,
-    description: 'Multiply values'
-  },
-  {
-    type: 'math-divide',
-    label: 'Math: Divide',
-    icon: <MathIcon />,
-    description: 'Divide values'
-  },
-  {
-    type: 'compare-gt',
-    label: 'Compare: >',
+    type: 'comparison',
+    label: 'Comparison',
     icon: <CompareIcon />,
-    description: 'Greater than'
-  },
-  {
-    type: 'compare-lt',
-    label: 'Compare: <',
-    icon: <CompareIcon />,
-    description: 'Less than'
-  },
-  {
-    type: 'compare-eq',
-    label: 'Compare: ==',
-    icon: <CompareIcon />,
-    description: 'Equal to'
-  },
-  {
-    type: 'compare-neq',
-    label: 'Compare: !=',
-    icon: <CompareIcon />,
-    description: 'Not equal to'
+    description: 'Compare two values'
   },
   {
     type: 'script-js',

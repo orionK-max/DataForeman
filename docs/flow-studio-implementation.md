@@ -165,21 +165,41 @@ ALTER TABLE tag_metadata ADD CONSTRAINT tag_metadata_driver_type_check
 
 ### Built-in Node Types (Phase 1)
 
-**Basic nodes with single input and single output:**
+**Status**: ✅ **Migrated to Class-Based Architecture** (Nov 2025)
+
+All nodes now use class-based implementation extending `BaseNode`:
 
 **Triggers**:
-- `trigger-manual` - Manual execution button in UI (no schedule, runs on demand)
+- `trigger-manual` - Manual execution button in UI (ManualTriggerNode)
 
 **Tag I/O**:
-- `tag-input` - Select tag, outputs current value (**Phase 1**: reads from TimescaleDB; **Phase 2**: will read from memory cache)
-- `tag-output` - Write to internal tag (creates/updates tag, optionally saves to TimescaleDB based on is_subscribed)
+- `tag-input` - Read tag values from DB/memory (TagInputNode)
+- `tag-output` - Write to internal tags via NATS (TagOutputNode)
 
-**Math**: 
-- `math` - Add, subtract, multiply, divide, modulo, power
-- `comparison` - >, <, ==, !=, >=, <=
+**Math** (Unified):
+- `math` - 8 operations: add, subtract, multiply, divide, average, min, max, custom formula (MathNode)
+  - Supports 2+ dynamic inputs
+  - Number validation with skipInvalid option
+  - Safe formula evaluation with Math functions
+
+**Comparison** (Unified):
+- `comparison` - 6 operators: gt, lt, gte, lte, eq, neq (ComparisonNode)
+  - Two-input comparison
+  - Optional tolerance for equality (Number.EPSILON default)
+  - Quality threshold checking (min 64)
 
 **Scripts**:
-- `script-js` - JavaScript code execution
+- `script-js` - VM-based JavaScript execution (JavaScriptNode)
+  - APIs: $input, $tags, $flow, $fs
+  - Configurable timeout and error handling
+  - Async/await support
+
+**Architecture**:
+- **Class-Based Execution**: All nodes use NodeRegistry for consistent execution
+- **Legacy Removed** (Nov 2025): Switch-based execution code has been removed
+- **6 Nodes Registered**: trigger-manual, tag-input, tag-output, math, comparison, script-js
+- **Location**: `core/src/nodes/` organized by category (triggers/, tags/, math/, comparison/, scripts/)
+- **Registry**: `core/src/nodes/base/NodeRegistry.js` singleton pattern
 
 **Phase 1 Constraints**:
 - All nodes have exactly 1 output port (simple linear flows)
@@ -332,14 +352,21 @@ return average;
 
 ## 5. Flow Execution Engine
 
-**Status**: ✅ **Implemented** with concurrent job execution (default: 20 concurrent flows)
+**Status**: ✅ **Implemented** with class-based architecture
 
 **Implementation Details**:
 - File: `core/src/services/flow-executor.js`
+- **Class-Based Execution**: All nodes execute via `NodeRegistry` (legacy code removed Nov 2025)
 - Graph validation with cycle detection
 - Topological sort for execution order
 - Tag dependency tracking via `flow_tag_dependencies` table
 - Concurrent execution via jobs system (configurable `MAX_CONCURRENT_JOBS`)
+
+**Node Architecture**:
+- **Base Classes**: `BaseNode` (abstract), `NodeExecutionContext`, `NodeRegistry`
+- **Registered Nodes**: All 6 core nodes (trigger-manual, tag-input, tag-output, math, comparison, script-js)
+- **Location**: `core/src/nodes/` organized by category
+- **Registration**: `core/src/nodes/index.js` registers all nodes at startup
 
 **Load Test Results** (2025-11-16):
 

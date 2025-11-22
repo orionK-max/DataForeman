@@ -4,15 +4,14 @@ import { Box, Typography, Chip, Tooltip } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import InputIcon from '@mui/icons-material/Input';
 import OutputIcon from '@mui/icons-material/Output';
-import AddIcon from '@mui/icons-material/Add';
-import RemoveIcon from '@mui/icons-material/Remove';
-import CloseIcon from '@mui/icons-material/Close';
+import CalculateIcon from '@mui/icons-material/Calculate';
 import CodeIcon from '@mui/icons-material/Code';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import PushPinIcon from '@mui/icons-material/PushPin';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
+import { getNodeMetadata } from '../../constants/nodeTypes';
 
 // Base node style
 const baseNodeStyle = {
@@ -27,19 +26,13 @@ const baseNodeStyle = {
   },
 };
 
-// Node type configurations
+// Node type configurations (UI only - icons and colors)
 const nodeConfig = {
-  'trigger-manual': { color: '#4caf50', icon: PlayArrowIcon, label: 'Manual Trigger', hasInput: false },
+  'trigger-manual': { color: '#4caf50', icon: PlayArrowIcon, label: 'Manual Trigger' },
   'tag-input': { color: '#2196f3', icon: InputIcon, label: 'Tag Input' },
   'tag-output': { color: '#ff9800', icon: OutputIcon, label: 'Tag Output' },
-  'math-add': { color: '#9c27b0', icon: AddIcon, label: 'Add' },
-  'math-subtract': { color: '#9c27b0', icon: RemoveIcon, label: 'Subtract' },
-  'math-multiply': { color: '#9c27b0', icon: CloseIcon, label: 'Multiply' },
-  'math-divide': { color: '#9c27b0', icon: () => <span style={{ fontSize: '20px', fontWeight: 'bold' }}>/</span>, label: 'Divide' },
-  'compare-gt': { color: '#e91e63', icon: () => <span style={{ fontSize: '20px', fontWeight: 'bold' }}>&gt;</span>, label: 'Greater Than' },
-  'compare-lt': { color: '#e91e63', icon: () => <span style={{ fontSize: '20px', fontWeight: 'bold' }}>&lt;</span>, label: 'Less Than' },
-  'compare-eq': { color: '#e91e63', icon: () => <span style={{ fontSize: '20px', fontWeight: 'bold' }}>=</span>, label: 'Equal' },
-  'compare-neq': { color: '#e91e63', icon: () => <span style={{ fontSize: '20px', fontWeight: 'bold' }}>≠</span>, label: 'Not Equal' },
+  'math': { color: '#9c27b0', icon: CalculateIcon, label: 'Math' },
+  'comparison': { color: '#e91e63', icon: CompareArrowsIcon, label: 'Comparison' },
   'script-js': { color: '#f44336', icon: CodeIcon, label: 'JavaScript' },
 };
 
@@ -47,7 +40,10 @@ const nodeConfig = {
 const CustomNode = ({ data, type, selected }) => {
   const config = nodeConfig[type] || { color: '#757575', icon: CodeIcon, label: type };
   const Icon = config.icon;
-  const hasInput = config.hasInput !== false;
+  
+  // Get metadata from backend (includes hasInput/hasOutput)
+  const metadata = getNodeMetadata(type);
+  const hasInput = metadata.hasInput;
 
   return (
     <>
@@ -201,14 +197,8 @@ const CustomNode = ({ data, type, selected }) => {
 export const TriggerManualNode = memo((props) => <CustomNode {...props} type="trigger-manual" />);
 export const TagInputNode = memo((props) => <CustomNode {...props} type="tag-input" />);
 export const TagOutputNode = memo((props) => <CustomNode {...props} type="tag-output" />);
-export const MathAddNode = memo((props) => <CustomNode {...props} type="math-add" />);
-export const MathSubtractNode = memo((props) => <CustomNode {...props} type="math-subtract" />);
-export const MathMultiplyNode = memo((props) => <CustomNode {...props} type="math-multiply" />);
-export const MathDivideNode = memo((props) => <CustomNode {...props} type="math-divide" />);
-export const CompareGtNode = memo((props) => <CustomNode {...props} type="compare-gt" />);
-export const CompareLtNode = memo((props) => <CustomNode {...props} type="compare-lt" />);
-export const CompareEqNode = memo((props) => <CustomNode {...props} type="compare-eq" />);
-export const CompareNeqNode = memo((props) => <CustomNode {...props} type="compare-neq" />);
+export const MathNode = memo((props) => <CustomNode {...props} type="math" />);
+export const ComparisonNode = memo((props) => <CustomNode {...props} type="comparison" />);
 export const ScriptJsNode = memo((props) => <CustomNode {...props} type="script-js" />);
 
 // Export node types object for ReactFlow
@@ -216,13 +206,7 @@ export const nodeTypes = {
   'trigger-manual': TriggerManualNode,
   'tag-input': TagInputNode,
   'tag-output': TagOutputNode,
-  'math-add': MathAddNode,
-  'math-subtract': MathSubtractNode,
-  'math-multiply': MathMultiplyNode,
-  'math-divide': MathDivideNode,
-  'compare-gt': CompareGtNode,
-  'compare-lt': CompareLtNode,
-  'compare-eq': CompareEqNode,
-  'compare-neq': CompareNeqNode,
+  'math': MathNode,
+  'comparison': ComparisonNode,
   'script-js': ScriptJsNode,
 };

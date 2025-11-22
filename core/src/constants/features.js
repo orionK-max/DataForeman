@@ -9,6 +9,8 @@ export const FEATURES = {
   CONNECTIVITY_TAGS: 'connectivity.tags',
   CONNECTIVITY_POLL_GROUPS: 'connectivity.poll_groups',
   CONNECTIVITY_UNITS: 'connectivity.units',
+  CONNECTIVITY_INTERNAL_TAGS: 'connectivity.internal_tags',
+  FLOWS: 'flows',
   CHART_COMPOSER: 'chart_composer',
   DIAGNOSTIC_SYSTEM: 'diagnostic.system',
   DIAGNOSTIC_CAPACITY: 'diagnostic.capacity',
@@ -58,6 +60,18 @@ export const FEATURE_METADATA = {
     label: 'Units of Measure',
     category: 'Connectivity',
     description: 'Manage measurement units',
+    operations: ['create', 'read', 'update', 'delete'],
+  },
+  [FEATURES.CONNECTIVITY_INTERNAL_TAGS]: {
+    label: 'Internal Tags',
+    category: 'Connectivity',
+    description: 'Manage internal memory tags for Flow Studio',
+    operations: ['create', 'read', 'update', 'delete'],
+  },
+  [FEATURES.FLOWS]: {
+    label: 'Flow Studio',
+    category: 'Core',
+    description: 'Create and manage automation flows',
     operations: ['create', 'read', 'update', 'delete'],
   },
   [FEATURES.CHART_COMPOSER]: {

@@ -6,7 +6,7 @@ import {
   Typography,
   Tooltip,
 } from '@mui/material';
-import { NODE_METADATA } from '../../constants/nodeTypes';
+import { getNodeMetadata } from '../../constants/nodeTypes';
 
 /**
  * NodeItem - Individual node card in the browser
@@ -18,7 +18,7 @@ import { NODE_METADATA } from '../../constants/nodeTypes';
  * - Color-coded by node type
  */
 const NodeItem = ({ nodeType, onAddNode, onDragStart }) => {
-  const metadata = NODE_METADATA[nodeType];
+  const metadata = getNodeMetadata(nodeType);
 
   if (!metadata) {
     console.warn('Unknown node type:', nodeType);

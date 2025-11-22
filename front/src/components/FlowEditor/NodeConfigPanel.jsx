@@ -124,71 +124,94 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
           </Box>
         );
 
-      case 'math-add':
-      case 'math-subtract':
-      case 'math-multiply':
-      case 'math-divide':
+      case 'math':
         return (
           <Box>
-            <Typography variant="body2" gutterBottom>
-              Static Values (comma-separated)
-            </Typography>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Operation</InputLabel>
+              <Select
+                value={node.data?.operation || 'add'}
+                onChange={(e) => handleChange('operation', e.target.value)}
+                label="Operation"
+              >
+                <MenuItem value="add">Add</MenuItem>
+                <MenuItem value="subtract">Subtract</MenuItem>
+                <MenuItem value="multiply">Multiply</MenuItem>
+                <MenuItem value="divide">Divide</MenuItem>
+                <MenuItem value="average">Average</MenuItem>
+                <MenuItem value="min">Minimum</MenuItem>
+                <MenuItem value="max">Maximum</MenuItem>
+                <MenuItem value="formula">Custom Formula</MenuItem>
+              </Select>
+            </FormControl>
+
+            {node.data?.operation === 'formula' && (
+              <TextField
+                fullWidth
+                label="Formula"
+                placeholder="input0 * 2 + input1"
+                value={node.data?.formula || ''}
+                onChange={(e) => handleChange('formula', e.target.value)}
+                sx={{ mb: 2 }}
+                helperText="Use input0, input1, etc. Supports Math functions."
+              />
+            )}
+
             <TextField
               fullWidth
-              placeholder="10, 20, 30"
-              value={node.data?.values?.join(', ') || ''}
-              onChange={(e) => {
-                const values = e.target.value
-                  .split(',')
-                  .map(v => parseFloat(v.trim()))
-                  .filter(v => !isNaN(v));
-                handleChange('values', values);
-              }}
+              type="number"
+              label="Decimal Places (optional)"
+              placeholder="Leave empty for no rounding"
+              value={node.data?.decimalPlaces ?? ''}
+              onChange={(e) => handleChange('decimalPlaces', e.target.value === '' ? undefined : parseInt(e.target.value))}
               sx={{ mb: 2 }}
             />
-            
+
             <FormControl fullWidth>
-              <InputLabel>On Error</InputLabel>
+              <InputLabel>Skip Invalid Inputs</InputLabel>
               <Select
-                value={node.data?.onError || 'stop'}
-                onChange={(e) => handleChange('onError', e.target.value)}
-                label="On Error"
+                value={node.data?.skipInvalid !== false}
+                onChange={(e) => handleChange('skipInvalid', e.target.value)}
+                label="Skip Invalid Inputs"
               >
-                <MenuItem value="stop">Stop Flow</MenuItem>
-                <MenuItem value="skip">Skip Node</MenuItem>
+                <MenuItem value={true}>Yes (skip NaN/Infinity)</MenuItem>
+                <MenuItem value={false}>No (throw error)</MenuItem>
               </Select>
             </FormControl>
           </Box>
         );
 
-      case 'compare-gt':
-      case 'compare-lt':
-      case 'compare-eq':
-      case 'compare-neq':
+      case 'comparison':
         return (
           <Box>
-            <Typography variant="body2" gutterBottom>
-              Comparison Value
-            </Typography>
-            <TextField
-              fullWidth
-              type="number"
-              value={node.data?.compareValue || ''}
-              onChange={(e) => handleChange('compareValue', parseFloat(e.target.value))}
-              sx={{ mb: 2 }}
-            />
-            
-            <FormControl fullWidth>
-              <InputLabel>On Error</InputLabel>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Operation</InputLabel>
               <Select
-                value={node.data?.onError || 'stop'}
-                onChange={(e) => handleChange('onError', e.target.value)}
-                label="On Error"
+                value={node.data?.operation || 'gt'}
+                onChange={(e) => handleChange('operation', e.target.value)}
+                label="Operation"
               >
-                <MenuItem value="stop">Stop Flow</MenuItem>
-                <MenuItem value="skip">Skip Node</MenuItem>
+                <MenuItem value="gt">Greater Than (&gt;)</MenuItem>
+                <MenuItem value="lt">Less Than (&lt;)</MenuItem>
+                <MenuItem value="gte">Greater or Equal (&gt;=)</MenuItem>
+                <MenuItem value="lte">Less or Equal (&lt;=)</MenuItem>
+                <MenuItem value="eq">Equal (==)</MenuItem>
+                <MenuItem value="neq">Not Equal (!=)</MenuItem>
               </Select>
             </FormControl>
+
+            {(node.data?.operation === 'eq' || node.data?.operation === 'neq') && (
+              <TextField
+                fullWidth
+                type="number"
+                label="Equality Tolerance (optional)"
+                placeholder="Leave empty for Number.EPSILON"
+                value={node.data?.tolerance ?? ''}
+                onChange={(e) => handleChange('tolerance', e.target.value === '' ? null : parseFloat(e.target.value))}
+                sx={{ mb: 2 }}
+                helperText="Tolerance for floating-point comparisons"
+              />
+            )}
           </Box>
         );
 
@@ -202,7 +225,7 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
               <Editor
                 height="100%"
                 defaultLanguage="javascript"
-                value={node.data?.code || '// Write your JavaScript code here\n// Available: $input, $tags, $flow, $fs\nreturn $input * 2;'}
+                value={node.data?.code || '// Write your JavaScript code here\n// Available: $input, $tags.get/history, $flow.state.get/set, $fs.*\n// Use console.log() for debugging\n\nreturn $input;'}
                 onChange={(value) => handleChange('code', value)}
                 onMount={(editor, monaco) => {
                   // Register custom autocomplete for Flow Studio APIs
@@ -225,57 +248,66 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
                           range: range
                         },
                         {
-                          label: '$tags.read',
+                          label: '$tags.get',
                           kind: monaco.languages.CompletionItemKind.Method,
-                          documentation: 'Read a tag value: $tags.read("tagPath")',
-                          insertText: '$tags.read("${1:tagPath}")',
+                          documentation: 'Get current tag value: await $tags.get("tagPath") - Returns {value, quality, timestamp}',
+                          insertText: 'await $tags.get("${1:tagPath}")',
                           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                           range: range
                         },
                         {
-                          label: '$tags.write',
+                          label: '$tags.history',
                           kind: monaco.languages.CompletionItemKind.Method,
-                          documentation: 'Write a tag value: $tags.write("tagPath", value)',
-                          insertText: '$tags.write("${1:tagPath}", ${2:value})',
+                          documentation: 'Get tag history: await $tags.history("tagPath", "1h") - Returns array of {value, quality, timestamp}',
+                          insertText: 'await $tags.history("${1:tagPath}", "${2:1h}")',
                           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                           range: range
                         },
                         {
-                          label: '$flow.getId',
+                          label: '$flow.state.get',
                           kind: monaco.languages.CompletionItemKind.Method,
-                          documentation: 'Get current flow ID',
-                          insertText: '$flow.getId()',
+                          documentation: 'Get flow state: await $flow.state.get("key") - Returns stored value or entire state object',
+                          insertText: 'await $flow.state.get("${1:key}")',
+                          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                           range: range
                         },
                         {
-                          label: '$flow.log',
+                          label: '$flow.state.set',
                           kind: monaco.languages.CompletionItemKind.Method,
-                          documentation: 'Log a message: $flow.log("message")',
-                          insertText: '$flow.log("${1:message}")',
+                          documentation: 'Set flow state: await $flow.state.set("key", value) - Persists state to database',
+                          insertText: 'await $flow.state.set("${1:key}", ${2:value})',
                           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                           range: range
                         },
                         {
                           label: '$fs.readFile',
                           kind: monaco.languages.CompletionItemKind.Method,
-                          documentation: 'Read file contents: await $fs.readFile("path")',
-                          insertText: 'await $fs.readFile("${1:path}")',
+                          documentation: 'Read file contents: await $fs.readFile("path", "utf8") - Max 10MB',
+                          insertText: 'await $fs.readFile("${1:path}", "${2:utf8}")',
                           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                           range: range
                         },
                         {
                           label: '$fs.writeFile',
                           kind: monaco.languages.CompletionItemKind.Method,
-                          documentation: 'Write file contents: await $fs.writeFile("path", data)',
-                          insertText: 'await $fs.writeFile("${1:path}", ${2:data})',
+                          documentation: 'Write file contents: await $fs.writeFile("path", data, "utf8") - Max 10MB',
+                          insertText: 'await $fs.writeFile("${1:path}", ${2:data}, "${3:utf8}")',
                           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                           range: range
                         },
                         {
-                          label: '$fs.listFiles',
+                          label: '$fs.exists',
                           kind: monaco.languages.CompletionItemKind.Method,
-                          documentation: 'List files in directory: await $fs.listFiles("dirPath")',
-                          insertText: 'await $fs.listFiles("${1:dirPath}")',
+                          documentation: 'Check if file exists: await $fs.exists("path") - Returns boolean',
+                          insertText: 'await $fs.exists("${1:path}")',
+                          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                          range: range
+                        },
+                        {
+                          label: '$fs.readdir',
+                          kind: monaco.languages.CompletionItemKind.Method,
+                          documentation: 'List directory contents: await $fs.readdir("dirPath") - Returns array of filenames',
+                          insertText: 'await $fs.readdir("${1:dirPath}")',
                           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                           range: range
                         }
@@ -313,7 +345,7 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
                 label="On Error"
               >
                 <MenuItem value="stop">Stop Flow</MenuItem>
-                <MenuItem value="skip">Skip Node</MenuItem>
+                <MenuItem value="continue">Continue (return null)</MenuItem>
               </Select>
             </FormControl>
           </Box>

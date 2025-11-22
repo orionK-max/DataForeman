@@ -1,12 +1,19 @@
 /**
  * Node Type Definitions for Flow Studio
  * 
- * Defines metadata for all node types including:
- * - Category/section organization
- * - Visual properties (icons, colors)
- * - Descriptions
- * - Input/output characteristics
+ * Defines UI-only metadata for node types:
+ * - Category/section organization for palette
+ * - Visual properties (icons, colors) for display
+ * - Descriptions for tooltips
+ * 
+ * Execution metadata (inputs, outputs, properties, schemas) is fetched from backend
+ * via GET /api/flows/node-types to maintain single source of truth.
  */
+
+import { flowsApi } from '../services/api.js';
+
+// Storage for backend-provided node metadata
+let backendNodeMetadata = null;
 
 // Category definitions with hierarchical structure
 export const NODE_CATEGORIES = {
@@ -37,12 +44,12 @@ export const NODE_CATEGORIES = {
       MATH: {
         key: 'math',
         displayName: 'Math Operations',
-        nodes: ['math-add', 'math-subtract', 'math-multiply', 'math-divide']
+        nodes: ['math']
       },
       COMPARISON: {
         key: 'comparison',
         displayName: 'Comparison',
-        nodes: ['compare-gt', 'compare-lt', 'compare-eq', 'compare-neq']
+        nodes: ['comparison']
       },
       ADVANCED: {
         key: 'advanced',
@@ -66,9 +73,8 @@ export const NODE_CATEGORIES = {
   }
 };
 
-// Detailed metadata for each node type
+// UI-only metadata for each node type
 export const NODE_METADATA = {
-  // Tag Operations - Basic
   'trigger-manual': {
     displayName: 'Manual Trigger',
     description: 'Start the flow manually from UI',
@@ -76,12 +82,6 @@ export const NODE_METADATA = {
     color: '#4CAF50',
     category: 'TAG_OPERATIONS',
     section: 'BASIC',
-    hasInput: false,
-    hasOutput: true,
-    outputSchema: {
-      timestamp: 'datetime',
-      triggeredBy: 'string'
-    }
   },
   'tag-input': {
     displayName: 'Tag Input',
@@ -90,14 +90,6 @@ export const NODE_METADATA = {
     color: '#2196F3',
     category: 'TAG_OPERATIONS',
     section: 'BASIC',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      value: 'number',
-      unit: 'string',
-      quality: 'string',
-      timestamp: 'datetime'
-    }
   },
   'tag-output': {
     displayName: 'Tag Output',
@@ -106,130 +98,23 @@ export const NODE_METADATA = {
     color: '#FF9800',
     category: 'TAG_OPERATIONS',
     section: 'BASIC',
-    hasInput: true,
-    hasOutput: false,
-    inputSchema: {
-      value: 'number'
-    }
   },
-
-  // Logic & Math - Math Operations
-  'math-add': {
-    displayName: 'Add',
-    description: 'Add two numbers together',
-    icon: '➕',
+  'math': {
+    displayName: 'Math',
+    description: 'Perform mathematical operations (add, subtract, multiply, divide, average, min, max, custom formula)',
+    icon: '🔢',
     color: '#9C27B0',
     category: 'LOGIC_MATH',
     section: 'MATH',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'number'
-    }
   },
-  'math-subtract': {
-    displayName: 'Subtract',
-    description: 'Subtract second number from first',
-    icon: '➖',
-    color: '#9C27B0',
-    category: 'LOGIC_MATH',
-    section: 'MATH',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'number'
-    }
-  },
-  'math-multiply': {
-    displayName: 'Multiply',
-    description: 'Multiply two numbers',
-    icon: '✖️',
-    color: '#9C27B0',
-    category: 'LOGIC_MATH',
-    section: 'MATH',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'number'
-    }
-  },
-  'math-divide': {
-    displayName: 'Divide',
-    description: 'Divide first number by second',
-    icon: '➗',
-    color: '#9C27B0',
-    category: 'LOGIC_MATH',
-    section: 'MATH',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'number'
-    }
-  },
-
-  // Logic & Math - Comparison
-  'compare-gt': {
-    displayName: 'Greater Than',
-    description: 'Check if first value > second value',
-    icon: '🔼',
+  'comparison': {
+    displayName: 'Comparison',
+    description: 'Compare two values using various operators (>, <, >=, <=, ==, !=)',
+    icon: '⚖',
     color: '#E91E63',
     category: 'LOGIC_MATH',
     section: 'COMPARISON',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'boolean',
-      operandA: 'number',
-      operandB: 'number'
-    }
   },
-  'compare-lt': {
-    displayName: 'Less Than',
-    description: 'Check if first value < second value',
-    icon: '🔽',
-    color: '#E91E63',
-    category: 'LOGIC_MATH',
-    section: 'COMPARISON',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'boolean',
-      operandA: 'number',
-      operandB: 'number'
-    }
-  },
-  'compare-eq': {
-    displayName: 'Equal',
-    description: 'Check if values are equal',
-    icon: '🟰',
-    color: '#E91E63',
-    category: 'LOGIC_MATH',
-    section: 'COMPARISON',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'boolean',
-      operandA: 'any',
-      operandB: 'any'
-    }
-  },
-  'compare-neq': {
-    displayName: 'Not Equal',
-    description: 'Check if values are not equal',
-    icon: '≠',
-    color: '#E91E63',
-    category: 'LOGIC_MATH',
-    section: 'COMPARISON',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'boolean',
-      operandA: 'any',
-      operandB: 'any'
-    }
-  },
-
-  // Logic & Math - Advanced (Scripts)
   'script-js': {
     displayName: 'JavaScript',
     description: 'Execute custom JavaScript code',
@@ -237,13 +122,60 @@ export const NODE_METADATA = {
     color: '#F44336',
     category: 'LOGIC_MATH',
     section: 'ADVANCED',
-    hasInput: true,
-    hasOutput: true,
-    outputSchema: {
-      result: 'any'
-    }
   }
 };
+
+/**
+ * Fetch node type metadata from backend
+ * @returns {Promise<Object>} Map of node type to backend metadata
+ */
+export async function fetchBackendNodeMetadata() {
+  try {
+    const response = await flowsApi.getNodeTypes();
+    const metadata = {};
+    
+    // Convert array to map for easier lookup
+    response.nodeTypes.forEach(node => {
+      metadata[node.type] = node;
+    });
+    
+    backendNodeMetadata = metadata;
+    return metadata;
+  } catch (error) {
+    console.error('Failed to fetch node types from backend:', error);
+    return null;
+  }
+}
+
+/**
+ * Get backend metadata for a node type
+ * @param {string} nodeType - Node type identifier
+ * @returns {Object|null} Backend metadata or null
+ */
+export function getBackendMetadata(nodeType) {
+  return backendNodeMetadata?.[nodeType] || null;
+}
+
+/**
+ * Get complete node metadata (UI + backend)
+ * @param {string} nodeType - Node type identifier
+ * @returns {Object} Combined metadata
+ */
+export function getNodeMetadata(nodeType) {
+  const uiMetadata = NODE_METADATA[nodeType] || {};
+  const backendMeta = getBackendMetadata(nodeType);
+  
+  return {
+    ...uiMetadata,
+    // Add backend metadata
+    inputs: backendMeta?.inputs || [],
+    outputs: backendMeta?.outputs || [],
+    properties: backendMeta?.properties || [],
+    // Convenience flags derived from backend data
+    hasInput: backendMeta?.inputs?.length > 0,
+    hasOutput: backendMeta?.outputs?.length > 0,
+  };
+}
 
 // Utility functions
 
@@ -312,15 +244,9 @@ export function addToRecentNodes(nodeType) {
       return;
     }
 
-    let recent = getRecentNodes(50); // Keep more in storage, display fewer
-    
-    // Remove if already exists
+    let recent = getRecentNodes(50);
     recent = recent.filter(t => t !== nodeType);
-    
-    // Add to front
     recent.unshift(nodeType);
-    
-    // Limit to 10 stored
     recent = recent.slice(0, 10);
     
     localStorage.setItem('flow-studio-recent-nodes', JSON.stringify(recent));
@@ -369,7 +295,7 @@ export function getOrganizedNodes() {
         ...section,
         nodes: section.nodes.map(nodeType => ({
           type: nodeType,
-          ...NODE_METADATA[nodeType]
+          ...getNodeMetadata(nodeType)
         }))
       };
     });

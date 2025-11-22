@@ -60,6 +60,11 @@ if [[ ! -f .env ]]; then
   cp .env.example .env || true
 fi
 
+if [[ ! -f .gitignore ]]; then
+  echo ".gitignore not found; copying from .gitignore.example"
+  cp .gitignore.example .gitignore || true
+fi
+
 # Auto-configure for Linux to enable EIP autodiscovery
 if [[ "$MODE" == "compose" && "$(uname -s)" == "Linux" ]]; then
   if ! grep -q "^[[:space:]]*network_mode: host" docker-compose.yml; then
@@ -133,7 +138,7 @@ if [[ "$MODE" == "local-core" ]]; then
 
   wait_for_core "http://localhost:${PORT}/health" || true
   echo "Core: http://localhost:${PORT}"
-  echo "Web (optional dev server): npm --workspace=web run dev"
+  echo "Frontend (optional dev server): npm --workspace=front run dev"
   echo "Demo login: admin@example.com / password"
   echo
   echo "Follow logs (Ctrl+C to stop):"
@@ -142,11 +147,11 @@ if [[ "$MODE" == "local-core" ]]; then
 fi
 
 if [[ "$BUILD_MODE" == "build" ]]; then
-  echo "Building and starting full stack via Docker Compose (db, nats, core, web, connectivity, rotator)..."
-  docker compose up -d --build db nats core web connectivity rotator
+  echo "Building and starting full stack via Docker Compose (db, nats, tsdb, core, front, connectivity, rotator)..."
+  docker compose up -d --build db nats tsdb core front connectivity rotator
 else
-  echo "Starting full stack via Docker Compose without rebuild (db, nats, core, web, connectivity, rotator)..."
-  docker compose up -d db nats core web connectivity rotator
+  echo "Starting full stack via Docker Compose without rebuild (db, nats, tsdb, core, front, connectivity, rotator)..."
+  docker compose up -d db nats tsdb core front connectivity rotator
 fi
 if [[ "$WITH_CADDY" == "true" ]]; then
   docker compose --profile tls up -d caddy
@@ -156,7 +161,7 @@ wait_for_core "http://localhost:3000/health" || true
 echo
 echo "Services ready:"
 echo "  Core: http://localhost:3000"
-echo "  Web:  http://localhost:8080"
+echo "  Frontend:  http://localhost:8080"
 echo "  Connectivity: http://localhost:3100"
 [[ "$WITH_CADDY" == "true" ]] && echo "  Caddy: http://localhost"
 echo "  Demo login: admin@example.com / password"

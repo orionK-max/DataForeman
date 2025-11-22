@@ -416,6 +416,7 @@ CROSS JOIN (
         ('connectivity.tags'),
         ('connectivity.poll_groups'),
         ('connectivity.units'),
+        ('connectivity.internal_tags'),
         ('chart_composer'),
         ('diagnostics'),
         ('diagnostic.system'),
@@ -426,6 +427,7 @@ CROSS JOIN (
         ('permissions'),
         ('jobs'),
         ('logs'),
+        ('flows'),
         ('configuration')
 ) AS f(feature)
 ON CONFLICT (user_id, feature) DO NOTHING;

@@ -3,6 +3,8 @@
 // Handles tag I/O, quality propagation, and error handling
 
 import { executeScript, getAllowedPaths } from './script-sandbox.js';
+import { NodeRegistry } from '../nodes/base/NodeRegistry.js';
+import { NodeExecutionContext } from '../nodes/base/NodeExecutionContext.js';
 
 /**
  * Validate flow graph structure
@@ -120,300 +122,32 @@ export function topologicalSort(nodes, edges) {
 }
 
 /**
- * Execute a single node
+ * Execute a single node using class-based implementation from NodeRegistry
  * @param {Object} node - Node to execute
  * @param {Map} nodeOutputs - Map of node outputs
  * @param {Object} context - Execution context { app, flow, execution }
  * @returns {Object} { value, quality, error }
  */
 export async function executeNode(node, nodeOutputs, context) {
-  const { app, flow, execution } = context;
-  const log = app.log.child({ flowId: flow.id, executionId: execution.id, nodeId: node.id });
+  const { app } = context;
+  const log = app.log.child({ nodeId: node.id, nodeType: node.type });
+  
+  // Check if node is registered
+  if (!NodeRegistry.has(node.type)) {
+    throw new Error(`Unknown node type: ${node.type}. Please ensure the node is registered in the NodeRegistry.`);
+  }
+  
+  log.debug('Executing class-based node');
   
   try {
-    switch (node.type) {
-      case 'trigger-manual':
-        // Trigger nodes just pass through
-        return { value: true, quality: 192 };
-      
-      case 'tag-input': {
-        // TODO: Replace DB query with memory cache read for better performance
-        // Current implementation queries tag_values table directly, which works but adds latency (4-6ms)
-        // Future: Implement in-memory tag cache (e.g., Redis or app-level Map) that's updated by ingestor
-        // This would reduce tag read time to <1ms and avoid DB load during flow execution
-        
-        const tagId = node.data?.tagId;
-        if (!tagId) {
-          throw new Error('Tag input node missing tagId');
-        }
-        
-        // Get tag metadata
-        const metaResult = await app.db.query(
-          'SELECT tag_path, data_type, connection_id FROM tag_metadata WHERE tag_id = $1',
-          [tagId]
-        );
-        
-        if (metaResult.rows.length === 0) {
-          throw new Error(`Tag ${tagId} not found`);
-        }
-        
-        const { tag_path: tagPath, connection_id: connectionId } = metaResult.rows[0];
-        
-        // TEMPORARY: Query latest value from tag_values table
-        // This should be replaced with memory cache lookup for production use
-        const tsdb = app.tsdb || app.db;
-        const valueResult = await tsdb.query(
-          `SELECT ts, quality, v_num, v_text, v_json
-           FROM tag_values
-           WHERE connection_id = $1 AND tag_id = $2
-           ORDER BY ts DESC
-           LIMIT 1`,
-          [connectionId, tagId]
-        );
-        
-        if (valueResult.rows.length === 0) {
-          // No data yet - return null with bad quality
-          log.warn({ tagId, tagPath }, 'No tag values found in cache');
-          return { value: null, quality: 0, tagPath };
-        }
-        
-        const row = valueResult.rows[0];
-        // Precedence: v_json -> v_num -> v_text
-        const value = row.v_json != null ? row.v_json : 
-                      (row.v_num != null ? Number(row.v_num) : 
-                      (row.v_text != null ? row.v_text : null));
-        const quality = row.quality != null ? row.quality : 192;
-        
-        return { value, quality, tagPath };
-      }
-      
-      case 'tag-output': {
-        // Write to internal tag
-        const tagId = node.data?.tagId;
-        if (!tagId) {
-          throw new Error('Tag output node missing tagId');
-        }
-        
-        // Get input value from source node
-        const inputEdge = execution.edges?.find(e => e.target === node.id);
-        
-        if (!inputEdge) {
-          log.warn('No input connected to tag-output node');
-          return { value: null, quality: 0 };
-        }
-        
-        const inputValue = nodeOutputs.get(inputEdge.source);
-        if (!inputValue) {
-          log.warn({ sourceNodeId: inputEdge.source }, 'Source node output not found');
-          return { value: null, quality: 0 };
-        }
-        
-        // Verify tag exists and is internal
-        const tagResult = await app.db.query(
-          'SELECT tag_id, tag_path, driver_type FROM tag_metadata WHERE tag_id = $1',
-          [tagId]
-        );
-        
-        if (tagResult.rows.length === 0) {
-          throw new Error(`Tag ${tagId} not found`);
-        }
-        
-        if (tagResult.rows[0].driver_type !== 'INTERNAL') {
-          throw new Error(`Tag ${tagId} is not an internal tag`);
-        }
-        
-        // Publish to NATS (tag update)
-        const tagPath = tagResult.rows[0].tag_path;
-        const payload = {
-          tag_id: tagId,
-          tag_path: tagPath,
-          value: inputValue.value,
-          quality: inputValue.quality,
-          timestamp: new Date().toISOString(),
-          source: 'flow_engine'
-        };
-        
-        await app.nats.publish(`df.tag.update.${tagId}`, payload);
-        log.info({ tagId, tagPath, value: inputValue.value }, 'Published tag update');
-        
-        return { value: inputValue.value, quality: inputValue.quality };
-      }
-      
-      case 'math-add':
-      case 'math-subtract':
-      case 'math-multiply':
-      case 'math-divide': {
-        // Get inputs - combine connected edges AND static values
-        const edges = execution.edges?.filter(e => e.target === node.id) || [];
-        let inputs = [];
-        
-        // Start with values from connected nodes
-        if (edges.length > 0) {
-          inputs = edges.map(edge => nodeOutputs.get(edge.source)).filter(Boolean);
-        }
-        
-        // Add static values from node configuration
-        if (node.data?.values && Array.isArray(node.data.values)) {
-          const staticInputs = node.data.values.map(v => ({ value: v, quality: 192 }));
-          inputs = inputs.concat(staticInputs);
-          log.info({ nodeId: node.id, edgeInputs: edges.length, staticValues: node.data.values.length, totalInputs: inputs.length }, 'Math node combining edge and static inputs');
-        } else if (inputs.length > 0) {
-          log.info({ nodeId: node.id, edgeInputs: inputs.length }, 'Math node using only edge inputs');
-        }
-        
-        if (inputs.length === 0) {
-          log.warn({ nodeId: node.id, hasEdges: edges.length > 0, hasStaticValues: !!node.data?.values }, 'Math node has no inputs');
-          return { value: null, quality: 0 };
-        }
-        
-        // Check quality - if any input is bad, output is bad
-        const minQuality = Math.min(...inputs.map(i => i.quality));
-        if (minQuality < 64) { // Bad quality threshold
-          return { value: null, quality: 0 };
-        }
-        
-        // Perform operation
-        const values = inputs.map(i => Number(i.value)).filter(v => !isNaN(v));
-        if (values.length === 0) {
-          return { value: null, quality: 0 };
-        }
-        
-        let result;
-        const operation = node.type.split('-')[1];
-        
-        switch (operation) {
-          case 'add':
-            result = values.reduce((a, b) => a + b, 0);
-            break;
-          case 'subtract':
-            result = values.length > 0 ? values[0] - values.slice(1).reduce((a, b) => a + b, 0) : 0;
-            break;
-          case 'multiply':
-            result = values.reduce((a, b) => a * b, 1);
-            break;
-          case 'divide':
-            if (values.length > 1 && values.slice(1).some(v => v === 0)) {
-              throw new Error('Division by zero');
-            }
-            result = values.length > 0 ? values.slice(1).reduce((a, b) => a / b, values[0]) : 0;
-            break;
-          default:
-            throw new Error(`Unknown math operation: ${operation}`);
-        }
-        
-        return { value: result, quality: minQuality };
-      }
-      
-      case 'compare-gt':
-      case 'compare-lt':
-      case 'compare-eq':
-      case 'compare-neq': {
-        // Get two inputs
-        const edges = execution.edges?.filter(e => e.target === node.id) || [];
-        const inputs = edges.map(edge => nodeOutputs.get(edge.source)).filter(Boolean);
-        
-        if (inputs.length < 2) {
-          return { value: false, quality: 0 };
-        }
-        
-        // Check quality
-        const minQuality = Math.min(...inputs.map(i => i.quality));
-        if (minQuality < 64) {
-          return { value: false, quality: 0 };
-        }
-        
-        const a = Number(inputs[0].value);
-        const b = Number(inputs[1].value);
-        
-        if (isNaN(a) || isNaN(b)) {
-          return { value: false, quality: 0 };
-        }
-        
-        const operation = node.type.split('-')[1];
-        let result;
-        
-        switch (operation) {
-          case 'gt':
-            result = a > b;
-            break;
-          case 'lt':
-            result = a < b;
-            break;
-          case 'eq':
-            result = Math.abs(a - b) < Number.EPSILON;
-            break;
-          case 'neq':
-            result = Math.abs(a - b) >= Number.EPSILON;
-            break;
-          default:
-            throw new Error(`Unknown comparison operation: ${operation}`);
-        }
-        
-        return { value: result, quality: minQuality };
-      }
-      
-      case 'script-js': {
-        // Execute JavaScript code
-        const code = node.data?.code || '';
-        if (!code || code.trim() === '') {
-          log.warn('Script node has no code');
-          return { value: null, quality: 0 };
-        }
-        
-        // Get input value if connected
-        const edges = execution.edges?.filter(e => e.target === node.id) || [];
-        let inputValue = null;
-        let inputQuality = 192;
-        
-        if (edges.length > 0) {
-          const firstEdge = edges[0];
-          const sourceOutput = nodeOutputs.get(firstEdge.source);
-          if (sourceOutput) {
-            inputValue = sourceOutput.value;
-            inputQuality = sourceOutput.quality;
-          }
-        }
-        
-        // Execute script with sandbox
-        const allowedPaths = getAllowedPaths();
-        const timeout = node.data?.timeout || 10000;
-        
-        const scriptResult = await executeScript(code, {}, {
-          app,
-          flowId: flow.id,
-          nodeOutputs,
-          input: inputValue,
-          timeout,
-          allowedPaths
-        });
-        
-        if (scriptResult.error) {
-          log.error({ error: scriptResult.error, logs: scriptResult.logs }, 'Script execution failed');
-          
-          // Check onError setting
-          const onError = node.data?.onError || 'stop';
-          if (onError === 'stop') {
-            throw new Error(`Script error: ${scriptResult.error.message}`);
-          }
-          
-          return { value: null, quality: 0, error: scriptResult.error.message, logs: scriptResult.logs };
-        }
-        
-        log.info({ result: scriptResult.result, logs: scriptResult.logs }, 'Script executed successfully');
-        
-        return {
-          value: scriptResult.result,
-          quality: inputQuality, // Inherit input quality
-          logs: scriptResult.logs
-        };
-      }
-      
-      default:
-        log.warn({ nodeType: node.type }, 'Unknown node type');
-        return { value: null, quality: 0 };
-    }
+    const nodeInstance = NodeRegistry.getInstance(node.type);
+    const execContext = new NodeExecutionContext(node, nodeOutputs, context);
+    const result = await nodeInstance.execute(execContext);
+    
+    log.debug({ result }, 'Node executed successfully');
+    return result;
   } catch (error) {
-    log.error({ err: error, nodeType: node.type }, 'Node execution failed');
+    log.error({ error }, 'Node execution failed');
     
     // Check onError setting
     const onError = node.data?.onError || 'stop';

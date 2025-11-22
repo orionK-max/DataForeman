@@ -586,27 +586,61 @@ If you're a regular user just wanting to use DataForeman, you can stop reading h
 
 | Command | Description |
 |---------|-------------|
-| `npm start` | Start all Docker services (auto fixes permissions) |
-| `npm run start:rebuild` | Rebuild images and start all Docker services |
-| `docker compose up -d` | Alternative: Direct Docker Compose start |
-| `docker compose down` | Stop all services |
+| `npm start` | Start all services in Docker (auto-fixes permissions, creates .env) |
+| `npm run start:rebuild` | Rebuild Docker images and start all services |
+| `docker compose up -d` | Alternative: Direct Docker Compose start (no auto-fixes) |
+| `docker compose down` | Stop all Docker services |
 
 **For Developers:**
 
-These commands run parts of DataForeman on your host machine (outside Docker) for faster development:
+These commands are for active development with faster iterations. All commands run in the background and release the terminal.
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start Docker services + frontend dev server (port 5174) |
+| `npm run dev` | Start all Docker services + frontend dev server locally (port 5174) |
 | `npm run dev:rebuild` | Rebuild everything + start frontend dev server |
-| `npm run dev:front` | Start only frontend locally (port 5174) |
-| `npm run dev:core` | Start only backend locally |
-| `npm run start:local` | Run Core locally with DB/NATS in Docker |
-| `npm run start:caddy` | Start with Caddy TLS reverse proxy |
+| `npm run dev:front` | Start only frontend dev server (expects services running) |
+| `npm run dev:core` | Start only Core locally (expects db/nats/tsdb running) |
+| `npm run start:local` | Start db/nats in Docker + Core locally (no frontend) |
+| `npm run start:caddy` | Start all services + Caddy TLS reverse proxy |
 
-**Frontend Modes:**
-- **Production** (`npm start`): Runs on port 8080, fully containerized, stable
-- **Development** (`npm run dev`): Runs on port 5174, hot-reload enabled, faster iterations
+**Stopping Development Services:**
+
+```bash
+# Stop Docker services
+docker compose down
+
+# Stop frontend dev server
+pkill -f 'vite --port 5174'
+
+# Stop all Node processes (use with caution)
+pkill -f node
+```
+
+**View Logs:**
+
+```bash
+# Frontend dev server logs
+tail -f logs/frontend-dev.log
+
+# Core logs
+docker compose logs -f core
+
+# All Docker services
+docker compose logs -f
+```
+
+**What's the difference?**
+
+| Mode | Frontend | Core | Databases | Use Case |
+|------|----------|------|-----------|----------|
+| `npm start` | Docker (port 8080) | Docker | Docker | Production-like, stable |
+| `npm run dev` | Local (port 5174) | Docker | Docker | Frontend development with hot-reload |
+| `npm run start:local` | None | Local | Docker | Core API development |
+
+**Frontend Access:**
+- **Production** (`npm start`): http://localhost:8080 - Nginx-served, stable
+- **Development** (`npm run dev`): http://localhost:5174 - Vite dev server, hot-reload enabled
 
 ### Environment Variables
 

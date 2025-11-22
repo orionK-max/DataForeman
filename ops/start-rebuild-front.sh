@@ -30,6 +30,11 @@ if [[ "$(uname -s)" == "Linux" ]]; then
       cp .env.example .env || true
     fi
     
+    if [ ! -f .gitignore ]; then
+      echo "Creating .gitignore from .gitignore.example..."
+      cp .gitignore.example .gitignore || true
+    fi
+    
     if ! grep -q "^NATS_URL=nats://localhost:4222" .env; then
       if grep -q "^NATS_URL=" .env; then
         sed -i 's|^NATS_URL=.*|NATS_URL=nats://localhost:4222|' .env

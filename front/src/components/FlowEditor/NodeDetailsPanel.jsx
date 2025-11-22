@@ -18,7 +18,7 @@ import {
   Warning as WarningIcon,
   Error as ErrorIcon,
 } from '@mui/icons-material';
-import { NODE_METADATA } from '../../constants/nodeTypes';
+import { getNodeMetadata } from '../../constants/nodeTypes';
 import DataDisplayPanel from './DataDisplayPanel';
 import PinDataDialog from './PinDataDialog';
 import SchemaPreview from './SchemaPreview';
@@ -53,7 +53,7 @@ const NodeDetailsPanel = ({
   const [displayMode, setDisplayMode] = useState('table');
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
 
-  const metadata = node ? NODE_METADATA[node.type] : null;
+  const metadata = node ? getNodeMetadata(node.type) : null;
 
   // Load display mode preference
   useEffect(() => {

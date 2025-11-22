@@ -257,3 +257,25 @@ export const apiClient = {
 };
 
 export default apiClient;
+
+/**
+ * Flows API - Flow Studio endpoints
+ */
+export const flowsApi = {
+  /**
+   * Get all available node types
+   * @returns {Promise<{nodeTypes: Array, count: number}>}
+   */
+  getNodeTypes: async () => {
+    return apiClient.get('/flows/node-types');
+  },
+
+  /**
+   * Get specific node type details
+   * @param {string} type - Node type identifier
+   * @returns {Promise<Object>} Node type details
+   */
+  getNodeType: async (type) => {
+    return apiClient.get(`/flows/node-types/${type}`);
+  },
+};
