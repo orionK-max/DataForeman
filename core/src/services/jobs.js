@@ -431,6 +431,7 @@ export const jobsPlugin = fp(async (app) => {
 		let lastRecover = 0;
 		let lastCancelEnforce = 0;
 		let lastReconcile = 0;
+		let lastHealthCheck = 0;
 		let iter = 0;
 		
 		log.info({ maxConcurrent: MAX_CONCURRENT_JOBS }, 'dispatcher: starting with concurrency limit');
@@ -438,6 +439,21 @@ export const jobsPlugin = fp(async (app) => {
 		while (true) { // eslint-disable-line no-constant-condition
 			const now = Date.now();
 			iter++;
+			
+			// Periodic health check (every 30s)
+			if (now - lastHealthCheck > 30000) {
+				const memUsage = process.memoryUsage();
+				const heapUsedMB = (memUsage.heapUsed / 1024 / 1024).toFixed(2);
+				const heapTotalMB = (memUsage.heapTotal / 1024 / 1024).toFixed(2);
+				log.info({ 
+					activeJobs: activeJobs.size, 
+					maxConcurrent: MAX_CONCURRENT_JOBS,
+					heapUsedMB,
+					heapTotalMB,
+					heapPercent: ((memUsage.heapUsed / memUsage.heapTotal) * 100).toFixed(1)
+				}, 'dispatcher: health check');
+				lastHealthCheck = now;
+			}
 			
 			if (iter % 200 === 1) {
 				log.info({ iter, activeJobs: activeJobs.size, maxConcurrent: MAX_CONCURRENT_JOBS }, 'dispatcher: heartbeat');
@@ -467,29 +483,31 @@ export const jobsPlugin = fp(async (app) => {
 				if (!handler) {
 					await fail(job.id, new Error(`No handler for job type ${job.type}`));
 					continue;
-				}
-				
-				// Launch job asynchronously (don't await - allows concurrent execution)
-				const jobPromise = (async () => {
-					const startTime = Date.now();
-					try {
-						log.info({ jobId: job.id, jobType: job.type }, 'job: starting execution');
-						await handler({ job, updateProgress, complete, fail, requestCancel, app });
-						log.info({ jobId: job.id, jobType: job.type, durationMs: Date.now() - startTime }, 'job: completed successfully');
-					} catch (e) {
-						log.error({ err: e, jobId: job.id, jobType: job.type, durationMs: Date.now() - startTime }, 'job: handler error');
-						try { await fail(job.id, e); } catch {}
-					} finally {
-						activeJobs.delete(job.id);
-						log.debug({ jobId: job.id, activeCount: activeJobs.size }, 'job: removed from active set');
-					}
-				})();
-				
-				activeJobs.set(job.id, jobPromise);
-				log.debug({ jobId: job.id, activeCount: activeJobs.size, maxConcurrent: MAX_CONCURRENT_JOBS }, 'job: added to active set');
 			}
 			
-			// Wait before next claim attempt (shorter idle when jobs are active)
+			// Launch job asynchronously (don't await - allows concurrent execution)
+			const jobPromise = (async () => {
+				const startTime = Date.now();
+				const startMemory = process.memoryUsage().heapUsed;
+				try {
+					log.info({ jobId: job.id, jobType: job.type }, 'job: starting execution');
+					await handler({ job, updateProgress, complete, fail, requestCancel, app });
+					const endMemory = process.memoryUsage().heapUsed;
+					const memoryDelta = endMemory - startMemory;
+					const durationMs = Date.now() - startTime;
+					log.info({ jobId: job.id, jobType: job.type, durationMs, memoryDeltaMB: (memoryDelta / 1024 / 1024).toFixed(2) }, 'job: completed successfully');
+				} catch (e) {
+					log.error({ err: e, jobId: job.id, jobType: job.type, durationMs: Date.now() - startTime }, 'job: handler error');
+					try { await fail(job.id, e); } catch {}
+				} finally {
+					activeJobs.delete(job.id);
+					log.debug({ jobId: job.id, activeCount: activeJobs.size }, 'job: removed from active set');
+				}
+			})();
+			
+			activeJobs.set(job.id, jobPromise);
+			log.debug({ jobId: job.id, activeCount: activeJobs.size, maxConcurrent: MAX_CONCURRENT_JOBS }, 'job: added to active set');
+		}			// Wait before next claim attempt (shorter idle when jobs are active)
 			const idleMs = activeJobs.size === 0 ? 1000 : 250;
 			await new Promise(r => setTimeout(r, idleMs));
 		}
@@ -655,9 +673,17 @@ export const jobsPlugin = fp(async (app) => {
 	// Graceful shutdown hook
 	app.addHook('onClose', async () => {
 		try {
+			// Stop all active flow sessions
+			const { FlowSession } = await import('./flow-session.js');
+			const stoppedCount = await FlowSession.stopAllActiveSessions(app);
+			if (stoppedCount > 0) {
+				log.info({ stoppedCount }, 'stopped active flow sessions on shutdown');
+			}
+			
+			// Requeue running jobs
 			await app.db.query(`update jobs set status='queued', updated_at=now(), run_at=now()+ interval '5 seconds' where status='running'`);
 			log.info('requeued running jobs on shutdown');
-		} catch (e) { log.error({ err: e }, 'failed to requeue running jobs on shutdown'); }
+		} catch (e) { log.error({ err: e }, 'failed to cleanup on shutdown'); }
 	});
 
 	async function metrics() {

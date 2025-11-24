@@ -230,10 +230,11 @@ export const validateForSave = (nodes, edges) => {
 export const validateForDeploy = (nodes, edges) => {
   const result = validateFlow(nodes, edges);
   
-  // Additional deploy-specific checks
+  // Check for trigger node - now a warning since trigger could be in user script
   if (!hasTriggerNode(nodes)) {
-    result.errors.unshift({ message: 'Cannot deploy flow without a trigger node' });
-    result.valid = false;
+    result.warnings.push({ 
+      message: 'No manual trigger node found. Flow must be triggered manually or via events/scripts.' 
+    });
   }
 
   return result;

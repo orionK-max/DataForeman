@@ -5,7 +5,7 @@ import { BaseNode } from '../base/BaseNode.js';
  * Supports: add, subtract, multiply, divide, average, min, max, and custom formulas
  */
 export class MathNode extends BaseNode {
-  static description = {
+  description = {
     displayName: 'Math',
     name: 'math',
     group: 'LOGIC_MATH',
@@ -108,6 +108,31 @@ export class MathNode extends BaseNode {
   };
 
   /**
+   * Declarative log messages
+   */
+  getLogMessages() {
+    const operationLabels = {
+      'add': 'Add',
+      'subtract': 'Subtract',
+      'multiply': 'Multiply',
+      'divide': 'Divide',
+      'average': 'Average',
+      'min': 'Min',
+      'max': 'Max',
+      'formula': 'Formula'
+    };
+    
+    return {
+      info: (result) => {
+        const label = operationLabels[result.operation] || result.operation;
+        return `${label}: [${result.inputs.join(', ')}] = ${result.value}`;
+      },
+      debug: (result) => `Math operation: ${result.operation}, quality: ${result.quality}`,
+      error: (error) => `Math operation failed: ${error.message}`
+    };
+  }
+
+  /**
    * Validates that a value is a valid number
    */
   validateNumber(value, inputIndex, skipInvalid = false) {
@@ -144,19 +169,18 @@ export class MathNode extends BaseNode {
     const qualities = [];
 
     for (let i = 0; i < context.getInputCount(); i++) {
-      const inputData = context.getInputData(i);
+      const inputData = context.getInputValue(i);
       
-      if (!inputData || inputData.length === 0) {
+      if (!inputData) {
         if (!skipInvalid) {
           throw new Error(`Input ${i} is empty`);
         }
         continue;
       }
 
-      // Get first item from input
-      const item = inputData[0];
-      const value = item.value ?? item;
-      const quality = item.quality ?? 192; // Default good quality
+      // Extract value and quality from input
+      const value = inputData.value ?? inputData;
+      const quality = inputData.quality ?? 192; // Default good quality
 
       // Validate number
       const numValue = this.validateNumber(value, i, skipInvalid);
@@ -305,13 +329,13 @@ export class MathNode extends BaseNode {
     // Calculate output quality
     const quality = this.calculateQuality(qualities);
 
-    return [{
+    return {
       value: result,
       quality,
       operation,
       inputs: values,
       timestamp: new Date().toISOString(),
-    }];
+    };
   }
 }
 

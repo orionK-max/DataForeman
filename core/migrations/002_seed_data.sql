@@ -96,14 +96,30 @@ CREATE TABLE IF NOT EXISTS flows (
   folder_id uuid,
   deployed boolean DEFAULT false,
   shared boolean DEFAULT false,
+  test_mode boolean DEFAULT false,
+  test_disable_writes boolean DEFAULT false,
+  test_auto_exit boolean DEFAULT false,
+  test_auto_exit_minutes integer DEFAULT 5,
+  execution_mode varchar(20) DEFAULT 'continuous',
+  scan_rate_ms integer DEFAULT 1000,
+  logs_enabled boolean DEFAULT false,
+  logs_retention_days integer DEFAULT 30,
   definition jsonb NOT NULL DEFAULT '{}'::jsonb,
   static_data jsonb DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+COMMENT ON COLUMN flows.test_mode IS 'When true, flow is temporarily deployed for testing. Manual triggers work but writes can be disabled.';
+COMMENT ON COLUMN flows.test_disable_writes IS 'When true in test mode, tag-output nodes will not write values.';
+COMMENT ON COLUMN flows.test_auto_exit IS 'When true in test mode, automatically exit test mode after timeout period expires.';
+COMMENT ON COLUMN flows.test_auto_exit_minutes IS 'Duration in minutes before auto-exiting test mode (default: 5 minutes).';
+COMMENT ON COLUMN flows.execution_mode IS 'Execution mode: continuous (default) for scan-based loops, manual for one-time execution.';
+COMMENT ON COLUMN flows.scan_rate_ms IS 'Time between scan cycles in milliseconds (100-60000ms). Default: 1000ms (1 second).';
+
 CREATE INDEX IF NOT EXISTS idx_flows_owner ON flows(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_flows_shared ON flows(shared) WHERE shared = true;
+CREATE INDEX IF NOT EXISTS idx_flows_test_mode ON flows(test_mode) WHERE test_mode = true;
 
 -- Flow execution history
 CREATE TABLE IF NOT EXISTS flow_executions (
@@ -119,6 +135,24 @@ CREATE TABLE IF NOT EXISTS flow_executions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_flow_executions_flow_id_started ON flow_executions(flow_id, started_at DESC);
+
+-- Flow sessions (continuous execution tracking)
+CREATE TABLE IF NOT EXISTS flow_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  flow_id uuid REFERENCES flows(id) ON DELETE CASCADE,
+  status varchar(20) NOT NULL CHECK (status IN ('active', 'stopped', 'error', 'stalled')),
+  started_at timestamptz NOT NULL DEFAULT now(),
+  stopped_at timestamptz,
+  last_scan_at timestamptz,
+  scan_count bigint DEFAULT 0 NOT NULL,
+  error_message text,
+  config jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_flow_sessions_flow ON flow_sessions(flow_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_flow_sessions_status ON flow_sessions(status, last_scan_at);
 
 -- Tag-Flow dependencies (cross-reference)
 CREATE TABLE IF NOT EXISTS flow_tag_dependencies (

@@ -19,10 +19,13 @@ export class NodeExecutionContext {
     this.node = node;
     this.nodeOutputs = nodeOutputs;
     
-    const { app, flow, execution } = executionData;
+    const { app, flow, execution, logBuffer, inputStateManager, runtimeState } = executionData;
     this.app = app;
     this.flow = flow;
     this.execution = execution;
+    this.logBuffer = logBuffer; // Optional log buffer for persistent logging
+    this.inputStateManager = inputStateManager; // Optional input state manager for continuous execution
+    this.runtimeState = runtimeState; // Optional runtime state store for trigger flags and tag caching
     
     // Convenient accessors
     this.db = app.db;
@@ -46,6 +49,23 @@ export class NodeExecutionContext {
    * @returns {Object} [result.metadata] - Optional metadata
    */
   getInputValue(index = 0) {
+    // If InputStateManager is available (continuous execution), read from it
+    if (this.inputStateManager) {
+      const edges = this._getIncomingEdges();
+      
+      if (edges.length === 0 || index >= edges.length) {
+        return null;
+      }
+      
+      const edge = edges[index];
+      const portName = edge.targetHandle || 'input';
+      const value = this.inputStateManager.getInput(this.node.id, portName);
+      
+      // Return in standard format with quality
+      return value !== undefined ? { value, quality: 192 } : null;
+    }
+    
+    // Fallback to traditional edge-based reading (manual execution)
     const edges = this._getIncomingEdges();
     
     if (edges.length === 0 || index >= edges.length) {
@@ -62,6 +82,20 @@ export class NodeExecutionContext {
    * @returns {Array<Object>} Array of input data objects
    */
   getInputValues() {
+    // If InputStateManager is available (continuous execution), read from it
+    if (this.inputStateManager) {
+      const edges = this._getIncomingEdges();
+      
+      return edges
+        .map(edge => {
+          const portName = edge.targetHandle || 'input';
+          const value = this.inputStateManager.getInput(this.node.id, portName);
+          return value !== undefined ? { value, quality: 192 } : null;
+        })
+        .filter(output => output !== null);
+    }
+    
+    // Fallback to traditional edge-based reading (manual execution)
     const edges = this._getIncomingEdges();
     
     return edges
@@ -208,8 +242,26 @@ export class NodeExecutionContext {
   logInfo(data, message) {
     if (typeof data === 'string') {
       this.log.info(data);
+      this._bufferLog('info', data);
     } else {
       this.log.info(data, message);
+      this._bufferLog('info', message || JSON.stringify(data), data);
+    }
+  }
+
+  /**
+   * Log debug message
+   * 
+   * @param {Object|string} data - Log data or message
+   * @param {string} [message] - Message if data is object
+   */
+  logDebug(data, message) {
+    if (typeof data === 'string') {
+      this.log.debug(data);
+      this._bufferLog('debug', data);
+    } else {
+      this.log.debug(data, message);
+      this._bufferLog('debug', message || JSON.stringify(data), data);
     }
   }
 
@@ -222,8 +274,10 @@ export class NodeExecutionContext {
   logWarn(data, message) {
     if (typeof data === 'string') {
       this.log.warn(data);
+      this._bufferLog('warn', data);
     } else {
       this.log.warn(data, message);
+      this._bufferLog('warn', message || JSON.stringify(data), data);
     }
   }
 
@@ -236,9 +290,118 @@ export class NodeExecutionContext {
   logError(data, message) {
     if (typeof data === 'string') {
       this.log.error(data);
+      this._bufferLog('error', data);
     } else {
       this.log.error(data, message);
+      this._bufferLog('error', message || JSON.stringify(data), data);
     }
+  }
+
+  /**
+   * Write log to buffer for persistent storage
+   * @private
+   */
+  _bufferLog(level, message, metadata = null) {
+    // Only buffer logs if logging is enabled for this flow and we have a buffer
+    if (this.logBuffer && this.flow.logs_enabled) {
+      this.logBuffer.add({
+        execution_id: this.execution.id,
+        flow_id: this.flow.id,
+        node_id: this.node.id,
+        log_level: level,
+        message: String(message),
+        timestamp: new Date(),
+        metadata: metadata
+      });
+    }
+  }
+
+  /**
+   * Automatically log node execution result using declarative log messages
+   * Called by the execution engine after successful node execution
+   * 
+   * @param {Object} nodeInstance - The node instance (with getLogMessages method)
+   * @param {Object} result - Execution result from node.execute()
+   * @param {string} level - Log level ('info', 'debug', 'warn')
+   */
+  autoLogResult(nodeInstance, result, level = 'info') {
+    // Check if node has logging enabled at this level
+    const nodeLogLevel = this.node.data?.logLevel || 'none';
+    if (!this._shouldLogLevel(nodeLogLevel, level)) {
+      return; // Skip logging if node's log level doesn't include this level
+    }
+    
+    const logMessages = nodeInstance.getLogMessages();
+    const logFn = logMessages[level];
+    
+    if (logFn && typeof logFn === 'function') {
+      try {
+        const message = logFn(result);
+        if (message) {
+          // Call the appropriate log method
+          switch (level) {
+            case 'info':
+              this.logInfo(message);
+              break;
+            case 'debug':
+              this.logDebug(message);
+              break;
+            case 'warn':
+              this.logWarn(message);
+              break;
+          }
+        }
+      } catch (error) {
+        this.log.error({ error }, `Failed to generate ${level} log message for node ${this.node.type}`);
+      }
+    }
+  }
+
+  /**
+   * Automatically log node execution error using declarative log messages
+   * Called by the execution engine when node execution fails
+   * 
+   * @param {Object} nodeInstance - The node instance (with getLogMessages method)
+   * @param {Error} error - The error that occurred
+   */
+  autoLogError(nodeInstance, error) {
+    // Always log errors if node has any logging enabled (not 'none')
+    const nodeLogLevel = this.node.data?.logLevel || 'none';
+    if (nodeLogLevel === 'none') {
+      return; // Skip error logging if node logging is completely disabled
+    }
+    
+    const logMessages = nodeInstance.getLogMessages();
+    const logFn = logMessages.error;
+    
+    if (logFn && typeof logFn === 'function') {
+      try {
+        const message = logFn(error);
+        if (message) {
+          this.logError(message);
+        }
+      } catch (err) {
+        // Fallback to default error logging
+        this.logError(`Node execution failed: ${error.message}`);
+      }
+    } else {
+      // Default error logging if no custom message
+      this.logError(`Node execution failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Check if a message should be logged based on node's log level
+   * @private
+   * @param {string} nodeLogLevel - Node's configured log level
+   * @param {string} messageLevel - Level of the message being logged
+   * @returns {boolean} True if message should be logged
+   */
+  _shouldLogLevel(nodeLogLevel, messageLevel) {
+    const levels = { none: 0, error: 1, warn: 2, info: 3, debug: 4 };
+    const nodeLevelValue = levels[nodeLogLevel] || 0;
+    const messageLevelValue = levels[messageLevel] || 0;
+    return messageLevelValue <= nodeLevelValue;
   }
 
   /**

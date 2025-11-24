@@ -163,7 +163,14 @@ export default function JobsTab() {
       </Box>
 
       {error && (
-        <Box sx={{ mb: 2, p: 1, bgcolor: '#fef2f2', border: '1px solid #ef4444', borderRadius: 1 }}>
+        <Box sx={{ 
+          mb: 2, 
+          p: 1, 
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(211, 47, 47, 0.1)' : 'error.light',
+          border: 1,
+          borderColor: 'error.main',
+          borderRadius: 1 
+        }}>
           <Typography color="error" fontSize="0.75rem">Error: {error}</Typography>
         </Box>
       )}
@@ -268,28 +275,28 @@ export default function JobsTab() {
                   <TableRow>
                     <TableCell colSpan={9} sx={{ p: 0, borderBottom: isExpanded ? '1px solid' : 'none', borderColor: 'divider' }}>
                       <Collapse in={isExpanded}>
-                        <Box sx={{ p: 2, bgcolor: 'grey.50' }}>
+                        <Box sx={{ p: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'grey.50' }}>
                           <Typography variant="subtitle2" fontWeight={600} gutterBottom>
                             Job Details
                           </Typography>
                           <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 1, fontSize: '0.75rem' }}>
-                            <Typography fontWeight={600} sx={{ color: '#000' }}>ID:</Typography>
-                            <Typography sx={{ color: '#000' }}>{job.id}</Typography>
+                            <Typography fontWeight={600} color="text.primary">ID:</Typography>
+                            <Typography color="text.secondary">{job.id}</Typography>
                             
-                            <Typography fontWeight={600} sx={{ color: '#000' }}>Type:</Typography>
-                            <Typography sx={{ color: '#000' }}>{job.type}</Typography>
+                            <Typography fontWeight={600} color="text.primary">Type:</Typography>
+                            <Typography color="text.secondary">{job.type}</Typography>
                             
-                            <Typography fontWeight={600} sx={{ color: '#000' }}>Status:</Typography>
-                            <Typography sx={{ color: '#000' }}>{job.status}</Typography>
+                            <Typography fontWeight={600} color="text.primary">Status:</Typography>
+                            <Typography color="text.secondary">{job.status}</Typography>
                             
-                            <Typography fontWeight={600} sx={{ color: '#000' }}>Created:</Typography>
-                            <Typography sx={{ color: '#000' }}>{formatTimestamp(job.created_at)}</Typography>
+                            <Typography fontWeight={600} color="text.primary">Created:</Typography>
+                            <Typography color="text.secondary">{formatTimestamp(job.created_at)}</Typography>
                             
-                            <Typography fontWeight={600} sx={{ color: '#000' }}>Started:</Typography>
-                            <Typography sx={{ color: '#000' }}>{formatTimestamp(job.started_at)}</Typography>
+                            <Typography fontWeight={600} color="text.primary">Started:</Typography>
+                            <Typography color="text.secondary">{formatTimestamp(job.started_at)}</Typography>
                             
-                            <Typography fontWeight={600} sx={{ color: '#000' }}>Completed:</Typography>
-                            <Typography sx={{ color: '#000' }}>{formatTimestamp(job.completed_at)}</Typography>
+                            <Typography fontWeight={600} color="text.primary">Completed:</Typography>
+                            <Typography color="text.secondary">{formatTimestamp(job.completed_at)}</Typography>
 
                             {job.error && (
                               <>
@@ -300,8 +307,8 @@ export default function JobsTab() {
 
                             {job.result && (
                               <>
-                                <Typography fontWeight={600} sx={{ color: '#000' }}>Result:</Typography>
-                                <pre style={{ margin: 0, fontSize: '0.75rem', overflow: 'auto', color: '#000' }}>
+                                <Typography fontWeight={600} color="text.primary">Result:</Typography>
+                                <pre style={{ margin: 0, fontSize: '0.75rem', overflow: 'auto', color: 'inherit' }}>
                                   {JSON.stringify(job.result, null, 2)}
                                 </pre>
                               </>
@@ -309,8 +316,8 @@ export default function JobsTab() {
 
                             {job.params && (
                               <>
-                                <Typography fontWeight={600} sx={{ color: '#000' }}>Parameters:</Typography>
-                                <pre style={{ margin: 0, fontSize: '0.75rem', overflow: 'auto', color: '#000' }}>
+                                <Typography fontWeight={600} color="text.primary">Parameters:</Typography>
+                                <pre style={{ margin: 0, fontSize: '0.75rem', overflow: 'auto', color: 'inherit' }}>
                                   {JSON.stringify(job.params, null, 2)}
                                 </pre>
                               </>

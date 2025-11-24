@@ -18,7 +18,7 @@ export class ComparisonNode extends BaseNode {
   /**
    * Node description following Flow Studio convention
    */
-  static description = {
+  description = {
     displayName: 'Comparison',
     description: 'Compare two values using various comparison operators (>, <, >=, <=, ==, !=)',
     group: 'Logic & Math',
@@ -90,6 +90,29 @@ export class ComparisonNode extends BaseNode {
   };
 
   /**
+   * Declarative log messages
+   */
+  getLogMessages() {
+    const operatorSymbols = {
+      'gt': '>',
+      'lt': '<',
+      'gte': '>=',
+      'lte': '<=',
+      'eq': '==',
+      'neq': '!='
+    };
+    
+    return {
+      info: (result) => {
+        const symbol = operatorSymbols[result.operator] || result.operator;
+        return `Compare: ${result.inputs[0]} ${symbol} ${result.inputs[1]} = ${result.value}`;
+      },
+      debug: (result) => `Comparison quality: ${result.quality}`,
+      error: (error) => `Comparison failed: ${error.message}`
+    };
+  }
+
+  /**
    * Extract numeric value from input data
    * @param {*} inputData - Input data (may be wrapped in {value, quality})
    * @returns {number} - Extracted number
@@ -151,12 +174,12 @@ export class ComparisonNode extends BaseNode {
    * @returns {Promise<Object>} - Execution result
    */
   async execute(context) {
-    const { node, inputs, log } = context;
+    const { node, log } = context;
     const { operation, tolerance } = node.data || {};
 
     // Get input values
-    const input0Data = inputs.input0;
-    const input1Data = inputs.input1;
+    const input0Data = context.getInputValue(0);
+    const input1Data = context.getInputValue(1);
 
     // Check if we have both inputs
     if (input0Data === undefined || input1Data === undefined) {
@@ -232,14 +255,6 @@ export class ComparisonNode extends BaseNode {
       default:
         throw new Error(`Unknown comparison operation: ${operation}`);
     }
-
-    log.info('Comparison executed', {
-      operation,
-      value0,
-      value1,
-      result,
-      quality: minQuality
-    });
 
     return {
       value: result,

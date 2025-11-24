@@ -155,4 +155,35 @@ export class BaseNode {
   getDisplayName() {
     return this.description.displayName || this.description.name;
   }
+
+  /**
+   * Get declarative log messages for different levels
+   * Override this in subclass to provide custom log messages
+   * 
+   * Each function receives the execution result or error and should return a string
+   * 
+   * @returns {Object} Log message functions
+   * @returns {Function} [return.info] - Info level message generator (result) => string
+   * @returns {Function} [return.debug] - Debug level message generator (result) => string
+   * @returns {Function} [return.warn] - Warning level message generator (result) => string
+   * @returns {Function} [return.error] - Error level message generator (error) => string
+   * 
+   * @example
+   * getLogMessages() {
+   *   return {
+   *     info: (result) => `Processed value: ${result.value}`,
+   *     debug: (result) => `Execution took ${result.executionTime}ms`,
+   *     error: (error) => `Failed: ${error.message}`
+   *   };
+   * }
+   */
+  getLogMessages() {
+    return {
+      // Default implementations - can be overridden
+      info: null,  // No info logging by default
+      debug: null, // No debug logging by default
+      warn: null,  // No warn logging by default
+      error: (error) => `Node execution failed: ${error.message}` // Default error message
+    };
+  }
 }

@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
-import { Box, Typography, Chip, Tooltip } from '@mui/material';
+import { Box, Typography, Chip, Tooltip, IconButton, CircularProgress } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import InputIcon from '@mui/icons-material/Input';
 import OutputIcon from '@mui/icons-material/Output';
@@ -37,13 +37,25 @@ const nodeConfig = {
 };
 
 // Generic custom node component
-const CustomNode = ({ data, type, selected }) => {
+const CustomNode = ({ data, type, selected, id }) => {
   const config = nodeConfig[type] || { color: '#757575', icon: CodeIcon, label: type };
   const Icon = config.icon;
   
   // Get metadata from backend (includes hasInput/hasOutput)
   const metadata = getNodeMetadata(type);
   const hasInput = metadata.hasInput;
+  
+  // Check if this is a manual trigger node
+  const isManualTrigger = type === 'trigger-manual';
+  const canExecute = isManualTrigger && data?.onExecute && data?.canExecute && !data?.isExecuting;
+  
+  // Handle execute button click (stop propagation to prevent node selection)
+  const handleExecuteClick = (e) => {
+    e.stopPropagation();
+    if (canExecute && data?.onExecute) {
+      data.onExecute(id);
+    }
+  };
 
   return (
     <>
@@ -141,21 +153,45 @@ const CustomNode = ({ data, type, selected }) => {
             </Box>
           </Tooltip>
         )}
+        
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-          <Box
-            sx={{
-              width: 28,
-              height: 28,
-              borderRadius: '6px',
-              background: config.color,
-              color: 'white',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+          {/* Icon box - clickable for manual trigger */}
+          <Tooltip 
+            title={
+              isManualTrigger ? (
+                !data?.canExecute ? 'Flow must be deployed to execute' :
+                data?.isExecuting ? 'Executing...' :
+                'Click to execute flow'
+              ) : ''
+            } 
+            placement="top"
           >
-            <Icon sx={{ fontSize: 18 }} />
-          </Box>
+            <Box
+              onClick={isManualTrigger ? handleExecuteClick : undefined}
+              sx={{
+                width: 28,
+                height: 28,
+                borderRadius: '6px',
+                background: isManualTrigger && !canExecute ? '#ccc' : config.color,
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: isManualTrigger ? (canExecute ? 'pointer' : 'not-allowed') : 'default',
+                transition: 'all 0.2s ease',
+                '&:hover': isManualTrigger && canExecute ? {
+                  transform: 'scale(1.1)',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                } : {},
+              }}
+            >
+              {isManualTrigger && data?.isExecuting ? (
+                <CircularProgress size={16} sx={{ color: 'white' }} />
+              ) : (
+                <Icon sx={{ fontSize: 18 }} />
+              )}
+            </Box>
+          </Tooltip>
           <Typography variant="body2" fontWeight="600" sx={{ flex: 1 }}>
             {config.label}
           </Typography>
@@ -194,12 +230,12 @@ const CustomNode = ({ data, type, selected }) => {
 };
 
 // Export individual node components
-export const TriggerManualNode = memo((props) => <CustomNode {...props} type="trigger-manual" />);
-export const TagInputNode = memo((props) => <CustomNode {...props} type="tag-input" />);
-export const TagOutputNode = memo((props) => <CustomNode {...props} type="tag-output" />);
-export const MathNode = memo((props) => <CustomNode {...props} type="math" />);
-export const ComparisonNode = memo((props) => <CustomNode {...props} type="comparison" />);
-export const ScriptJsNode = memo((props) => <CustomNode {...props} type="script-js" />);
+export const TriggerManualNode = memo((props) => <CustomNode {...props} type="trigger-manual" id={props.id} />);
+export const TagInputNode = memo((props) => <CustomNode {...props} type="tag-input" id={props.id} />);
+export const TagOutputNode = memo((props) => <CustomNode {...props} type="tag-output" id={props.id} />);
+export const MathNode = memo((props) => <CustomNode {...props} type="math" id={props.id} />);
+export const ComparisonNode = memo((props) => <CustomNode {...props} type="comparison" id={props.id} />);
+export const ScriptJsNode = memo((props) => <CustomNode {...props} type="script-js" id={props.id} />);
 
 // Export node types object for ReactFlow
 export const nodeTypes = {

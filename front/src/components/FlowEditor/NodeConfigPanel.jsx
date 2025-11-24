@@ -391,6 +391,24 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
           ID: {node.id}
         </Typography>
         
+        {/* Log Level Setting - Common to all nodes */}
+        <FormControl fullWidth sx={{ mb: 2 }}>
+          <InputLabel>Log Level</InputLabel>
+          <Select
+            value={node.data?.logLevel || 'none'}
+            onChange={(e) => handleChange('logLevel', e.target.value)}
+            label="Log Level"
+          >
+            <MenuItem value="none">None (no logging)</MenuItem>
+            <MenuItem value="error">Error (errors only)</MenuItem>
+            <MenuItem value="warn">Warning (warnings + errors)</MenuItem>
+            <MenuItem value="info">Info (info + warnings + errors)</MenuItem>
+            <MenuItem value="debug">Debug (all messages)</MenuItem>
+          </Select>
+        </FormControl>
+        
+        <Divider sx={{ my: 2 }} />
+        
         {renderConfig()}
       </Box>
 

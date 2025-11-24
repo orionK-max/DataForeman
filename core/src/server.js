@@ -34,6 +34,7 @@ import { natsPlugin } from './services/nats.js';
 import { telemetryIngestPlugin } from './services/telemetry-ingest.js';
 import { ensureLoggingDirsSync } from './services/logging-init.js';
 import { startRetentionScheduler } from './services/log-retention.js';
+import { startFlowLogCleanupScheduler } from './services/flow-log-cleanup.js';
 import { ensureAdminPassword } from './services/bootstrap.js';
 import { connectivityBootstrap } from './services/connectivity-bootstrap.js';
 import { initDemoMode } from './services/demo-mode.js';
@@ -41,6 +42,7 @@ import { systemMetricsSampler } from './services/system-metrics-sampler.js';
 import { tsdbPoliciesPlugin } from './services/tsdb-policies.js';
 import { registerSessionRetention } from './services/session-retention.js';
 import { registerAllNodes } from './nodes/index.js';
+import { RuntimeStateStore } from './services/runtime-state-store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -116,10 +118,21 @@ export async function buildServer() {
 
   await app.register(jwtPlugin);
   await app.register(auditPlugin);
+  
+  // Register RuntimeStateStore for in-memory runtime state (trigger flags, tag cache)
+  await app.register(fp(async (app) => {
+    const store = new RuntimeStateStore();
+    app.decorate('runtimeState', store);
+    app.log.info('RuntimeStateStore initialized');
+  }));
+  
   await app.register(natsPlugin);
   await app.register(dbPlugin);
   await app.register(tsdbPlugin);
   await app.register(permissionsPlugin);
+  
+  // Start flow log cleanup scheduler after db is available (daily at 2 AM)
+  startFlowLogCleanupScheduler(app.log, app.db);
   // Ensure hypertable is created before applying policies
   await app.register(telemetryIngestPlugin);
   await app.register(tsdbPoliciesPlugin);
@@ -171,7 +184,18 @@ if (process.argv[1] === __filename) {
   const port = Number(process.env.PORT || 3000);
   const host = process.env.HOST || '0.0.0.0';
   buildServer()
-    .then((app) => app.listen({ port, host }))
+    .then(async (app) => {
+      // Stop orphaned flow sessions on startup
+      // (sessions that were active when container stopped/restarted)
+      try {
+        const { FlowSession } = await import('./services/flow-session.js');
+        await FlowSession.stopAllActiveSessions(app);
+      } catch (err) {
+        app.log.warn({ err }, 'Failed to stop orphaned sessions on startup');
+      }
+      
+      return app.listen({ port, host });
+    })
     .catch((err) => {
       logger.error(err, 'Failed to start server');
       process.exit(1);

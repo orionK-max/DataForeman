@@ -133,11 +133,25 @@ export default async function flowRoutes(app) {
     if (!(await checkPermission(userId, 'update', reply))) return;
 
     const { id } = req.params;
-    const { name, description, definition, static_data, deployed, shared } = req.body;
+    const { 
+      name, 
+      description, 
+      definition, 
+      static_data, 
+      deployed, 
+      shared, 
+      test_mode, 
+      test_disable_writes, 
+      test_auto_exit, 
+      test_auto_exit_minutes,
+      logs_enabled,
+      logs_retention_days,
+      scan_rate_ms
+    } = req.body;
 
-    // Verify ownership
+    // Verify ownership and get current state
     const ownerCheck = await db.query(
-      'SELECT owner_user_id FROM flows WHERE id = $1',
+      'SELECT owner_user_id, test_mode FROM flows WHERE id = $1',
       [id]
     );
 
@@ -147,6 +161,16 @@ export default async function flowRoutes(app) {
 
     if (ownerCheck.rows[0].owner_user_id !== userId) {
       return reply.code(403).send({ error: 'only owner can update flow' });
+    }
+
+    const previousTestMode = ownerCheck.rows[0].test_mode;
+
+    // Validate log retention if provided
+    if (logs_retention_days !== undefined) {
+      const retention = parseInt(logs_retention_days);
+      if (isNaN(retention) || retention < 1 || retention > 365) {
+        return reply.code(400).send({ error: 'logs_retention_days must be between 1 and 365' });
+      }
     }
 
     const updates = [];
@@ -177,6 +201,39 @@ export default async function flowRoutes(app) {
       updates.push(`shared = $${paramCount++}`);
       values.push(shared);
     }
+    if (test_mode !== undefined) {
+      updates.push(`test_mode = $${paramCount++}`);
+      values.push(test_mode);
+    }
+    if (test_disable_writes !== undefined) {
+      updates.push(`test_disable_writes = $${paramCount++}`);
+      values.push(test_disable_writes);
+    }
+    if (test_auto_exit !== undefined) {
+      updates.push(`test_auto_exit = $${paramCount++}`);
+      values.push(test_auto_exit);
+    }
+    if (test_auto_exit_minutes !== undefined) {
+      updates.push(`test_auto_exit_minutes = $${paramCount++}`);
+      values.push(test_auto_exit_minutes);
+    }
+    if (logs_enabled !== undefined) {
+      updates.push(`logs_enabled = $${paramCount++}`);
+      values.push(logs_enabled);
+    }
+    if (logs_retention_days !== undefined) {
+      updates.push(`logs_retention_days = $${paramCount++}`);
+      values.push(logs_retention_days);
+    }
+    if (scan_rate_ms !== undefined) {
+      // Validate scan rate
+      const rate = parseInt(scan_rate_ms);
+      if (isNaN(rate) || rate < 100 || rate > 60000) {
+        return reply.code(400).send({ error: 'scan_rate_ms must be between 100 and 60000' });
+      }
+      updates.push(`scan_rate_ms = $${paramCount++}`);
+      values.push(rate);
+    }
 
     updates.push(`updated_at = now()`);
     values.push(id);
@@ -188,7 +245,54 @@ export default async function flowRoutes(app) {
       RETURNING *
     `, values);
 
-    reply.send({ flow: result.rows[0] });
+    const flow = result.rows[0];
+
+    // Log test mode changes
+    if (test_mode !== undefined && test_mode !== previousTestMode) {
+      const logMessage = test_mode 
+        ? `🧪 Test mode started${test_disable_writes ? ' (writes disabled)' : ''}${test_auto_exit ? ` - auto-exit in ${Math.round(test_auto_exit_minutes)} min` : ''}`
+        : '🛑 Test mode stopped';
+      
+      const logMetadata = {
+        action: test_mode ? 'test_mode_start' : 'test_mode_stop',
+        disable_writes: test_disable_writes || false,
+        auto_exit: test_auto_exit || false,
+        auto_exit_minutes: test_auto_exit_minutes || null
+      };
+
+      // Insert system log directly to database (execution_id is NULL for system logs)
+      try {
+        const timestamp = new Date();
+        await db.query(
+          `INSERT INTO flow_execution_logs 
+           (execution_id, flow_id, node_id, log_level, message, timestamp, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            null, // System log, not associated with a specific execution
+            id,
+            null, // System log, not associated with a node
+            'info',
+            logMessage,
+            timestamp,
+            JSON.stringify(logMetadata)
+          ]
+        );
+      } catch (logErr) {
+        console.error('Failed to log test mode change:', logErr);
+      }
+
+      // Auto-start session if entering test mode
+      if (test_mode) {
+        const scanRateMs = flow.scan_rate_ms || 1000;
+        await db.query(`
+          INSERT INTO jobs (type, params, status, created_at)
+          VALUES ('flow_execution', $1, 'queued', now())
+        `, [JSON.stringify({ flow_id: id, scanRateMs })]);
+        req.log.info({ flowId: id, scanRateMs }, 'Test mode started, execution job queued');
+      }
+    }
+
+    reply.send({ flow });
   });
 
   // DELETE /api/flows/:id - Delete flow
@@ -219,28 +323,98 @@ export default async function flowRoutes(app) {
     const { id } = req.params;
     const { deployed } = req.body;
 
-    // Verify ownership
-    const ownerCheck = await db.query(
-      'SELECT owner_user_id FROM flows WHERE id = $1',
-      [id]
-    );
+    try {
+      // Verify ownership
+      const ownerCheck = await db.query(
+        'SELECT owner_user_id, scan_rate_ms FROM flows WHERE id = $1',
+        [id]
+      );
 
-    if (ownerCheck.rows.length === 0) {
-      return reply.code(404).send({ error: 'flow not found' });
+      if (ownerCheck.rows.length === 0) {
+        req.log.warn({ flowId: id }, 'Deploy failed: flow not found');
+        return reply.code(404).send({ error: 'flow not found' });
+      }
+
+      if (ownerCheck.rows[0].owner_user_id !== userId) {
+        req.log.warn({ flowId: id, userId }, 'Deploy failed: not owner');
+        return reply.code(403).send({ error: 'only owner can deploy flow' });
+      }
+
+      const result = await db.query(`
+        UPDATE flows
+        SET deployed = $1, updated_at = now()
+        WHERE id = $2
+        RETURNING *
+      `, [deployed, id]);
+
+      const flow = result.rows[0];
+
+      // Auto-start session if deploying
+      if (deployed) {
+        // Initialize runtime state for the flow
+        app.runtimeState.initFlow(id);
+        req.log.debug({ flowId: id }, 'RuntimeState initialized for flow');
+        
+        const scanRateMs = flow.scan_rate_ms || 1000;
+        await db.query(`
+          INSERT INTO jobs (type, params, status, created_at)
+          VALUES ('flow_execution', $1, 'queued', now())
+        `, [JSON.stringify({ flow_id: id, scanRateMs })]);
+        req.log.info({ flowId: id, scanRateMs }, 'Flow deployed and execution job queued');
+      } else {
+        // Stop active session when undeploying
+        const { FlowSession } = await import('../services/flow-session.js');
+        const stopped = await FlowSession.stopSessionByFlowId(id);
+        if (stopped) {
+          req.log.info({ flowId: id }, 'Active flow session stopped on undeploy');
+        } else {
+          // If no active session in memory, update database anyway
+          await db.query(
+            `UPDATE flow_sessions
+             SET status = 'stopped',
+                 stopped_at = now(),
+                 updated_at = now()
+             WHERE flow_id = $1 AND status = 'active'`,
+            [id]
+          );
+        }
+        
+        // Clear runtime state for the flow
+        app.runtimeState.clearFlow(id);
+        req.log.info({ flowId: id }, 'Flow undeployed and runtime state cleared');
+      }
+
+      reply.send({ flow });
+    } catch (error) {
+      req.log.error({ flowId: id, error: error.message, stack: error.stack }, 'Deploy flow failed');
+      
+      // Log error to flow execution logs so user can see it in the UI
+      try {
+        await db.query(
+          `INSERT INTO flow_execution_logs 
+           (execution_id, flow_id, node_id, log_level, message, timestamp, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            null, // System log, not associated with a specific execution
+            id,
+            null, // System log, not associated with a node
+            'error',
+            `Failed to deploy flow: ${error.message}`,
+            new Date(),
+            JSON.stringify({ 
+              error: error.message, 
+              stack: error.stack,
+              action: 'deploy',
+              deployed: deployed
+            })
+          ]
+        );
+      } catch (logErr) {
+        req.log.error({ err: logErr }, 'Failed to write deployment error to flow logs');
+      }
+      
+      return reply.code(500).send({ error: 'deployment failed', details: error.message });
     }
-
-    if (ownerCheck.rows[0].owner_user_id !== userId) {
-      return reply.code(403).send({ error: 'only owner can deploy flow' });
-    }
-
-    const result = await db.query(`
-      UPDATE flows
-      SET deployed = $1, updated_at = now()
-      WHERE id = $2
-      RETURNING *
-    `, [deployed, id]);
-
-    reply.send({ flow: result.rows[0] });
   });
 
   // GET /api/flows/shared - Get only shared flows
@@ -364,9 +538,9 @@ export default async function flowRoutes(app) {
     const { id } = req.params;
     let { trigger_node_id } = req.body;
 
-    // Verify access and deployed status
+    // Verify access
     const flowCheck = await db.query(`
-      SELECT id, deployed, definition
+      SELECT id, deployed, test_mode, test_disable_writes, definition
       FROM flows
       WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
     `, [id, userId]);
@@ -375,14 +549,17 @@ export default async function flowRoutes(app) {
       return reply.code(404).send({ error: 'flow not found' });
     }
 
-    if (!flowCheck.rows[0].deployed) {
-      return reply.code(400).send({ error: 'flow must be deployed before execution' });
+    const flow = flowCheck.rows[0];
+
+    // Allow execution if deployed OR in test mode
+    if (!flow.deployed && !flow.test_mode) {
+      return reply.code(400).send({ error: 'flow must be deployed or in test mode before execution' });
     }
 
     // Test Run: Bypass trigger type and start from first trigger node
     // This allows testing flows with event/schedule triggers via the UI button
     if (!trigger_node_id) {
-      const definition = flowCheck.rows[0].definition;
+      const definition = flow.definition;
       const triggerNodes = definition.nodes?.filter(n => n.type?.startsWith('trigger-')) || [];
       if (triggerNodes.length > 0) {
         trigger_node_id = triggerNodes[0].id;
@@ -395,7 +572,8 @@ export default async function flowRoutes(app) {
         flow_id: id,
         trigger_node_id: trigger_node_id || null,
         triggered_by: userId,
-        test_run: true // Flag to indicate this is a manual test run
+        test_run: flow.test_mode || false, // Flag if this is a test run
+        test_disable_writes: flow.test_disable_writes || false // Flag if writes should be disabled
       });
 
       req.log.info({ flowId: id, jobId: job.id, userId, testRun: true }, 'Flow test execution job enqueued');
@@ -410,6 +588,50 @@ export default async function flowRoutes(app) {
       req.log.error({ err: error, flowId: id }, 'Failed to enqueue flow execution');
       return reply.code(500).send({ error: 'failed to queue execution' });
     }
+  });
+
+  // POST /api/flows/:id/trigger/:nodeId - Fire a manual trigger node (for continuous flows)
+  app.post('/api/flows/:id/trigger/:nodeId', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'flows', 'read'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const { id, nodeId } = req.params;
+
+    // Get flow and verify access
+    const flowCheck = await db.query(`
+      SELECT id, definition
+      FROM flows
+      WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+    `, [id, userId]);
+
+    if (flowCheck.rows.length === 0) {
+      return reply.code(404).send({ error: 'flow not found' });
+    }
+
+    const flow = flowCheck.rows[0];
+    const { nodes = [] } = flow.definition;
+
+    // Find the trigger node
+    const triggerNode = nodes.find(n => n.id === nodeId);
+    if (!triggerNode) {
+      return reply.code(404).send({ error: 'node not found' });
+    }
+
+    if (triggerNode.type !== 'trigger-manual') {
+      return reply.code(400).send({ error: 'node is not a manual trigger' });
+    }
+
+    // Set trigger flag in RuntimeStateStore (in-memory, runtime state)
+    app.runtimeState.setTriggerFlag(id, nodeId, true);
+    req.log.info({ flowId: id, nodeId, userId }, 'Manual trigger flag set in RuntimeStateStore');
+
+    reply.send({ 
+      success: true,
+      nodeId,
+      message: 'Trigger fired, will execute on next scan'
+    });
   });
 
   // POST /api/flows/:id/execute-from/:nodeId - Execute flow from a specific node (partial execution)
@@ -653,6 +875,446 @@ export default async function flowRoutes(app) {
         status: 'error',
         executionTime: 0
       });
+    }
+  });
+
+  // GET /api/flows/:id/logs - Get logs for a flow
+  app.get('/api/flows/:id/logs', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+    const { 
+      execution_id, 
+      node_id, 
+      log_level, 
+      since, 
+      limit = 1000,
+      offset = 0 
+    } = req.query;
+
+    try {
+      // Verify access to flow
+      const flowCheck = await db.query(`
+        SELECT id FROM flows
+        WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+      `, [id, userId]);
+
+      if (flowCheck.rows.length === 0) {
+        return reply.code(404).send({ error: 'flow not found' });
+      }
+
+      // Build query with filters
+      let query = `
+        SELECT 
+          l.id,
+          l.execution_id,
+          l.flow_id,
+          l.node_id,
+          l.log_level,
+          l.message,
+          l.timestamp,
+          l.metadata,
+          l.created_at
+        FROM flow_execution_logs l
+        WHERE l.flow_id = $1
+      `;
+      const params = [id];
+      let paramCount = 2;
+
+      if (execution_id) {
+        query += ` AND l.execution_id = $${paramCount++}`;
+        params.push(execution_id);
+      }
+
+      if (node_id) {
+        query += ` AND l.node_id = $${paramCount++}`;
+        params.push(node_id);
+      }
+
+      if (log_level) {
+        query += ` AND l.log_level = $${paramCount++}`;
+        params.push(log_level);
+      }
+
+      if (since) {
+        query += ` AND l.timestamp >= $${paramCount++}`;
+        params.push(since);
+      }
+
+      query += ` ORDER BY l.timestamp DESC LIMIT $${paramCount++} OFFSET $${paramCount++}`;
+      params.push(limit, offset);
+
+      const result = await db.query(query, params);
+
+      // Get total count for pagination
+      let countQuery = `SELECT COUNT(*) as total FROM flow_execution_logs WHERE flow_id = $1`;
+      const countParams = [id];
+      const countResult = await db.query(countQuery, countParams);
+
+      reply.send({
+        logs: result.rows,
+        total: parseInt(countResult.rows[0].total),
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      });
+    } catch (error) {
+      req.log.error({ err: error, flowId: id }, 'Failed to fetch flow logs');
+      reply.code(500).send({ error: 'Failed to fetch logs' });
+    }
+  });
+
+  // GET /api/flows/:id/executions/:execId/logs - Get logs for specific execution
+  app.get('/api/flows/:id/executions/:execId/logs', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id, execId } = req.params;
+
+    try {
+      // Verify access to flow
+      const flowCheck = await db.query(`
+        SELECT id FROM flows
+        WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+      `, [id, userId]);
+
+      if (flowCheck.rows.length === 0) {
+        return reply.code(404).send({ error: 'flow not found' });
+      }
+
+      // Get logs for this execution
+      const result = await db.query(`
+        SELECT 
+          id,
+          execution_id,
+          flow_id,
+          node_id,
+          log_level,
+          message,
+          timestamp,
+          metadata,
+          created_at
+        FROM flow_execution_logs
+        WHERE flow_id = $1 AND execution_id = $2
+        ORDER BY timestamp ASC
+      `, [id, execId]);
+
+      reply.send({ logs: result.rows });
+    } catch (error) {
+      req.log.error({ err: error, flowId: id, executionId: execId }, 'Failed to fetch execution logs');
+      reply.code(500).send({ error: 'Failed to fetch execution logs' });
+    }
+  });
+
+  // POST /api/flows/:id/logs/clear - Clear logs for a flow
+  app.post('/api/flows/:id/logs/clear', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    const { id } = req.params;
+
+    try {
+      // Verify ownership
+      const ownerCheck = await db.query(
+        'SELECT owner_user_id FROM flows WHERE id = $1',
+        [id]
+      );
+
+      if (ownerCheck.rows.length === 0) {
+        return reply.code(404).send({ error: 'flow not found' });
+      }
+
+      if (ownerCheck.rows[0].owner_user_id !== userId) {
+        return reply.code(403).send({ error: 'only owner can clear logs' });
+      }
+
+      // Delete logs
+      const result = await db.query(
+        'DELETE FROM flow_execution_logs WHERE flow_id = $1',
+        [id]
+      );
+
+      req.log.info({ flowId: id, deletedCount: result.rowCount }, 'Flow logs cleared');
+
+      reply.send({ 
+        success: true, 
+        deletedCount: result.rowCount 
+      });
+    } catch (error) {
+      req.log.error({ err: error, flowId: id }, 'Failed to clear logs');
+      reply.code(500).send({ error: 'Failed to clear logs' });
+    }
+  });
+
+  // PUT /api/flows/:id/logs/config - Update log retention settings
+  app.put('/api/flows/:id/logs/config', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    const { id } = req.params;
+    const { logs_enabled, logs_retention_days } = req.body;
+
+    try {
+      // Verify ownership
+      const ownerCheck = await db.query(
+        'SELECT owner_user_id FROM flows WHERE id = $1',
+        [id]
+      );
+
+      if (ownerCheck.rows.length === 0) {
+        return reply.code(404).send({ error: 'flow not found' });
+      }
+
+      if (ownerCheck.rows[0].owner_user_id !== userId) {
+        return reply.code(403).send({ error: 'only owner can update log settings' });
+      }
+
+      // Validate retention days
+      if (logs_retention_days !== undefined) {
+        const days = parseInt(logs_retention_days);
+        if (isNaN(days) || days < 1 || days > 365) {
+          return reply.code(400).send({ error: 'logs_retention_days must be between 1 and 365' });
+        }
+      }
+
+      // Update settings
+      const updates = [];
+      const values = [];
+      let paramCount = 1;
+
+      if (logs_enabled !== undefined) {
+        updates.push(`logs_enabled = $${paramCount++}`);
+        values.push(logs_enabled);
+      }
+
+      if (logs_retention_days !== undefined) {
+        updates.push(`logs_retention_days = $${paramCount++}`);
+        values.push(logs_retention_days);
+      }
+
+      if (updates.length === 0) {
+        return reply.code(400).send({ error: 'no settings provided' });
+      }
+
+      updates.push(`updated_at = now()`);
+      values.push(id);
+
+      const result = await db.query(
+        `UPDATE flows SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING logs_enabled, logs_retention_days`,
+        values
+      );
+
+      req.log.info({ flowId: id, settings: result.rows[0] }, 'Log settings updated');
+
+      reply.send({ 
+        success: true,
+        settings: result.rows[0]
+      });
+    } catch (error) {
+      req.log.error({ err: error, flowId: id }, 'Failed to update log settings');
+      reply.code(500).send({ error: 'Failed to update log settings' });
+    }
+  });
+
+  // GET /api/flows/:id/logs/stream - Server-Sent Events endpoint for live log updates
+  // Requires 'read' permission on flows
+  // Note: EventSource doesn't support custom headers, so authentication is via query param
+  app.get('/api/flows/:id/logs/stream', {
+    preHandler: async (req, reply) => {
+      // Handle token from query parameter for EventSource compatibility
+      const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+      if (!token) {
+        reply.code(401).send({ error: 'unauthorized' });
+        return;
+      }
+      
+      try {
+        const payload = await app.jwtVerify(token);
+        req.user = { sub: payload.sub, role: payload.role || 'viewer', jti: payload.jti };
+      } catch (error) {
+        reply.code(401).send({ error: 'unauthorized' });
+        return;
+      }
+    }
+  }, async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+
+    // Verify flow exists and user has access
+    const flowCheck = await db.query(
+      'SELECT id, owner_user_id FROM flows WHERE id = $1',
+      [id]
+    );
+
+    if (flowCheck.rows.length === 0) {
+      return reply.code(404).send({ error: 'flow not found' });
+    }
+
+    // Set up SSE headers
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no' // Disable nginx buffering
+    });
+
+    // Subscribe to NATS for this flow's logs
+    const subject = `df.logs.${id}`;
+    let subscription = null;
+
+    try {
+      if (app.nats && app.nats.healthy && app.nats.healthy()) {
+        subscription = await app.nats.subscribe(subject, (err, msg) => {
+          if (err) {
+            req.log.error({ err, flowId: id }, 'NATS subscription error');
+            return;
+          }
+
+          try {
+            const logData = typeof msg === 'string' ? JSON.parse(msg) : msg;
+            reply.raw.write(`data: ${JSON.stringify(logData)}\n\n`);
+          } catch (parseError) {
+            req.log.error({ err: parseError }, 'Failed to parse log message');
+          }
+        });
+
+        // Send heartbeat every 30 seconds to keep connection alive
+        const heartbeat = setInterval(() => {
+          reply.raw.write(': heartbeat\n\n');
+        }, 30000);
+
+        // Cleanup on connection close
+        req.raw.on('close', () => {
+          clearInterval(heartbeat);
+          if (subscription) {
+            subscription.unsubscribe();
+          }
+          req.log.info({ flowId: id }, 'SSE connection closed');
+        });
+      } else {
+        reply.raw.write(`event: error\ndata: ${JSON.stringify({ error: 'NATS not available' })}\n\n`);
+        reply.raw.end();
+      }
+    } catch (error) {
+      req.log.error({ err: error, flowId: id }, 'Failed to set up log stream');
+      reply.raw.write(`event: error\ndata: ${JSON.stringify({ error: 'Failed to set up log stream' })}\n\n`);
+      reply.raw.end();
+    }
+  });
+
+  // POST /api/flows/:id/sessions/start - Start continuous flow session
+  app.post('/api/flows/:id/sessions/start', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    const { id } = req.params;
+
+    try {
+      // Verify ownership
+      const { rows } = await db.query(
+        'SELECT scan_rate_ms FROM flows WHERE id = $1 AND owner_user_id = $2',
+        [id, userId]
+      );
+
+      if (rows.length === 0) {
+        return reply.code(404).send({ error: 'flow not found or access denied' });
+      }
+
+      const flow = rows[0];
+
+      // Check if session already active
+      const activeCheck = await db.query(
+        'SELECT id FROM flow_sessions WHERE flow_id = $1 AND status = $2',
+        [id, 'active']
+      );
+
+      if (activeCheck.rows.length > 0) {
+        return reply.code(409).send({ error: 'session already active' });
+      }
+
+      // Queue flow execution job
+      await db.query(
+        `INSERT INTO jobs (type, params, status) VALUES ($1, $2, $3)`,
+        ['flow_execution', JSON.stringify({ flow_id: id }), 'queued']
+      );
+
+      reply.send({ success: true, message: 'session starting' });
+    } catch (error) {
+      req.log.error({ err: error, flowId: id }, 'failed to start flow session');
+      reply.code(500).send({ error: 'failed to start flow session' });
+    }
+  });
+
+  // POST /api/flows/:id/sessions/:sessionId/stop - Stop flow session
+  app.post('/api/flows/:id/sessions/:sessionId/stop', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    const { id, sessionId } = req.params;
+
+    try {
+      // Verify ownership
+      const ownerCheck = await db.query(
+        'SELECT owner_user_id FROM flows WHERE id = $1',
+        [id]
+      );
+
+      if (ownerCheck.rows.length === 0 || ownerCheck.rows[0].owner_user_id !== userId) {
+        return reply.code(404).send({ error: 'flow not found or access denied' });
+      }
+
+      // Stop session
+      const { rows } = await db.query(
+        `UPDATE flow_sessions 
+         SET status = 'stopped', 
+             stopped_at = now(), 
+             updated_at = now()
+         WHERE id = $1 AND flow_id = $2 AND status = 'active'
+         RETURNING id, scan_count`,
+        [sessionId, id]
+      );
+
+      if (rows.length === 0) {
+        return reply.code(404).send({ error: 'active session not found' });
+      }
+
+      reply.send({ success: true, session: rows[0] });
+    } catch (error) {
+      req.log.error({ err: error, flowId: id, sessionId }, 'failed to stop flow session');
+      reply.code(500).send({ error: 'failed to stop flow session' });
+    }
+  });
+
+  // GET /api/flows/:id/sessions/active - Get active session status
+  app.get('/api/flows/:id/sessions/active', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+
+    try {
+      const { rows } = await db.query(
+        `SELECT fs.id, fs.flow_id, fs.status, fs.started_at, fs.last_scan_at, 
+                fs.scan_count, fs.error_message,
+                EXTRACT(EPOCH FROM (now() - fs.started_at))::int as runtime_seconds
+         FROM flow_sessions fs
+         JOIN flows f ON fs.flow_id = f.id
+         WHERE fs.flow_id = $1 AND fs.status = 'active' AND f.owner_user_id = $2
+         ORDER BY fs.started_at DESC
+         LIMIT 1`,
+        [id, userId]
+      );
+
+      if (rows.length === 0) {
+        return reply.code(404).send({ session: null });
+      }
+
+      reply.send({ session: rows[0] });
+    } catch (error) {
+      req.log.error({ err: error, flowId: id }, 'failed to fetch session status');
+      reply.code(500).send({ error: 'failed to fetch session status' });
     }
   });
 }

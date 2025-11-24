@@ -496,7 +496,14 @@ export default function OverviewTab() {
         </Box>
 
         {logsError && (
-          <Box sx={{ mb: 2, p: 1, bgcolor: '#fef2f2', border: '1px solid #ef4444', borderRadius: 1 }}>
+          <Box sx={{ 
+            mb: 2, 
+            p: 1, 
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(211, 47, 47, 0.1)' : 'error.light',
+            border: 1,
+            borderColor: 'error.main',
+            borderRadius: 1 
+          }}>
             <Typography color="error" fontSize="0.75rem">Error: {logsError}</Typography>
           </Box>
         )}
@@ -553,13 +560,13 @@ export default function OverviewTab() {
                       <TableRow>
                         <TableCell colSpan={4} sx={{ p: 0, borderBottom: isExpanded ? '1px solid' : 'none', borderColor: 'divider' }}>
                           <Collapse in={isExpanded}>
-                            <Box sx={{ p: 2, bgcolor: '#1e1e1e' }}>
+                            <Box sx={{ p: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.4)' : 'grey.100' }}>
                               <pre style={{ 
                                 margin: 0, 
                                 fontSize: '0.75rem', 
                                 overflow: 'auto',
-                                color: '#d4d4d4',
-                                backgroundColor: '#1e1e1e'
+                                color: 'inherit',
+                                backgroundColor: 'transparent'
                               }}>
                                 {JSON.stringify(rest, null, 2)}
                               </pre>

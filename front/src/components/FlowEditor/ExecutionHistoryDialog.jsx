@@ -118,7 +118,12 @@ function HistoryRow({ execution, flowDefinition }) {
               {execution.status === 'failed' && execution.error_log && execution.error_log.length > 0 && (
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" color="error">Error Log:</Typography>
-                  <Paper sx={{ p: 1, bgcolor: '#ffebee', maxHeight: 200, overflow: 'auto' }}>
+                  <Paper sx={{ 
+                    p: 1, 
+                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(211, 47, 47, 0.1)' : 'error.light',
+                    maxHeight: 200, 
+                    overflow: 'auto' 
+                  }}>
                     {execution.error_log.map((log, idx) => (
                       <Typography
                         key={idx}
@@ -144,8 +149,13 @@ function HistoryRow({ execution, flowDefinition }) {
                 });
                 return allLogs.length > 0 ? (
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" sx={{ color: '#000' }}>Console Logs:</Typography>
-                    <Paper sx={{ p: 1, bgcolor: '#f5f5f5', maxHeight: 200, overflow: 'auto' }}>
+                    <Typography variant="subtitle2" color="text.primary">Console Logs:</Typography>
+                    <Paper sx={{ 
+                      p: 1, 
+                      bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'grey.100',
+                      maxHeight: 200, 
+                      overflow: 'auto' 
+                    }}>
                       {allLogs.map((log, idx) => (
                         <Box
                           key={idx}
@@ -156,16 +166,20 @@ function HistoryRow({ execution, flowDefinition }) {
                             display: 'flex',
                             alignItems: 'center',
                             gap: 0.5,
-                            bgcolor: log.level === 'error' ? '#ffebee' : log.level === 'warn' ? '#fff3e0' : 'transparent',
+                            bgcolor: log.level === 'error' 
+                              ? ((theme) => theme.palette.mode === 'dark' ? 'rgba(211, 47, 47, 0.2)' : 'error.light')
+                              : log.level === 'warn' 
+                                ? ((theme) => theme.palette.mode === 'dark' ? 'rgba(245, 124, 0, 0.2)' : 'warning.light')
+                                : 'transparent',
                           }}
                         >
                           {log.level === 'error' && <ErrorIcon sx={{ color: '#d32f2f', fontSize: 16 }} />}
                           {log.level === 'warn' && <WarningIcon sx={{ color: '#f57c00', fontSize: 16 }} />}
                           {(log.level === 'log' || log.level === 'info') && <InfoIcon sx={{ color: '#1976d2', fontSize: 16 }} />}
-                          <Typography variant="caption" sx={{ mr: 0.5, color: '#666' }}>
+                          <Typography variant="caption" sx={{ mr: 0.5, color: 'text.secondary' }}>
                             [{log.nodeId}]
                           </Typography>
-                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#000' }}>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'text.primary' }}>
                             {log.args.join(' ')}
                           </Typography>
                         </Box>
@@ -192,24 +206,27 @@ function HistoryRow({ execution, flowDefinition }) {
                 
                 return nodeTimings.length > 0 ? (
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" sx={{ color: '#000' }}>Execution Timeline:</Typography>
-                    <Paper sx={{ p: 1, bgcolor: '#f5f5f5' }}>
+                    <Typography variant="subtitle2" color="text.primary">Execution Timeline:</Typography>
+                    <Paper sx={{ 
+                      p: 1, 
+                      bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'grey.100'
+                    }}>
                       {nodeTimings.map((node, idx) => {
                         const widthPercent = (node.executionTime / maxTime) * 100;
                         return (
                           <Box key={idx} sx={{ mb: 1 }}>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                              <Typography variant="caption" sx={{ color: '#666', fontFamily: 'monospace' }}>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>
                                 {node.nodeId}
                               </Typography>
-                              <Typography variant="caption" sx={{ color: '#666' }}>
+                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                                 {node.executionTime}ms
                               </Typography>
                             </Box>
                             <Box sx={{ 
                               width: '100%', 
                               height: 8, 
-                              bgcolor: '#e0e0e0', 
+                              bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'grey.300',
                               borderRadius: 1,
                               overflow: 'hidden'
                             }}>
@@ -230,9 +247,12 @@ function HistoryRow({ execution, flowDefinition }) {
 
               {execution.node_outputs && Object.keys(execution.node_outputs).length > 0 && (
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" sx={{ color: '#000' }}>Node Outputs:</Typography>
-                  <Paper sx={{ p: 1, bgcolor: '#f5f5f5' }}>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: '#000' }}>
+                  <Typography variant="subtitle2" color="text.primary">Node Outputs:</Typography>
+                  <Paper sx={{ 
+                    p: 1, 
+                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'grey.100'
+                  }}>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: 'text.primary' }}>
                       {JSON.stringify(execution.node_outputs, null, 2)}
                     </Typography>
                   </Paper>
@@ -240,7 +260,7 @@ function HistoryRow({ execution, flowDefinition }) {
               )}
 
               <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-                <Typography variant="caption" sx={{ color: '#666' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   Started: {formatDate(execution.started_at)}
                 </Typography>
                 <Typography variant="caption" sx={{ color: '#666' }}>

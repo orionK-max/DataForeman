@@ -30,7 +30,7 @@ DataForeman is a containerized stack for collecting industrial telemetry, storin
 
 ---
 
-## Quick Start (TL;DR)
+## Quick Start
 
 **Linux Users:**
 ```bash
@@ -50,14 +50,23 @@ npm start
 
 ## What is DataForeman
 
-DataForeman connects to industrial devices (OPC UA, EtherNet/IP, S7, etc.), collects measurements, and stores them as time-series data. The web interface provides dashboards, charts, and diagnostics for visualizing and analyzing your data.
+DataForeman connects to industrial devices (OPC UA, EtherNet/IP, S7, etc.), collects measurements, and stores them as time-series data. Beyond data collection, **DataForeman includes a visual Flow Editor** that lets you process, transform, and manipulate data in real-time before storing it to the database or writing back to devices.
+
+**Key Features:**
+- **Data Collection** - Connect to industrial devices and collect time-series data
+- **Flow Processing** - Visual node-based editor for data manipulation (math operations, comparisons, JavaScript transformations)
+- **Data Storage** - Automatic storage to TimescaleDB with configurable retention
+- **Visualization** - Dashboards and charts for analyzing historical and real-time data
+- **Bidirectional I/O** - Read from devices and write calculated results back to internal tags or device tags
 
 **Key Components:**
 - **Connectivity** - Reads devices and publishes measurements to NATS
-- **Core API** - Serves configuration, diagnostics, historian endpoints, and ingests telemetry from NATS
-- **Frontend** - React + Material UI web interface with dark/light mode
+- **Core API** - Serves configuration, diagnostics, historian endpoints, flow execution engine, and ingests telemetry from NATS
+- **Frontend** - React + Material UI web interface with dark/light mode and visual Flow Editor
 - **TimescaleDB** - Time-series database with automatic data retention
 - **NATS** - Message bus providing buffering and durability
+
+📖 **[Flow Studio User Guide](docs/flows-user-guide.md)** - Learn how to create and deploy data processing flows
 
 ## Getting Started
 

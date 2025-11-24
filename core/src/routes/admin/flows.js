@@ -5,6 +5,7 @@
 
 import fs from 'fs/promises';
 import path from 'path';
+import cleanupFlowLogs from '../../jobs/log-cleanup-job.js';
 
 export default async function adminFlowsRoutes(app, options) {
   const log = app.log.child({ module: 'admin-flows-routes' });
@@ -128,6 +129,22 @@ export default async function adminFlowsRoutes(app, options) {
     } catch (error) {
       log.error({ err: error }, 'Failed to get flow config');
       return reply.code(500).send({ error: 'Failed to retrieve flow configuration' });
+    }
+  });
+
+  /**
+   * POST /admin/flows/cleanup-logs
+   * Manually trigger flow log cleanup job
+   * Deletes logs older than retention period for all flows with logging enabled
+   */
+  app.post('/cleanup-logs', async (req, reply) => {
+    try {
+      log.info('Manual flow log cleanup triggered');
+      const result = await cleanupFlowLogs(app.db);
+      return result;
+    } catch (error) {
+      log.error({ err: error }, 'Failed to run log cleanup');
+      return reply.code(500).send({ error: 'Failed to run log cleanup' });
     }
   });
 }

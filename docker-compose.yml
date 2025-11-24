@@ -111,10 +111,10 @@ services:
 
   connectivity:
     build: ./connectivity
-    # Uncomment for Linux to enable host networking for EIP autodiscovery:
+    # Note: Using host networking for EIP autodiscovery on Linux
+    # With host mode, the service binds directly to port 3100 on the host
+    # Port mappings are not needed (and cause warnings) with host networking
     network_mode: host
-    ports:
-      - "3100:3100"
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       NATS_URL: "${NATS_URL:-nats://nats:4222}"  # Use service name for Docker Compose networking

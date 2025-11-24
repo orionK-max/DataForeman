@@ -18,7 +18,7 @@ export class JavaScriptNode extends BaseNode {
   /**
    * Node description following Flow Studio convention
    */
-  static description = {
+  description = {
     displayName: 'JavaScript',
     description: 'Execute custom JavaScript code with access to flow context and APIs',
     group: 'Logic & Math',
@@ -87,6 +87,22 @@ export class JavaScriptNode extends BaseNode {
   };
 
   /**
+   * Declarative log messages
+   */
+  getLogMessages() {
+    return {
+      info: (result) => {
+        const resultPreview = typeof result.value === 'object' 
+          ? JSON.stringify(result.value).substring(0, 100) 
+          : String(result.value);
+        return `Script returned: ${resultPreview}${result.logs?.length > 0 ? ` (${result.logs.length} console logs)` : ''}`;
+      },
+      debug: (result) => `Script execution time: ${result.executionTime}ms`,
+      error: (error) => `Script execution failed: ${error.message}`
+    };
+  }
+
+  /**
    * Validate node configuration
    * @param {Object} context - Node execution context
    * @returns {Array<string>} - Array of validation errors (empty if valid)
@@ -122,20 +138,23 @@ export class JavaScriptNode extends BaseNode {
    * @returns {Promise<Object>} - Execution result
    */
   async execute(context) {
-    const { node, inputs, log, app, flowId, nodeOutputs } = context;
+    const { node, log, app } = context;
+    const flowId = context.flow?.id;
+    const nodeOutputs = context.nodeOutputs;
     const { code, timeout = 10000, onError = 'stop' } = node.data || {};
 
     // Get input value and quality
     let inputValue = null;
     let inputQuality = 192; // Good quality by default
 
-    if (inputs.input !== undefined) {
+    const inputData = context.getInputValue(0);
+    if (inputData !== undefined && inputData !== null) {
       // Extract value if it's an object with value property
-      if (inputs.input && typeof inputs.input === 'object' && 'value' in inputs.input) {
-        inputValue = inputs.input.value;
-        inputQuality = inputs.input.quality || 192;
+      if (typeof inputData === 'object' && 'value' in inputData) {
+        inputValue = inputData.value;
+        inputQuality = inputData.quality || 192;
       } else {
-        inputValue = inputs.input;
+        inputValue = inputData;
       }
     }
 
@@ -195,6 +214,7 @@ export class JavaScriptNode extends BaseNode {
         value: scriptResult.result,
         quality: inputQuality, // Inherit input quality
         logs: scriptResult.logs,
+        executionTime: Date.now() - startTime,
         timestamp: new Date().toISOString()
       };
 

@@ -95,7 +95,10 @@ export async function deployFlow(id, deployed) {
     headers: getHeaders(),
     body: JSON.stringify({ deployed })
   });
-  if (!response.ok) throw new Error('Failed to deploy flow');
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.details || error.error || 'Failed to deploy flow');
+  }
   return response.json();
 }
 
@@ -121,6 +124,18 @@ export async function executeFlow(id, triggerNodeId) {
     body: JSON.stringify({ trigger_node_id: triggerNodeId })
   });
   if (!response.ok) throw new Error('Failed to execute flow');
+  return response.json();
+}
+
+/**
+ * Fire a manual trigger node (for continuous flows)
+ */
+export async function fireTrigger(flowId, nodeId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/trigger/${nodeId}`, {
+    method: 'POST',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fire trigger');
   return response.json();
 }
 
@@ -257,5 +272,98 @@ export async function executeFromNode(flowId, nodeId) {
     headers: getHeaders()
   });
   if (!response.ok) throw new Error('Failed to execute from node');
+  return response.json();
+}
+
+/**
+ * Get logs for a flow
+ */
+export async function getFlowLogs(flowId, filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.execution_id) params.append('execution_id', filters.execution_id);
+  if (filters.node_id) params.append('node_id', filters.node_id);
+  if (filters.log_level) params.append('log_level', filters.log_level);
+  if (filters.since) params.append('since', filters.since);
+  if (filters.limit) params.append('limit', filters.limit);
+  if (filters.offset) params.append('offset', filters.offset);
+
+  const response = await fetch(`${API_BASE}/flows/${flowId}/logs?${params}`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch logs');
+  return response.json();
+}
+
+/**
+ * Get logs for a specific execution
+ */
+export async function getExecutionLogs(flowId, executionId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/executions/${executionId}/logs`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch execution logs');
+  return response.json();
+}
+
+/**
+ * Clear logs for a flow
+ */
+export async function clearFlowLogs(flowId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/logs/clear`, {
+    method: 'POST',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to clear logs');
+  return response.json();
+}
+
+/**
+ * Update log configuration for a flow
+ */
+export async function updateLogConfig(flowId, config) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/logs/config`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(config)
+  });
+  if (!response.ok) throw new Error('Failed to update log configuration');
+  return response.json();
+}
+
+/**
+ * Start continuous flow session
+ */
+export async function startFlowSession(flowId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/sessions/start`, {
+    method: 'POST',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to start flow session');
+  return response.json();
+}
+
+/**
+ * Stop continuous flow session
+ */
+export async function stopFlowSession(flowId, sessionId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/sessions/${sessionId}/stop`, {
+    method: 'POST',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to stop flow session');
+  return response.json();
+}
+
+/**
+ * Get active flow session status
+ */
+export async function getFlowSessionStatus(flowId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/sessions/active`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) {
+    if (response.status === 404) return { session: null };
+    throw new Error('Failed to fetch session status');
+  }
   return response.json();
 }

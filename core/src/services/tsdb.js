@@ -8,7 +8,15 @@ export const tsdbPlugin = fp(async function (app) {
   const password = process.env.TSDB_PASSWORD || 'tsdb';
   const database = process.env.TSDB_DATABASE || 'telemetry';
 
-  const pool = new Pool({ host, port, user, password, database });
+  const pool = new Pool({ 
+    host, 
+    port, 
+    user, 
+    password, 
+    database,
+    statement_timeout: 30000, // 30s timeout for TSDB queries (historical data can be slow)
+  });
+  
   app.decorate('tsdb', {
     query: (text, params) => pool.query(text, params),
     pool,

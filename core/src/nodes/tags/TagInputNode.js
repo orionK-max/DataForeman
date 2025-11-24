@@ -49,6 +49,17 @@ export class TagInputNode extends BaseNode {
   }
 
   /**
+   * Declarative log messages
+   */
+  getLogMessages() {
+    return {
+      info: (result) => `Read tag "${result.tagPath}": ${result.value} (quality: ${result.quality})`,
+      debug: (result) => `Tag ID: ${result.tagPath}, timestamp: ${result.timestamp}`,
+      error: (error) => `Failed to read tag: ${error.message}`
+    };
+  }
+
+  /**
    * Execute tag input - read latest value from database
    */
   async execute(context) {
@@ -121,8 +132,6 @@ export class TagInputNode extends BaseNode {
                   (row.v_num != null ? Number(row.v_num) : 
                   (row.v_text != null ? row.v_text : null));
     const quality = row.quality != null ? row.quality : 192;
-
-    context.logInfo({ tagId, tagPath, value, quality }, 'Tag input read successfully');
 
     return { 
       value, 

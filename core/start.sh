@@ -69,8 +69,11 @@ if [ -n "${TSDB_HOST}" ]; then
   PGPASSWORD=$TSDB_PASSWORD psql -h $TSDB_HOST -p $TSDB_PORT -U $TSDB_USER -d $TSDB_DATABASE -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
   
   echo "Running migrations on TimescaleDB..."
-  npx --yes node-pg-migrate -m migrations-tsdb \
+  # Set PG* environment variables for TimescaleDB connection
+  PGHOST=$TSDB_HOST PGPORT=$TSDB_PORT PGUSER=$TSDB_USER PGPASSWORD=$TSDB_PASSWORD PGDATABASE=$TSDB_DATABASE \
+   npx --yes node-pg-migrate -m migrations-tsdb \
     --check-order false \
+    --migrations-table pgmigrations_tsdb \
     -d postgres://$TSDB_USER:$TSDB_PASSWORD@$TSDB_HOST:$TSDB_PORT/$TSDB_DATABASE up
 fi
 

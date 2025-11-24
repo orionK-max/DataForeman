@@ -49,6 +49,17 @@ export class TagOutputNode extends BaseNode {
   }
 
   /**
+   * Declarative log messages
+   */
+  getLogMessages() {
+    return {
+      info: (result) => `Wrote to tag "${result.tagPath}": ${result.value} (quality: ${result.quality})`,
+      debug: (result) => `Tag write metadata: ${JSON.stringify(result.metadata || {})}`,
+      error: (error) => `Failed to write tag: ${error.message}`
+    };
+  }
+
+  /**
    * Execute tag output - write value to internal tag via NATS
    */
   async execute(context) {
@@ -82,6 +93,28 @@ export class TagOutputNode extends BaseNode {
       throw new Error(`Tag ${tagId} is not an INTERNAL tag (driver_type: ${driverType}). Only INTERNAL tags can be written to by flows.`);
     }
 
+    // Check if writes are disabled in test mode
+    const testDisableWrites = context.params?.test_disable_writes || false;
+    
+    if (testDisableWrites) {
+      context.logInfo(
+        { tagId, tagPath, value: inputValue.value, quality: inputValue.quality },
+        'Tag write skipped (test mode with writes disabled)'
+      );
+      
+      // Return the value that would have been written
+      return {
+        value: inputValue.value,
+        quality: inputValue.quality,
+        metadata: {
+          tagId,
+          tagPath,
+          writeSkipped: true,
+          reason: 'test_mode_writes_disabled'
+        }
+      };
+    }
+
     // Publish to NATS for tag update
     const payload = {
       tag_id: tagId,
@@ -93,11 +126,6 @@ export class TagOutputNode extends BaseNode {
     };
 
     await context.publishToNats(`df.tag.update.${tagId}`, payload);
-    
-    context.logInfo(
-      { tagId, tagPath, value: inputValue.value, quality: inputValue.quality }, 
-      'Published tag update'
-    );
 
     // Pass through the value
     return { 

@@ -2,9 +2,15 @@
 // Executes deployed flows with node-by-node processing
 // Handles tag I/O, quality propagation, and error handling
 
+import crypto from 'crypto';
 import { executeScript, getAllowedPaths } from './script-sandbox.js';
 import { NodeRegistry } from '../nodes/base/NodeRegistry.js';
 import { NodeExecutionContext } from '../nodes/base/NodeExecutionContext.js';
+import { LogBuffer } from './log-buffer.js';
+import { InputStateManager } from './input-state-manager.js';
+import { TriggerEvaluator } from './trigger-evaluator.js';
+import { FlowSession } from './flow-session.js';
+
 
 /**
  * Validate flow graph structure
@@ -125,11 +131,11 @@ export function topologicalSort(nodes, edges) {
  * Execute a single node using class-based implementation from NodeRegistry
  * @param {Object} node - Node to execute
  * @param {Map} nodeOutputs - Map of node outputs
- * @param {Object} context - Execution context { app, flow, execution }
- * @returns {Object} { value, quality, error }
+ * @param {Object} context - Execution context { app, flow, execution, inputStateManager }
+ * @returns {Object} { value, quality, error, skipped? }
  */
 export async function executeNode(node, nodeOutputs, context) {
-  const { app } = context;
+  const { app, inputStateManager } = context;
   const log = app.log.child({ nodeId: node.id, nodeType: node.type });
   
   // Check if node is registered
@@ -137,17 +143,78 @@ export async function executeNode(node, nodeOutputs, context) {
     throw new Error(`Unknown node type: ${node.type}. Please ensure the node is registered in the NodeRegistry.`);
   }
   
+  // Check if node has conditional execution mode with trigger
+  const executionMode = node.data?.executionMode || 'continuous';
+  const triggerExpression = node.data?.triggerExpression;
+  
+  if (executionMode === 'conditional' && triggerExpression && inputStateManager) {
+    // Evaluate trigger expression
+    try {
+      const triggerEvaluator = new TriggerEvaluator(inputStateManager);
+      const triggerFired = triggerEvaluator.evaluate(node.id, triggerExpression);
+      
+      console.log(`[Trigger] Node ${node.id}: expression="${triggerExpression}" result=${triggerFired}`);
+      log.debug({ triggerExpression, triggerFired }, 'Trigger evaluated');
+      
+      if (!triggerFired) {
+        // Trigger condition not met - skip execution
+        console.log(`[Trigger] Node ${node.id}: SKIPPED (trigger not fired)`);
+        log.debug('Trigger not fired, skipping node execution');
+        return { 
+          value: null, 
+          quality: 0, 
+          skipped: true,
+          skipReason: 'trigger_not_fired'
+        };
+      }
+      
+      console.log(`[Trigger] Node ${node.id}: EXECUTING (trigger fired)`);
+      log.info({ triggerExpression }, 'Trigger fired, executing node');
+    } catch (error) {
+      // Trigger evaluation failed - log error and skip execution for safety
+      console.log(`[Trigger] Node ${node.id}: ERROR - ${error.message}`);
+      log.error({ error, triggerExpression }, 'Trigger evaluation failed');
+      return { 
+        value: null, 
+        quality: 0, 
+        error: `Trigger evaluation failed: ${error.message}`,
+        skipped: true,
+        skipReason: 'trigger_error'
+      };
+    }
+  }
+  
   log.debug('Executing class-based node');
+  
+  // Node execution timeout (default 30s, configurable per node)
+  const NODE_TIMEOUT_MS = node.data?.timeoutMs || 30000;
   
   try {
     const nodeInstance = NodeRegistry.getInstance(node.type);
     const execContext = new NodeExecutionContext(node, nodeOutputs, context);
-    const result = await nodeInstance.execute(execContext);
+    
+    // Wrap execution in timeout protection
+    const executionPromise = nodeInstance.execute(execContext);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Node execution timeout after ${NODE_TIMEOUT_MS}ms`)), NODE_TIMEOUT_MS);
+    });
+    
+    const result = await Promise.race([executionPromise, timeoutPromise]);
+    
+    // Automatic logging based on node's declarative log messages
+    // Uses node's getLogMessages() to generate appropriate log entries
+    execContext.autoLogResult(nodeInstance, result, 'info');
+    execContext.autoLogResult(nodeInstance, result, 'debug');
     
     log.debug({ result }, 'Node executed successfully');
     return result;
   } catch (error) {
     log.error({ error }, 'Node execution failed');
+    
+    // Automatic error logging using node's declarative error message
+    const nodeInstance = NodeRegistry.getInstance(node.type);
+    const execContext = new NodeExecutionContext(node, nodeOutputs, context);
+    execContext.autoLogError(nodeInstance, error);
     
     // Check onError setting
     const onError = node.data?.onError || 'stop';
@@ -205,6 +272,11 @@ export async function executeFlow(context) {
   
   const log = app.log.child({ job: 'flow_executor', jobId: job.id, flowId });
   
+  // Declare these outside try block so catch block can access them
+  let flow = null;
+  let execution = null;
+  let logBuffer = null;
+  
   try {
     log.info('Starting flow execution');
     
@@ -218,13 +290,44 @@ export async function executeFlow(context) {
       throw new Error(`Flow ${flowId} not found`);
     }
     
-    const flow = flowResult.rows[0];
+    flow = flowResult.rows[0];
     
-    // Check if flow is deployed
-    if (!flow.deployed) {
-      throw new Error(`Flow ${flowId} is not deployed`);
+    // Check if flow is deployed or in test mode
+    if (!flow.deployed && !flow.test_mode) {
+      throw new Error(`Flow ${flowId} is not deployed or in test mode`);
     }
     
+    // Check execution mode
+    // NOTE: Manual execution mode is deprecated and left temporarily for migration.
+    // All flows should use 'continuous' mode. Do not use 'manual' mode for new flows.
+    if (flow.execution_mode === 'continuous') {
+      log.info('Starting continuous execution mode with session management');
+      
+      // Create FlowSession for continuous execution
+      const executionContext = { app, flow, execution: null, params: job.params, logBuffer: null, runtimeState: app.runtimeState };
+      const flowSession = new FlowSession(flow, executionContext, ScanExecutor);
+      
+      try {
+        const sessionId = await flowSession.start();
+        log.info({ sessionId }, 'Flow session started successfully');
+        
+        // Session runs indefinitely until stopped
+        // Complete the job immediately since session is now running in background
+        await complete(job.id, { 
+          success: true, 
+          mode: 'continuous', 
+          sessionId,
+          message: 'Flow session started and running' 
+        });
+      } catch (error) {
+        log.error({ error }, 'Failed to start flow session');
+        throw error;
+      }
+      
+      return; // Don't proceed to manual execution
+    }
+    
+    // Manual execution mode (existing logic)
     // Validate flow graph
     const validation = validateFlowGraph(flow.definition);
     if (!validation.valid) {
@@ -240,10 +343,26 @@ export async function executeFlow(context) {
       [flowId, job.params.trigger_node_id || null]
     );
     
-    const execution = executionResult.rows[0];
+    execution = executionResult.rows[0];
     execution.edges = flow.definition.edges; // Add edges for node execution
     
     log.info({ executionId: execution.id }, 'Execution record created');
+    
+    // Create log buffer for persistent logging if enabled
+    logBuffer = null;
+    if (flow.logs_enabled) {
+      logBuffer = new LogBuffer(app.db, app.nats);
+      // Add system log for execution start
+      logBuffer.add({
+        execution_id: execution.id,
+        flow_id: flowId,
+        node_id: null,
+        log_level: 'info',
+        message: `Flow execution started (trigger: ${job.params.trigger_node_id || 'none'})`,
+        timestamp: new Date(),
+        metadata: { trigger_node_id: job.params.trigger_node_id }
+      });
+    }
     
     // Update tag dependencies
     await updateFlowTagDependencies(app, flowId, flow.definition);
@@ -269,6 +388,16 @@ export async function executeFlow(context) {
     const nodeOutputs = new Map();
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     
+    // Add job params and log buffer to context for nodes to access
+    const executionContext = {
+      app,
+      flow,
+      execution,
+      params: job.params,
+      logBuffer,
+      runtimeState: app.runtimeState
+    };
+    
     for (const nodeId of executionOrder) {
       const node = nodeMap.get(nodeId);
       if (!node) continue;
@@ -290,7 +419,7 @@ export async function executeFlow(context) {
       }
       
       const startTime = Date.now();
-      const output = await executeNode(node, nodeOutputs, { app, flow, execution });
+      const output = await executeNode(node, nodeOutputs, executionContext);
       const endTime = Date.now();
       
       // Add timing information to output
@@ -317,6 +446,21 @@ export async function executeFlow(context) {
       };
     });
     
+    // Flush remaining logs to database
+    if (logBuffer) {
+      await logBuffer.finalize();
+      logBuffer.add({
+        execution_id: execution.id,
+        flow_id: flowId,
+        node_id: null,
+        log_level: 'info',
+        message: 'Flow execution completed successfully',
+        timestamp: new Date(),
+        metadata: { node_count: executionOrder.length }
+      });
+      await logBuffer.finalize();
+    }
+    
     // Update execution record
     await app.db.query(
       `UPDATE flow_executions
@@ -334,6 +478,20 @@ export async function executeFlow(context) {
   } catch (error) {
     log.error({ err: error }, 'Flow execution failed');
     
+    // Log error to buffer if available
+    if (logBuffer) {
+      logBuffer.add({
+        execution_id: execution?.id,
+        flow_id: flowId,
+        node_id: null,
+        log_level: 'error',
+        message: `Flow execution failed: ${error.message}`,
+        timestamp: new Date(),
+        metadata: { error: error.stack }
+      });
+      await logBuffer.finalize();
+    }
+    
     // Update execution record if it exists
     if (job.params.executionId) {
       await app.db.query(
@@ -349,3 +507,232 @@ export async function executeFlow(context) {
     await fail(job.id, error);
   }
 }
+
+/**
+ * Scan-based executor for continuous flow execution
+ */
+class ScanExecutor {
+  constructor(flow, context) {
+    this.flow = flow;
+    this.context = context;
+    this.sessionId = null;
+    this.scanCycle = 0;
+    this.scanTimer = null;
+    this.isRunning = false;
+    this.nodeOutputs = new Map();
+    this.inputStateManager = new InputStateManager();
+    this.logBuffer = null;
+    this.log = context.app.log.child({ flowId: flow.id, sessionId: this.sessionId });
+  }
+  
+  async start() {
+    if (this.isRunning) {
+      throw new Error('Scan executor already running');
+    }
+    
+    this.isRunning = true;
+    this.sessionId = crypto.randomUUID();
+    this.scanCycle = 0;
+    this.log = this.context.app.log.child({ flowId: this.flow.id, sessionId: this.sessionId });
+    
+    // Initialize log buffer if logging is enabled
+    if (this.flow.logs_enabled) {
+      this.logBuffer = new LogBuffer(this.context.app.db, this.context.app.nats);
+      this.logBuffer.add({
+        execution_id: null, // No single execution for continuous mode
+        flow_id: this.flow.id,
+        node_id: null,
+        log_level: 'info',
+        message: `Continuous execution started (session: ${this.sessionId})`,
+        timestamp: new Date(),
+        metadata: { 
+          session_id: this.sessionId,
+          scan_rate_ms: this.flow.scan_rate_ms || 1000
+        }
+      });
+    }
+    
+    const scanRateMs = this.flow.scan_rate_ms || 1000;
+    this.log.info({ scanRateMs }, 'Starting scan-based execution');
+    
+    // Start scan loop
+    this.scanTimer = setInterval(() => {
+      this.executeScanCycle().catch(err => {
+        this.log.error({ err }, 'Scan cycle failed');
+      });
+    }, scanRateMs);
+    
+    // Execute first scan immediately
+    await this.executeScanCycle();
+  }
+  
+  async executeScanCycle() {
+    if (!this.isRunning) return;
+    
+    this.scanCycle++;
+    const cycleLog = this.log.child({ scanCycle: this.scanCycle });
+    cycleLog.debug('Scan cycle start');
+    
+    try {
+      const { nodes = [], edges = [] } = this.flow.definition;
+      const executionOrder = topologicalSort(nodes, edges);
+      
+      // Update input state from edges BEFORE executing nodes
+      this.updateInputState(nodes, edges);
+      
+      // Log input state snapshot
+      this.inputStateManager.logState(`Scan ${this.scanCycle}:`);
+      
+      // Execute nodes in order
+      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+      
+      // Create minimal execution context for this scan
+      const scanContext = {
+        ...this.context,
+        execution: {
+          id: null, // null for continuous execution (no flow_executions record)
+          session_id: this.sessionId, // Track session separately for debugging
+          scan_cycle: this.scanCycle
+        },
+        inputStateManager: this.inputStateManager,
+        logBuffer: this.logBuffer, // Add logBuffer so nodes can use automatic logging
+        runtimeState: this.context.app.runtimeState
+      };
+      
+      for (const nodeId of executionOrder) {
+        const node = nodeMap.get(nodeId);
+        if (!node) continue;
+        
+        // Get node log level (default to 'none')
+        const nodeLogLevel = node.data?.logLevel || 'none';
+        const shouldLog = this.logBuffer && nodeLogLevel !== 'none';
+        
+        // Check trigger input - if false, skip execution
+        const triggerValue = this.inputStateManager.getInput(nodeId, 'trigger');
+        if (triggerValue !== undefined && triggerValue !== null && triggerValue !== true) {
+          cycleLog.debug({ nodeId, triggerValue }, 'Node skipped - trigger input is false');
+          
+          // Log skip if logging enabled and level allows
+          if (shouldLog && this.shouldLogLevel(nodeLogLevel, 'debug')) {
+            this.logBuffer.add({
+              execution_id: null,
+              flow_id: this.flow.id,
+              node_id: nodeId,
+              log_level: 'debug',
+              message: `Node skipped - trigger input is false`,
+              timestamp: new Date(),
+              metadata: { scan_cycle: this.scanCycle, trigger_value: triggerValue }
+            });
+          }
+          
+          // Set output to null so downstream nodes know this node didn't execute
+          this.nodeOutputs.set(nodeId, {
+            value: null,
+            quality: 0,
+            skipped: true,
+            skipReason: 'trigger_false'
+          });
+          continue;
+        }
+        
+        try {
+          const output = await executeNode(node, this.nodeOutputs, scanContext);
+          this.nodeOutputs.set(nodeId, output);
+          
+          // Automatic logging now handled by executeNode via node's getLogMessages()
+        } catch (error) {
+          cycleLog.error({ nodeId, err: error }, 'Node execution failed');
+          
+          // Always log errors if logging is enabled (even at 'error' level)
+          if (shouldLog) {
+            this.logBuffer.add({
+              execution_id: null,
+              flow_id: this.flow.id,
+              node_id: nodeId,
+              log_level: 'error',
+              message: `Node execution failed: ${error.message}`,
+              timestamp: new Date(),
+              metadata: { 
+                scan_cycle: this.scanCycle,
+                error: error.message,
+                stack: error.stack
+              }
+            });
+          }
+          
+          // Set error output
+          this.nodeOutputs.set(nodeId, {
+            value: null,
+            quality: 0,
+            error: error.message
+          });
+        }
+      }
+      
+      cycleLog.debug('Scan cycle complete');
+      
+    } catch (error) {
+      cycleLog.error({ err: error }, 'Scan cycle error');
+    }
+  }
+  
+  /**
+   * Update input state from node outputs and edges
+   * This runs BEFORE each scan cycle to ensure nodes see latest values
+   */
+  updateInputState(nodes, edges) {
+    // For each edge, copy output value to target node's input
+    for (const edge of edges) {
+      const sourceOutput = this.nodeOutputs.get(edge.source);
+      if (!sourceOutput) continue; // Source hasn't executed yet
+      
+      const targetPort = edge.targetHandle || 'input';
+      this.inputStateManager.updateInput(edge.target, targetPort, sourceOutput.value);
+    }
+  }
+  
+  /**
+   * Check if a message should be logged based on node's log level
+   * @param {string} nodeLogLevel - Node's configured log level (none, error, warn, info, debug)
+   * @param {string} messageLevel - Level of the message being logged
+   * @returns {boolean} True if message should be logged
+   */
+  shouldLogLevel(nodeLogLevel, messageLevel) {
+    const levels = { none: 0, error: 1, warn: 2, info: 3, debug: 4 };
+    const nodeLevelValue = levels[nodeLogLevel] || 0;
+    const messageLevelValue = levels[messageLevel] || 0;
+    return messageLevelValue <= nodeLevelValue;
+  }
+  
+  stop() {
+    if (this.scanTimer) {
+      clearInterval(this.scanTimer);
+      this.scanTimer = null;
+    }
+    this.isRunning = false;
+    
+    // Flush any pending logs
+    if (this.logBuffer) {
+      this.logBuffer.add({
+        execution_id: null,
+        flow_id: this.flow.id,
+        node_id: null,
+        log_level: 'info',
+        message: `Continuous execution stopped (session: ${this.sessionId})`,
+        timestamp: new Date(),
+        metadata: { 
+          session_id: this.sessionId,
+          total_scans: this.scanCycle
+        }
+      });
+      this.logBuffer.finalize().catch(err => {
+        this.log.error({ err }, 'Failed to finalize log buffer');
+      });
+    }
+    
+    this.log.info({ totalScans: this.scanCycle }, 'Stopped scan-based execution');
+  }
+}
+
+// Export ScanExecutor for use by FlowSession
+export { ScanExecutor };
