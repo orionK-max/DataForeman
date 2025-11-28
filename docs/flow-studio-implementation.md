@@ -452,13 +452,6 @@ Runs until:
 - Thread-safe Map-based storage
 - Enables continuous mode data flow
 
-#### TriggerEvaluator (trigger-evaluator.js)
-- Evaluates conditional node trigger expressions
-- Syntax: `$input.portName > value`
-- Supports comparisons, boolean logic
-- Returns true/false for node execution
-- Integrated with executeNode() in flow-executor
-
 #### FlowSession (flow-session.js)
 - Manages long-running flow sessions
 - Creates/updates database session records
@@ -543,34 +536,19 @@ Runs until:
 - CPU: Minimal overhead per scan (<10ms)
 - Database: Periodic updates, not per-scan
 
-### Conditional Node Execution (Phase 3)
+### Trigger Input Ports
 
-**Trigger Expressions**:
-```javascript
-// Simple comparisons
-$input.temperature > 100
-$input.pressure < 50
-
-// Boolean
-$input.alarm === true
-$input.status !== 'OK'
-
-// Complex
-($input.temp > 100) && ($input.pressure < 50)
-```
-
-**Execution Logic**:
-- Node has executionMode='conditional' and triggerExpression
-- Before executing: TriggerEvaluator.evaluate()
-- If false: return {skipped: true}, don't execute
-- If true: execute normally
-- Logs show "SKIPPED (trigger not fired)" or "EXECUTING"
+**Trigger Mechanism**:
+- Nodes can have a `trigger` input port that accepts boolean values
+- If trigger input is `false`, node execution is skipped for that scan
+- If trigger input is `true` (or not connected), node executes normally
+- ManualTriggerNode outputs boolean values that can control downstream execution
 
 **Use Cases**:
-- Execute alarm logic only when threshold exceeded
-- Write outputs conditionally based on state
-- Implement hysteresis/debouncing logic
-- Dynamic flow routing
+- Execute nodes conditionally based on upstream logic
+- Control flow execution with manual triggers
+- Skip expensive operations when not needed
+- Implement conditional branching in flows
 
 ---
 
@@ -804,15 +782,15 @@ SessionMonitoring/
 - ✅ Input state logging (DEBUG level)
 - ✅ Test results: Values persist between scans correctly
 
-### Phase 3: Conditional Mode + Triggers - ✅ Complete (2025-11-22)
-**Goal**: Nodes can wait for trigger condition before executing
+### Phase 3: Trigger Input Ports - ✅ Complete (2025-11-22)
+**Goal**: Nodes can skip execution based on trigger input port values
 
 **Implemented**:
-- ✅ TriggerEvaluator class with expression parsing
-- ✅ executionMode field in node config schema
-- ✅ Trigger expression evaluation in executeNode()
-- ✅ Expression syntax: `$input.port > value`, boolean logic
-- ✅ Skip execution when trigger=false
+- ✅ Trigger input port checking in ScanExecutor
+- ✅ InputStateManager tracks trigger values from upstream nodes
+- ✅ Skip execution when trigger input is false
+- ✅ ManualTriggerNode outputs boolean trigger signals
+- ✅ Logging shows when nodes are skipped due to trigger
 - ✅ Test results: SKIPPED vs EXECUTING logged correctly
 
 ### Phase 4: Session Management - ✅ Complete (2025-11-23)

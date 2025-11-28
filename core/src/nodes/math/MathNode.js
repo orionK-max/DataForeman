@@ -10,14 +10,23 @@ export class MathNode extends BaseNode {
     name: 'math',
     group: 'LOGIC_MATH',
     version: 1,
-    description: 'Perform mathematical operations on multiple inputs',
+    description: 'Perform mathematical operations on multiple inputs (2 minimum, expandable)',
     defaults: {
       name: 'Math',
       color: '#00A0A0',
     },
-    inputs: ['main', 'main'], // Start with 2 inputs, can expand
-    inputNames: ['Input 1', 'Input 2'],
-    outputs: ['main'],
+    inputs: [
+      { type: 'number', displayName: 'Input 1', required: true },
+      { type: 'number', displayName: 'Input 2', required: true }
+    ],
+    inputConfiguration: {
+      minInputs: 2,
+      maxInputs: 10,
+      defaultInputs: 2,
+      canAddInputs: true,
+      canRemoveInputs: true
+    },
+    outputs: [{ type: 'number', displayName: 'Result' }],
     properties: [
       {
         displayName: 'Operation',

@@ -21,18 +21,35 @@ import FlowEditor from './pages/FlowEditor';
 // Protected wrapper that redirects to login if not authenticated
 const ProtectedApp = () => {
   const { isAuthenticated } = useAuth();
+  const [nodeMetadataLoaded, setNodeMetadataLoaded] = React.useState(false);
 
   // Fetch node metadata from backend when app initializes
   useEffect(() => {
     if (isAuthenticated) {
-      fetchBackendNodeMetadata().catch(err => {
-        console.error('Failed to load node types from backend:', err);
-      });
+      setNodeMetadataLoaded(false);
+      fetchBackendNodeMetadata()
+        .then(() => {
+          setNodeMetadataLoaded(true);
+        })
+        .catch(err => {
+          console.error('Failed to load node types from backend:', err);
+          // Still set to true so app can function (with limited node info)
+          setNodeMetadataLoaded(true);
+        });
     }
   }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return <LoginPage />;
+  }
+
+  // Show loading screen while metadata loads
+  if (!nodeMetadataLoaded) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div>Loading node metadata...</div>
+      </div>
+    );
   }
 
   return (

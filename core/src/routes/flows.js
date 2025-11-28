@@ -16,10 +16,13 @@ export default async function flowRoutes(app) {
   }
 
   // GET /api/flows/node-types - Get all available node types
-  // Requires authentication but no specific permission (all authenticated users can see available node types)
+  // Requires 'flows:read' permission
   // NOTE: This is the authoritative source for node type metadata. Frontend should eventually
   // fetch this data instead of maintaining duplicate static metadata in nodeTypes.js
   app.get('/api/flows/node-types', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
     try {
       const { NodeRegistry } = await import('../nodes/base/NodeRegistry.js');
       const descriptions = NodeRegistry.getAllDescriptions();
@@ -41,9 +44,12 @@ export default async function flowRoutes(app) {
   });
 
   // GET /api/flows/node-types/:type - Get specific node type details
-  // Requires authentication but no specific permission (all authenticated users can see node type details)
+  // Requires 'flows:read' permission
   // NOTE: Returns complete node description including inputs, outputs, and properties from NodeRegistry
   app.get('/api/flows/node-types/:type', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
     try {
       const { type } = req.params;
       const { NodeRegistry } = await import('../nodes/base/NodeRegistry.js');
@@ -289,6 +295,27 @@ export default async function flowRoutes(app) {
           VALUES ('flow_execution', $1, 'queued', now())
         `, [JSON.stringify({ flow_id: id, scanRateMs })]);
         req.log.info({ flowId: id, scanRateMs }, 'Test mode started, execution job queued');
+      } else {
+        // Stop active session when exiting test mode
+        const { FlowSession } = await import('../services/flow-session.js');
+        const stopped = await FlowSession.stopSessionByFlowId(id);
+        if (stopped) {
+          req.log.info({ flowId: id }, 'Active flow session stopped on test mode exit');
+        } else {
+          // If no active session in memory, update database anyway
+          await db.query(
+            `UPDATE flow_sessions
+             SET status = 'stopped',
+                 stopped_at = now(),
+                 updated_at = now()
+             WHERE flow_id = $1 AND status = 'active'`,
+            [id]
+          );
+        }
+        
+        // Clear runtime state for the flow
+        app.runtimeState.clearFlow(id);
+        req.log.info({ flowId: id }, 'Test mode stopped and runtime state cleared');
       }
     }
 

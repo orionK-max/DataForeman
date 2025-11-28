@@ -43,7 +43,11 @@ const CustomNode = ({ data, type, selected, id }) => {
   
   // Get metadata from backend (includes hasInput/hasOutput)
   const metadata = getNodeMetadata(type);
-  const hasInput = metadata.hasInput;
+  
+  // Use inputCount from node data if available (for new nodes or nodes with custom input counts)
+  // Otherwise fall back to metadata inputs length (for nodes loaded from backend)
+  const inputCount = data.inputCount !== undefined ? data.inputCount : metadata.inputs?.length || 0;
+  const hasInput = inputCount > 0;
   
   // Check if this is a manual trigger node
   const isManualTrigger = type === 'trigger-manual';
@@ -59,18 +63,28 @@ const CustomNode = ({ data, type, selected, id }) => {
 
   return (
     <>
-      {hasInput && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          style={{
-            width: 12,
-            height: 12,
-            background: config.color,
-            border: '2px solid white',
-          }}
-        />
-      )}
+      {/* Render multiple input handles based on inputCount */}
+      {inputCount > 0 && Array.from({ length: inputCount }, (_, index) => {
+        const spacing = inputCount > 1 ? (100 / (inputCount + 1)) : 50;
+        const topPosition = `${spacing * (index + 1)}%`;
+        
+        return (
+          <Handle
+            key={`input-${index}`}
+            type="target"
+            position={Position.Left}
+            id={`input-${index}`}
+            style={{
+              width: 12,
+              height: 12,
+              background: config.color,
+              border: '2px solid white',
+              top: topPosition,
+              zIndex: 1,
+            }}
+          />
+        );
+      })}
       <Box
         sx={{
           ...baseNodeStyle,

@@ -8,7 +8,6 @@ import { NodeRegistry } from '../nodes/base/NodeRegistry.js';
 import { NodeExecutionContext } from '../nodes/base/NodeExecutionContext.js';
 import { LogBuffer } from './log-buffer.js';
 import { InputStateManager } from './input-state-manager.js';
-import { TriggerEvaluator } from './trigger-evaluator.js';
 import { FlowSession } from './flow-session.js';
 
 
@@ -141,47 +140,6 @@ export async function executeNode(node, nodeOutputs, context) {
   // Check if node is registered
   if (!NodeRegistry.has(node.type)) {
     throw new Error(`Unknown node type: ${node.type}. Please ensure the node is registered in the NodeRegistry.`);
-  }
-  
-  // Check if node has conditional execution mode with trigger
-  const executionMode = node.data?.executionMode || 'continuous';
-  const triggerExpression = node.data?.triggerExpression;
-  
-  if (executionMode === 'conditional' && triggerExpression && inputStateManager) {
-    // Evaluate trigger expression
-    try {
-      const triggerEvaluator = new TriggerEvaluator(inputStateManager);
-      const triggerFired = triggerEvaluator.evaluate(node.id, triggerExpression);
-      
-      console.log(`[Trigger] Node ${node.id}: expression="${triggerExpression}" result=${triggerFired}`);
-      log.debug({ triggerExpression, triggerFired }, 'Trigger evaluated');
-      
-      if (!triggerFired) {
-        // Trigger condition not met - skip execution
-        console.log(`[Trigger] Node ${node.id}: SKIPPED (trigger not fired)`);
-        log.debug('Trigger not fired, skipping node execution');
-        return { 
-          value: null, 
-          quality: 0, 
-          skipped: true,
-          skipReason: 'trigger_not_fired'
-        };
-      }
-      
-      console.log(`[Trigger] Node ${node.id}: EXECUTING (trigger fired)`);
-      log.info({ triggerExpression }, 'Trigger fired, executing node');
-    } catch (error) {
-      // Trigger evaluation failed - log error and skip execution for safety
-      console.log(`[Trigger] Node ${node.id}: ERROR - ${error.message}`);
-      log.error({ error, triggerExpression }, 'Trigger evaluation failed');
-      return { 
-        value: null, 
-        quality: 0, 
-        error: `Trigger evaluation failed: ${error.message}`,
-        skipped: true,
-        skipReason: 'trigger_error'
-      };
-    }
   }
   
   log.debug('Executing class-based node');
@@ -592,7 +550,8 @@ class ScanExecutor {
         execution: {
           id: null, // null for continuous execution (no flow_executions record)
           session_id: this.sessionId, // Track session separately for debugging
-          scan_cycle: this.scanCycle
+          scan_cycle: this.scanCycle,
+          edges: edges // Add edges so NodeExecutionContext can find incoming edges
         },
         inputStateManager: this.inputStateManager,
         logBuffer: this.logBuffer, // Add logBuffer so nodes can use automatic logging
@@ -606,6 +565,35 @@ class ScanExecutor {
         // Get node log level (default to 'none')
         const nodeLogLevel = node.data?.logLevel || 'none';
         const shouldLog = this.logBuffer && nodeLogLevel !== 'none';
+        
+        // Check if node has required inputs but no values yet (first cycle only)
+        const incomingEdges = edges.filter(e => e.target === nodeId);
+        if (incomingEdges.length > 0) {
+          const hasAllInputs = incomingEdges.every(edge => {
+            const portName = edge.targetHandle || 'input';
+            const value = this.inputStateManager.getInput(nodeId, portName);
+            return value !== undefined;
+          });
+          
+          if (!hasAllInputs) {
+            cycleLog.debug({ nodeId, scanCycle: this.scanCycle }, 'Node skipped - waiting for input values');
+            
+            // Log at info level if logging is enabled for this node
+            if (shouldLog && this.shouldLogLevel(nodeLogLevel, 'info')) {
+              this.logBuffer.add({
+                execution_id: null,
+                flow_id: this.flow.id,
+                node_id: nodeId,
+                log_level: 'info',
+                message: `Node not executed - waiting for input values from connected nodes`,
+                timestamp: new Date(),
+                metadata: { scan_cycle: this.scanCycle, incoming_edges: incomingEdges.length }
+              });
+            }
+            
+            continue;
+          }
+        }
         
         // Check trigger input - if false, skip execution
         const triggerValue = this.inputStateManager.getInput(nodeId, 'trigger');
@@ -643,22 +631,8 @@ class ScanExecutor {
         } catch (error) {
           cycleLog.error({ nodeId, err: error }, 'Node execution failed');
           
-          // Always log errors if logging is enabled (even at 'error' level)
-          if (shouldLog) {
-            this.logBuffer.add({
-              execution_id: null,
-              flow_id: this.flow.id,
-              node_id: nodeId,
-              log_level: 'error',
-              message: `Node execution failed: ${error.message}`,
-              timestamp: new Date(),
-              metadata: { 
-                scan_cycle: this.scanCycle,
-                error: error.message,
-                stack: error.stack
-              }
-            });
-          }
+          // Error already logged by executeNode via node's getLogMessages().error
+          // Don't duplicate the error log here
           
           // Set error output
           this.nodeOutputs.set(nodeId, {

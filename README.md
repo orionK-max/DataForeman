@@ -62,7 +62,7 @@ DataForeman connects to industrial devices (OPC UA, EtherNet/IP, S7, etc.), coll
 **Key Components:**
 - **Connectivity** - Reads devices and publishes measurements to NATS
 - **Core API** - Serves configuration, diagnostics, historian endpoints, flow execution engine, and ingests telemetry from NATS
-- **Frontend** - React + Material UI web interface with dark/light mode and visual Flow Editor
+- **Frontend** - React + Material UI web interface with dark/light mode
 - **TimescaleDB** - Time-series database with automatic data retention
 - **NATS** - Message bus providing buffering and durability
 

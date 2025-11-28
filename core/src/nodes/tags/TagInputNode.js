@@ -28,6 +28,14 @@ export class TagInputNode extends BaseNode {
         type: 'tag',
         required: true,
         description: 'Select the tag to read from'
+      },
+      {
+        displayName: 'Maximum Data Age',
+        name: 'maxDataAge',
+        type: 'number',
+        default: -1,
+        description: 'Maximum age of data in seconds. -1 = any age (uses cached value), 0 = live data only (1s tolerance), >0 = custom max age.',
+        placeholder: 'e.g., 5 for 5 seconds, 0 for live, -1 for any age'
       }
     ]
   };
@@ -53,7 +61,12 @@ export class TagInputNode extends BaseNode {
    */
   getLogMessages() {
     return {
-      info: (result) => `Read tag "${result.tagPath}": ${result.value} (quality: ${result.quality})`,
+      info: (result) => {
+        if (result.stale) {
+          return `Tag "${result.tagPath}": stale data (${result.ageSeconds}s old, max ${result.maxDataAge || 0}s)`;
+        }
+        return `Read tag "${result.tagPath}": ${result.value} (quality: ${result.quality})`;
+      },
       debug: (result) => `Tag ID: ${result.tagPath}, timestamp: ${result.timestamp}`,
       error: (error) => `Failed to read tag: ${error.message}`
     };
@@ -64,6 +77,7 @@ export class TagInputNode extends BaseNode {
    */
   async execute(context) {
     const tagId = this.getParameter(context.node, 'tagId');
+    const maxDataAge = this.getParameter(context.node, 'maxDataAge', -1);
     
     if (!tagId) {
       throw new Error('Tag input node missing tagId');
@@ -97,6 +111,24 @@ export class TagInputNode extends BaseNode {
       }
       
       const row = valueResult.rows[0];
+      
+      // Check data age if maxDataAge is set
+      if (maxDataAge >= 0) {
+        const ageSeconds = (Date.now() - new Date(row.ts).getTime()) / 1000;
+        // Treat 0 as "live data only" with 1 second tolerance
+        const effectiveMaxAge = maxDataAge === 0 ? 1 : maxDataAge;
+        if (ageSeconds > effectiveMaxAge) {
+          context.logWarn({ tagId, tagPath, ageSeconds, maxDataAge }, 'Data too old');
+          return { 
+            value: null, 
+            quality: 0, 
+            tagPath,
+            stale: true,
+            ageSeconds: Math.round(ageSeconds)
+          };
+        }
+      }
+      
       return {
         value: row.v_num != null ? Number(row.v_num) : null,
         quality: 192, // System metrics always have good quality
@@ -128,6 +160,24 @@ export class TagInputNode extends BaseNode {
 
     // Extract value with precedence: v_json -> v_num -> v_text
     const row = valueResult.rows[0];
+    
+    // Check data age if maxDataAge is set
+    if (maxDataAge >= 0) {
+      const ageSeconds = (Date.now() - new Date(row.ts).getTime()) / 1000;
+      // Treat 0 as "live data only" with 1 second tolerance
+      const effectiveMaxAge = maxDataAge === 0 ? 1 : maxDataAge;
+      if (ageSeconds > effectiveMaxAge) {
+        context.logWarn({ tagId, tagPath, ageSeconds, maxDataAge }, 'Data too old');
+        return { 
+          value: null, 
+          quality: 0, 
+          tagPath,
+          stale: true,
+          ageSeconds: Math.round(ageSeconds)
+        };
+      }
+    }
+    
     const value = row.v_json != null ? row.v_json : 
                   (row.v_num != null ? Number(row.v_num) : 
                   (row.v_text != null ? row.v_text : null));

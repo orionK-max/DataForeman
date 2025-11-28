@@ -1,7 +1,7 @@
 # API Registry
 
 **Version:** 1.0  
-**Last Updated:** 2025-11-10 (Auto-generated)  
+**Last Updated:** 2025-11-27 (Auto-generated)  
 **Purpose:** Complete reference of all API endpoints with authentication and permission requirements
 
 > ⚠️ **This file is auto-generated.** Run `node ops/validate-permissions.js --generate-docs` to update.
@@ -17,12 +17,13 @@
 5. [Connectivity Routes](#connectivity-routes)
 6. [Dashboards Routes](#dashboards-routes)
 7. [Diag Routes](#diag-routes)
-8. [Folders Routes](#folders-routes)
-9. [Health Routes](#health-routes)
-10. [Jobs Routes](#jobs-routes)
-11. [Logs Routes](#logs-routes)
-12. [Metrics Routes](#metrics-routes)
-13. [Units Routes](#units-routes)
+8. [Flows Routes](#flows-routes)
+9. [Folders Routes](#folders-routes)
+10. [Health Routes](#health-routes)
+11. [Jobs Routes](#jobs-routes)
+12. [Logs Routes](#logs-routes)
+13. [Metrics Routes](#metrics-routes)
+14. [Units Routes](#units-routes)
 
 ---
 
@@ -168,6 +169,11 @@ Permissions follow the pattern: `feature:operation`
 | POST | `/tags/:connectionId/import` | Yes | *Via preHandler* | API endpoint |
 | GET | `/tags/:connectionId/export-csv` | Yes | *Via preHandler* | Get single resource |
 | POST | `/tags/:connectionId/import-csv` | Yes | *Via preHandler* | API endpoint |
+| GET | `/tags/internal` | Yes | *Via preHandler* | List resources |
+| POST | `/tags/internal` | Yes | *Via preHandler* | Create resource |
+| PUT | `/tags/:tagId/save` | Yes | *Via preHandler* | Update resource |
+| PUT | `/tags/:tagId/stop-saving` | Yes | *Via preHandler* | Update resource |
+| GET | `/tags/:tagId/writers` | Yes | *Via preHandler* | Get single resource |
 
 ## Dashboards Routes
 
@@ -198,6 +204,38 @@ Permissions follow the pattern: `feature:operation`
 | GET | `/services/status` | Yes | `diagnostic.system:read` | List resources |
 | POST | `/services/:serviceName/restart` | Yes | `diagnostic.system:update` | API endpoint |
 | POST | `/recalculate-capacity` | Yes | `diagnostic.system:update` | Create resource |
+
+## Flows Routes
+
+**Base Path:** `/api`
+
+| Method | Endpoint | Auth | Permission | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/flows/node-types` | Yes | *Check required* | List resources |
+| GET | `/api/flows/node-types/:type` | Yes | *Check required* | Get single resource |
+| GET | `/api/flows` | Yes | *Check required* | List resources |
+| POST | `/api/flows` | Yes | *Check required* | Create resource |
+| GET | `/api/flows/:id` | Yes | *Check required* | Get single resource |
+| PUT | `/api/flows/:id` | Yes | *Check required* | Update resource |
+| DELETE | `/api/flows/:id` | Yes | *Check required* | Delete resource |
+| POST | `/api/flows/:id/deploy` | Yes | *Check required* | API endpoint |
+| GET | `/api/flows/shared` | Yes | *Check required* | List resources |
+| POST | `/api/flows/:id/duplicate` | Yes | *Check required* | API endpoint |
+| GET | `/api/flows/:id/dependencies` | Yes | *Check required* | Get single resource |
+| PUT | `/api/flows/:id/static-data` | Yes | *Check required* | Update resource |
+| POST | `/api/flows/:id/execute` | Yes | `flows:read` | API endpoint |
+| POST | `/api/flows/:id/trigger/:nodeId` | Yes | `flows:read` | API endpoint |
+| POST | `/api/flows/:id/execute-from/:nodeId` | Yes | `flows:read` | API endpoint |
+| GET | `/api/flows/:id/history` | Yes | *Check required* | Get single resource |
+| POST | `/api/flows/:id/nodes/:nodeId/test` | Yes | `flows:read` | API endpoint |
+| GET | `/api/flows/:id/logs` | Yes | *Check required* | Get single resource |
+| GET | `/api/flows/:id/executions/:execId/logs` | Yes | *Check required* | Get single resource |
+| POST | `/api/flows/:id/logs/clear` | Yes | *Check required* | API endpoint |
+| PUT | `/api/flows/:id/logs/config` | Yes | *Check required* | Update resource |
+| GET | `/api/flows/:id/logs/stream` | Yes | *Check required* | Get single resource |
+| POST | `/api/flows/:id/sessions/start` | Yes | *Check required* | API endpoint |
+| POST | `/api/flows/:id/sessions/:sessionId/stop` | Yes | *Check required* | API endpoint |
+| GET | `/api/flows/:id/sessions/active` | Yes | *Check required* | Get single resource |
 
 ## Folders Routes
 
@@ -288,9 +326,9 @@ node ops/validate-permissions.js --verbose
 
 ## Statistics
 
-- **Total Endpoints:** 117
-- **Protected:** 184
+- **Total Endpoints:** 147
+- **Protected:** 219
 - **Public:** 17
-- **Coverage:** 172%
+- **Coverage:** 161%
 
-*Generated on 2025-11-10*
+*Generated on 2025-11-27*

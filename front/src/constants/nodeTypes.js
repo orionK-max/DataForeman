@@ -132,6 +132,13 @@ export const NODE_METADATA = {
 export async function fetchBackendNodeMetadata() {
   try {
     const response = await flowsApi.getNodeTypes();
+    
+    // Check if response is valid
+    if (!response || !response.nodeTypes) {
+      console.error('[fetchBackendNodeMetadata] Invalid response format:', response);
+      return null;
+    }
+    
     const metadata = {};
     
     // Convert array to map for easier lookup

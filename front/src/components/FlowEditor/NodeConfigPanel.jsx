@@ -121,6 +121,21 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
                 Create New Internal Tag
               </Button>
             )}
+            
+            {/* Maximum Data Age (only for input) */}
+            {!isOutput && hasTag && (
+              <Box sx={{ mt: 2 }}>
+                <TextField
+                  fullWidth
+                  label="Maximum Data Age (seconds)"
+                  type="number"
+                  value={node.data?.maxDataAge ?? -1}
+                  onChange={(e) => handleChange('maxDataAge', parseFloat(e.target.value))}
+                  helperText="-1 = any age (cached), 0 = live only (1s tolerance), >0 = custom max age"
+                  size="small"
+                />
+              </Box>
+            )}
           </Box>
         );
 

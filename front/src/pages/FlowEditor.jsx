@@ -49,6 +49,7 @@ import {
   Terminal as TerminalIcon,
 } from '@mui/icons-material';
 import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger } from '../services/flowsApi';
+import { getNodeMetadata, getBackendMetadata } from '../constants/nodeTypes';
 import NodeBrowser from '../components/FlowEditor/NodeBrowser';
 import NodeConfigPanel from '../components/FlowEditor/NodeConfigPanel';
 import NodeDetailsPanel from '../components/FlowEditor/NodeDetailsPanel';
@@ -205,6 +206,32 @@ const FlowEditor = () => {
         }
       }
       
+      // Delete or Backspace to delete selected nodes/edges
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !nodeBrowserOpen) {
+        const target = event.target;
+        const isTyping = ['INPUT', 'TEXTAREA'].includes(target.tagName);
+        
+        if (!isTyping) {
+          event.preventDefault();
+          
+          // Get selected nodes and edges
+          const selectedNodes = nodes.filter(node => node.selected);
+          const selectedEdges = edges.filter(edge => edge.selected);
+          
+          if (selectedNodes.length > 0) {
+            setNodes(nodes.filter(node => !node.selected));
+            // Close config panel if selected node was deleted
+            if (selectedNode && selectedNodes.some(n => n.id === selectedNode.id)) {
+              setSelectedNode(null);
+            }
+          }
+          
+          if (selectedEdges.length > 0) {
+            setEdges(edges.filter(edge => !edge.selected));
+          }
+        }
+      }
+      
       // Ctrl/Cmd+L to toggle log panel
       if ((event.ctrlKey || event.metaKey) && event.key === 'l') {
         event.preventDefault();
@@ -220,7 +247,7 @@ const FlowEditor = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nodeBrowserOpen, logPanelOpen]);
+  }, [nodeBrowserOpen, logPanelOpen, nodes, edges, selectedNode, setNodes, setEdges]);
 
   // Load log panel preferences from localStorage
   useEffect(() => {
@@ -661,6 +688,75 @@ const FlowEditor = () => {
     }
   };
 
+  // Validate connection compatibility
+  const isValidConnection = useCallback((connection) => {
+    const sourceNode = nodes.find(n => n.id === connection.source);
+    const targetNode = nodes.find(n => n.id === connection.target);
+    
+    if (!sourceNode || !targetNode) {
+      showSnackbar('Cannot connect: nodes not found', 'error');
+      return false;
+    }
+    
+    // Get metadata for both nodes
+    const sourceMetadata = getBackendMetadata(sourceNode.type);
+    const targetMetadata = getBackendMetadata(targetNode.type);
+    
+    if (!sourceMetadata || !targetMetadata) return true; // Allow if metadata not available
+    
+    // Get output type from source (always uses sourceHandle which is just 'source')
+    const sourceOutput = sourceMetadata.outputs?.[0];
+    if (!sourceOutput) {
+      showSnackbar('Cannot connect: source node has no output', 'error');
+      return false;
+    }
+    
+    // Get input type from target using targetHandle (e.g., 'input-0', 'input-1')
+    const targetHandleIndex = connection.targetHandle ? parseInt(connection.targetHandle.split('-')[1]) : 0;
+    const targetInput = targetMetadata.inputs?.[targetHandleIndex];
+    if (!targetInput) {
+      showSnackbar('Cannot connect: target node has no input', 'error');
+      return false;
+    }
+    
+    // Type compatibility rules
+    const sourceType = sourceOutput.type;
+    const targetType = targetInput.type;
+    
+    // Same type is always valid
+    if (sourceType === targetType) return true;
+    
+    // 'main' type (generic data from tag nodes) can connect to any specific type
+    if (sourceType === 'main') return true;
+    
+    // 'any' target type can accept anything
+    if (targetType === 'any') return true;
+    
+    // String target is flexible - can accept most types
+    if (targetType === 'string') return true;
+    
+    // Number target can accept number only
+    if (targetType === 'number' && sourceType !== 'number') {
+      showSnackbar(`Cannot connect: ${sourceNode.data?.name || sourceNode.type} outputs ${sourceType}, but ${targetNode.data?.name || targetNode.type} expects number`, 'error');
+      return false;
+    }
+    
+    // Boolean target can accept boolean only
+    if (targetType === 'boolean' && sourceType !== 'boolean') {
+      showSnackbar(`Cannot connect: ${sourceNode.data?.name || sourceNode.type} outputs ${sourceType}, but ${targetNode.data?.name || targetNode.type} expects boolean`, 'error');
+      return false;
+    }
+    
+    // Trigger type should only connect to trigger inputs (prevents trigger -> number/boolean)
+    if (sourceType === 'trigger' && targetType !== 'trigger') {
+      showSnackbar(`Cannot connect: trigger outputs cannot connect to ${targetType} inputs`, 'error');
+      return false;
+    }
+    
+    // Default: allow connection
+    return true;
+  }, [nodes, showSnackbar]);
+
   // Handle edge connection
   const onConnect = useCallback((params) => {
     setEdges((eds) => addEdge({
@@ -668,6 +764,20 @@ const FlowEditor = () => {
       markerEnd: { type: MarkerType.ArrowClosed }
     }, eds));
   }, [setEdges]);
+
+  // Handle node deletion
+  const onNodesDelete = useCallback((deleted) => {
+    // Close node config panel if the deleted node was selected
+    const deletedIds = deleted.map(node => node.id);
+    if (selectedNode && deletedIds.includes(selectedNode.id)) {
+      setSelectedNode(null);
+    }
+  }, [selectedNode]);
+
+  // Handle edge deletion
+  const onEdgesDelete = useCallback((deleted) => {
+    // No additional cleanup needed for edge deletion
+  }, []);
 
   // Handle node drag from palette
   const onDragOver = useCallback((event) => {
@@ -732,11 +842,18 @@ const FlowEditor = () => {
       finalPosition = { x: 250, y: 200 };
     }
 
+    // Get metadata for the node type to initialize with defaults
+    const metadata = getNodeMetadata(nodeType);
+    const inputCount = metadata?.inputs?.length || 0;
+    
     const newNode = {
       id: `${nodeType}-${Date.now()}`,
       type: nodeType,
       position: finalPosition,
-      data: {}
+      data: {
+        // Initialize with default input count from node type metadata
+        inputCount: inputCount > 0 ? inputCount : undefined,
+      }
     };
 
     setNodes((nds) => nds.concat(newNode));
@@ -895,6 +1012,9 @@ const FlowEditor = () => {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              isValidConnection={isValidConnection}
+              onNodesDelete={onNodesDelete}
+              onEdgesDelete={onEdgesDelete}
               onInit={setReactFlowInstance}
               onDrop={onDrop}
               onDragOver={onDragOver}
