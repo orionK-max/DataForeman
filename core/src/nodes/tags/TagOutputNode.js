@@ -8,11 +8,15 @@ import { BaseNode } from '../base/BaseNode.js';
  */
 export class TagOutputNode extends BaseNode {
   description = {
+    schemaVersion: 1,
     displayName: 'Tag Output',
     name: 'tag-output',
     version: 1,
     description: 'Write value to a tag',
     category: 'TAG_OPERATIONS',
+    section: 'BASIC',
+    icon: '📤',
+    color: '#FF9800',
     
     // Single input from upstream node
     inputs: [{ type: 'main', displayName: 'Input' }],
@@ -115,17 +119,28 @@ export class TagOutputNode extends BaseNode {
       };
     }
 
-    // Publish to NATS for tag update
+    // Get connection_id for the tag
+    const connectionResult = await context.query(
+      'SELECT connection_id FROM tag_metadata WHERE tag_id = $1',
+      [tagId]
+    );
+
+    if (connectionResult.rows.length === 0 || !connectionResult.rows[0].connection_id) {
+      throw new Error(`Cannot write to tag ${tagId}: no connection_id found`);
+    }
+
+    const connectionId = connectionResult.rows[0].connection_id;
+
+    // Publish to NATS telemetry.raw subject for ingestion
     const payload = {
+      connection_id: connectionId,
       tag_id: tagId,
-      tag_path: tagPath,
-      value: inputValue.value,
-      quality: inputValue.quality,
-      timestamp: new Date().toISOString(),
-      source: 'flow_engine'
+      ts: new Date().toISOString(),
+      v: inputValue.value,
+      q: inputValue.quality
     };
 
-    await context.publishToNats(`df.tag.update.${tagId}`, payload);
+    await context.publishToNats(`df.telemetry.raw.${connectionId}`, payload);
 
     // Pass through the value
     return { 

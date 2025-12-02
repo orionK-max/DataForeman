@@ -59,10 +59,10 @@ export class NodeExecutionContext {
       
       const edge = edges[index];
       const portName = edge.targetHandle || 'input';
-      const value = this.inputStateManager.getInput(this.node.id, portName);
+      const inputData = this.inputStateManager.getInput(this.node.id, portName);
       
-      // Return in standard format with quality
-      return value !== undefined ? { value, quality: 192 } : null;
+      // InputStateManager now stores {value, quality} objects, return as-is
+      return inputData !== undefined ? inputData : null;
     }
     
     // Fallback to traditional edge-based reading (manual execution)
@@ -89,8 +89,8 @@ export class NodeExecutionContext {
       return edges
         .map(edge => {
           const portName = edge.targetHandle || 'input';
-          const value = this.inputStateManager.getInput(this.node.id, portName);
-          return value !== undefined ? { value, quality: 192 } : null;
+          const inputData = this.inputStateManager.getInput(this.node.id, portName);
+          return inputData !== undefined ? inputData : null;
         })
         .filter(output => output !== null);
     }
@@ -310,7 +310,7 @@ export class NodeExecutionContext {
         node_id: this.node.id,
         log_level: level,
         message: String(message),
-        timestamp: new Date(),
+        // Don't pass timestamp - let LogBuffer generate high-resolution timestamp for proper ordering
         metadata: metadata
       });
     }

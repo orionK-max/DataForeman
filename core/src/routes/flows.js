@@ -15,6 +15,24 @@ export default async function flowRoutes(app) {
     return true;
   }
 
+  // GET /api/flows/categories - Get category and section definitions
+  // Requires 'flows:read' permission
+  // Returns the hierarchical structure of categories and sections for the node palette
+  app.get('/api/flows/categories', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    try {
+      const { getAllCategories } = await import('../nodes/base/CategoryDefinitions.js');
+      const categories = getAllCategories();
+      
+      reply.send({ categories });
+    } catch (error) {
+      req.log.error({ err: error }, 'Failed to get categories');
+      reply.code(500).send({ error: 'Failed to retrieve categories' });
+    }
+  });
+
   // GET /api/flows/node-types - Get all available node types
   // Requires 'flows:read' permission
   // NOTE: This is the authoritative source for node type metadata. Frontend should eventually
@@ -28,9 +46,23 @@ export default async function flowRoutes(app) {
       const descriptions = NodeRegistry.getAllDescriptions();
       
       // Transform to array format for easier frontend consumption
+      // Include all fields from description (icon, color, category, section, visual, etc.)
       const nodeTypes = Object.entries(descriptions).map(([type, desc]) => ({
         type,
-        ...desc
+        displayName: desc.displayName,
+        name: desc.name,
+        version: desc.version,
+        description: desc.description,
+        category: desc.category || 'OTHER',
+        section: desc.section || 'BASIC',
+        icon: desc.icon || '📦',
+        color: desc.color || '#666666',
+        schemaVersion: desc.schemaVersion || 1,
+        inputs: desc.inputs || [],
+        outputs: desc.outputs || [],
+        properties: desc.properties || [],
+        visual: desc.visual || null,
+        extensions: desc.extensions || {}
       }));
       
       reply.send({ 
@@ -60,9 +92,23 @@ export default async function flowRoutes(app) {
       
       const description = NodeRegistry.getDescription(type);
       
+      // Return complete description with all standard fields
       reply.send({
         type,
-        ...description
+        displayName: description.displayName,
+        name: description.name,
+        version: description.version,
+        description: description.description,
+        category: description.category || 'OTHER',
+        section: description.section || 'BASIC',
+        icon: description.icon || '📦',
+        color: description.color || '#666666',
+        schemaVersion: description.schemaVersion || 1,
+        inputs: description.inputs || [],
+        outputs: description.outputs || [],
+        properties: description.properties || [],
+        visual: description.visual || null,
+        extensions: description.extensions || {}
       });
     } catch (error) {
       req.log.error({ err: error, nodeType: req.params.type }, 'Failed to get node type details');
@@ -130,7 +176,54 @@ export default async function flowRoutes(app) {
       return reply.code(404).send({ error: 'flow not found' });
     }
 
-    reply.send({ flow: result.rows[0] });
+    const flow = result.rows[0];
+
+    // Enrich flow definition with current connection data
+    if (flow.definition && flow.definition.nodes) {
+      // Get all unique connection IDs from nodes
+      const connectionIds = new Set();
+      flow.definition.nodes.forEach(node => {
+        if (node.data?.connectionId) {
+          connectionIds.add(node.data.connectionId);
+        }
+      });
+
+      // Fetch connection data if we have any connection IDs
+      if (connectionIds.size > 0) {
+        const connectionsResult = await db.query(`
+          SELECT id, name, type as driver_type
+          FROM connections
+          WHERE id = ANY($1)
+        `, [Array.from(connectionIds)]);
+
+        // Create lookup map
+        const connectionsMap = {};
+        connectionsResult.rows.forEach(conn => {
+          connectionsMap[conn.id] = {
+            name: conn.name,
+            driverType: conn.driver_type
+          };
+        });
+
+        // Enrich nodes with current connection data
+        flow.definition.nodes = flow.definition.nodes.map(node => {
+          if (node.data?.connectionId && connectionsMap[node.data.connectionId]) {
+            const conn = connectionsMap[node.data.connectionId];
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                connectionName: conn.name,
+                driverType: conn.driverType
+              }
+            };
+          }
+          return node;
+        });
+      }
+    }
+
+    reply.send({ flow });
   });
 
   // PUT /api/flows/:id - Update flow
@@ -1342,6 +1435,72 @@ export default async function flowRoutes(app) {
     } catch (error) {
       req.log.error({ err: error, flowId: id }, 'failed to fetch session status');
       reply.code(500).send({ error: 'failed to fetch session status' });
+    }
+  });
+
+  // POST /api/flows/:id/calculate-execution-order - Calculate execution order for flow
+  // Requires 'flows:read' permission
+  // Returns ordered array of node IDs showing execution sequence
+  app.post('/api/flows/:id/calculate-execution-order', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+
+    try {
+      // Verify access to flow
+      const flowCheck = await db.query(`
+        SELECT id, definition FROM flows
+        WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+      `, [id, userId]);
+
+      if (flowCheck.rows.length === 0) {
+        return reply.code(404).send({ error: 'flow not found' });
+      }
+
+      const flow = flowCheck.rows[0];
+      const { nodes = [], edges = [] } = flow.definition;
+
+      // Import topological sort function
+      const { topologicalSort } = await import('../services/flow-executor.js');
+
+      // Filter out passive nodes (like comments) that don't execute
+      const passiveNodeTypes = ['comment'];
+      const nodesToSort = nodes.filter(n => !passiveNodeTypes.includes(n.type));
+
+      // Calculate execution order
+      const executionOrder = topologicalSort(nodesToSort, edges);
+
+      // Build response with node details
+      const orderedNodes = executionOrder.map((nodeId, index) => {
+        const node = nodes.find(n => n.id === nodeId);
+        return {
+          nodeId,
+          order: index + 1,
+          type: node?.type,
+          label: node?.data?.label || node?.type
+        };
+      });
+
+      req.log.info({ flowId: id, totalNodes: orderedNodes.length }, 'Execution order calculated');
+
+      reply.send({ 
+        flowId: id,
+        executionOrder: orderedNodes,
+        totalNodes: orderedNodes.length
+      });
+    } catch (error) {
+      req.log.error({ err: error, flowId: id }, 'Failed to calculate execution order');
+      
+      // Handle specific error cases
+      if (error.message?.includes('cycle')) {
+        return reply.code(400).send({ 
+          error: 'Flow contains cycles or unreachable nodes',
+          details: error.message 
+        });
+      }
+
+      reply.code(500).send({ error: 'Failed to calculate execution order' });
     }
   });
 }

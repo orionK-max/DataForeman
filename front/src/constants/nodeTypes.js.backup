@@ -121,7 +121,6 @@ export function getNodeMetadata(nodeType) {
     outputs: backendMeta.outputs || [],
     properties: backendMeta.properties || [],
     schemaVersion: backendMeta.schemaVersion || 1,
-    visual: backendMeta.visual || null,
     // Convenience flags
     hasInput: backendMeta.inputs?.length > 0,
     hasOutput: backendMeta.outputs?.length > 0,

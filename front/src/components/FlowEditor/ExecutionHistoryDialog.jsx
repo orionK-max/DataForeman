@@ -290,9 +290,12 @@ export default function ExecutionHistoryDialog({ open, onClose, flowId, flow }) 
     }
   }, [open, flowId]);
 
-  // Auto-refresh when there are running executions
+  // Auto-refresh when there are running executions (disabled in development)
   useEffect(() => {
     if (!open || !flowId) return;
+    
+    const isDev = import.meta.env.DEV;
+    if (isDev) return; // No auto-refresh in development
     
     const hasRunningExecutions = history.some(exec => exec.status === 'running');
     

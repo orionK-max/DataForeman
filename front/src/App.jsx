@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { PermissionsProvider } from './contexts/PermissionsContext';
 import { PermissionsLoader } from './components/PermissionsLoader';
 import { PageTitleProvider } from './contexts/PageTitleContext';
-import { fetchBackendNodeMetadata } from './constants/nodeTypes';
+import { fetchBackendNodeMetadata, fetchCategories } from './constants/nodeTypes';
 import MainLayout from './layouts/MainLayout';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
@@ -27,12 +27,15 @@ const ProtectedApp = () => {
   useEffect(() => {
     if (isAuthenticated) {
       setNodeMetadataLoaded(false);
-      fetchBackendNodeMetadata()
+      Promise.all([
+        fetchCategories(),
+        fetchBackendNodeMetadata()
+      ])
         .then(() => {
           setNodeMetadataLoaded(true);
         })
         .catch(err => {
-          console.error('Failed to load node types from backend:', err);
+          console.error('Failed to load node metadata from backend:', err);
           // Still set to true so app can function (with limited node info)
           setNodeMetadataLoaded(true);
         });

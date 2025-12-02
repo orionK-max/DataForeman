@@ -834,6 +834,17 @@ export async function connectivityRoutes(app) {
         max_concurrent_connections: r.max_concurrent_connections,
         ...(r.config_data || {}) 
       }));
+      
+      // Add INTERNAL tags as a pseudo-connection
+      items.unshift({
+        id: 'INTERNAL',
+        name: 'Internal Tags',
+        type: 'INTERNAL',
+        enabled: true,
+        max_tags_per_group: null,
+        max_concurrent_connections: null
+      });
+      
       return { items };
     } catch (e) {
       app.log.error({ err: e }, 'failed to load saved connections');
@@ -1182,6 +1193,40 @@ export async function connectivityRoutes(app) {
     const includeDeleted = req.query?.include_deleted === 'true';
     
     try {
+      // Handle INTERNAL tags separately
+      if (connectionId === 'INTERNAL') {
+        const { rows } = await app.db.query(`
+          SELECT 
+            tm.tag_id,
+            tm.connection_id,
+            tm.driver_type,
+            tm.tag_path,
+            tm.tag_name,
+            tm.data_type,
+            tm.is_subscribed,
+            coalesce(tm.status,'active') as status,
+            tm.created_at,
+            tm.updated_at,
+            tm.unit_id,
+            u.name as unit_name,
+            u.symbol as unit_symbol,
+            u.category as unit_category
+          FROM tag_metadata tm
+          LEFT JOIN units_of_measure u ON tm.unit_id = u.id
+          WHERE tm.driver_type = 'INTERNAL'
+            ${includeDeleted ? '' : "AND coalesce(tm.status,'active') <> 'deleted'"}
+          ORDER BY tm.tag_name ASC
+        `);
+        
+        return { 
+          connection_id: connectionId, 
+          tags: rows, 
+          schema: 'internal',
+          total_tags: rows.length,
+          deleted_included: includeDeleted ? 1 : 0
+        };
+      }
+      
       // Query tag_metadata with poll group info (new schema only)
       const { rows } = await app.db.query(`
         SELECT 

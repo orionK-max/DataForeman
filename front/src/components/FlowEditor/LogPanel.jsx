@@ -176,15 +176,16 @@ export default function LogPanel({
     loadLogs();
   }, [flowId, currentExecutionId]);
 
-  // Live logs: SSE in production, polling in development
+  // Live logs: SSE in production, disabled auto-refresh in development
   useEffect(() => {
     if (!flowId || paused) return;
 
     const isDev = import.meta.env.DEV;
 
     if (isDev) {
-      // Development: Use 1-second polling (Vite proxy doesn't support SSE)
-      pollIntervalRef.current = setInterval(loadLogs, 1000);
+      // Development: No auto-refresh, user must manually refresh
+      // This prevents issues with hot reload and state management
+      return;
     } else {
       // Production: Use SSE for real-time updates
       const token = localStorage.getItem('df_token');

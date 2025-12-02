@@ -8,17 +8,28 @@ import { BaseNode } from '../base/BaseNode.js';
  */
 export class TagInputNode extends BaseNode {
   description = {
+    schemaVersion: 1,
     displayName: 'Tag Input',
     name: 'tag-input',
     version: 1,
     description: 'Read value from a tag',
     category: 'TAG_OPERATIONS',
+    section: 'BASIC',
+    icon: '📥',
+    color: '#4CAF50',
     
     // No inputs - reads from database
     inputs: [],
     
     // Single output with the tag value
     outputs: [{ type: 'main', displayName: 'Output' }],
+    
+    visual: {
+      subtitle: '{{tagPath}}',
+      badges: [
+        { field: 'connectionName', color: '#1976d2' }
+      ]
+    },
     
     // Configuration parameters
     properties: [
@@ -131,7 +142,7 @@ export class TagInputNode extends BaseNode {
       
       return {
         value: row.v_num != null ? Number(row.v_num) : null,
-        quality: 192, // System metrics always have good quality
+        quality: 0, // System metrics always have good quality (OPC UA standard)
         tagPath,
         timestamp: row.ts
       };

@@ -1,0 +1,185 @@
+/**
+ * Node Category Definitions
+ * 
+ * Defines the hierarchical structure of node categories and sections
+ * for the Flow Studio node palette. This provides the organizational
+ * structure for how nodes are displayed in the UI.
+ * 
+ * Categories group related functionality (e.g., Tag Operations, Logic & Math)
+ * Sections subdivide categories into logical groupings (e.g., Basic, Advanced)
+ */
+
+export const CATEGORIES = {
+  TAG_OPERATIONS: {
+    key: 'TAG_OPERATIONS',
+    displayName: 'Tag Operations',
+    icon: '📊',
+    description: 'Read and write tag values',
+    order: 1,
+    sections: {
+      BASIC: {
+        key: 'BASIC',
+        displayName: 'Basic',
+        description: 'Basic tag operations',
+        order: 1
+      },
+      ADVANCED: {
+        key: 'ADVANCED',
+        displayName: 'Advanced',
+        description: 'Advanced tag transformations and history',
+        order: 2
+      }
+    }
+  },
+  
+  LOGIC_MATH: {
+    key: 'LOGIC_MATH',
+    displayName: 'Logic & Math',
+    icon: '🔢',
+    description: 'Perform calculations and comparisons',
+    order: 2,
+    sections: {
+      MATH: {
+        key: 'MATH',
+        displayName: 'Math Operations',
+        description: 'Arithmetic operations',
+        order: 1
+      },
+      COMPARISON: {
+        key: 'COMPARISON',
+        displayName: 'Comparison',
+        description: 'Compare values and conditions',
+        order: 2
+      },
+      CONTROL: {
+        key: 'CONTROL',
+        displayName: 'Control Flow',
+        description: 'Conditional execution and flow control',
+        order: 3
+      },
+      ADVANCED: {
+        key: 'ADVANCED',
+        displayName: 'Scripts',
+        description: 'Custom JavaScript logic',
+        order: 4
+      }
+    }
+  },
+  
+  COMMUNICATION: {
+    key: 'COMMUNICATION',
+    displayName: 'Communication',
+    icon: '📡',
+    description: 'External integrations',
+    order: 4,
+    sections: {
+      BASIC: {
+        key: 'BASIC',
+        displayName: 'Basic',
+        description: 'HTTP, email, and messaging',
+        order: 1
+      },
+      DATABASE: {
+        key: 'DATABASE',
+        displayName: 'Database',
+        description: 'Database operations',
+        order: 2
+      }
+    }
+  },
+  
+  DATA_TRANSFORM: {
+    key: 'DATA_TRANSFORM',
+    displayName: 'Data Transform',
+    icon: '🔄',
+    description: 'Transform and manipulate data',
+    order: 5,
+    sections: {
+      BASIC: {
+        key: 'BASIC',
+        displayName: 'Basic',
+        description: 'Basic transformations',
+        order: 1
+      }
+    }
+  },
+  
+  UTILITY: {
+    key: 'UTILITY',
+    displayName: 'Utility',
+    icon: '🛠️',
+    description: 'Helper and utility nodes',
+    order: 6,
+    sections: {
+      BASIC: {
+        key: 'BASIC',
+        displayName: 'Basic',
+        description: 'General utilities',
+        order: 1
+      }
+    }
+  },
+  
+  OTHER: {
+    key: 'OTHER',
+    displayName: 'Other',
+    icon: '📦',
+    description: 'Miscellaneous nodes',
+    order: 99,
+    sections: {
+      BASIC: {
+        key: 'BASIC',
+        displayName: 'Basic',
+        description: 'Uncategorized nodes',
+        order: 1
+      }
+    }
+  }
+};
+
+/**
+ * Get all categories with their sections
+ * @returns {Object} Map of category key to category definition
+ */
+export function getAllCategories() {
+  return CATEGORIES;
+}
+
+/**
+ * Get a specific category by key
+ * @param {string} categoryKey - Category key (e.g., 'TAG_OPERATIONS')
+ * @returns {Object|null} Category definition or null if not found
+ */
+export function getCategory(categoryKey) {
+  return CATEGORIES[categoryKey] || null;
+}
+
+/**
+ * Get a specific section within a category
+ * @param {string} categoryKey - Category key
+ * @param {string} sectionKey - Section key
+ * @returns {Object|null} Section definition or null if not found
+ */
+export function getSection(categoryKey, sectionKey) {
+  const category = CATEGORIES[categoryKey];
+  if (!category || !category.sections) return null;
+  return category.sections[sectionKey] || null;
+}
+
+/**
+ * Validate that a category and section combination exists
+ * @param {string} categoryKey - Category key
+ * @param {string} sectionKey - Section key
+ * @returns {boolean} True if valid combination
+ */
+export function isValidCategorySection(categoryKey, sectionKey) {
+  return getSection(categoryKey, sectionKey) !== null;
+}
+
+/**
+ * Get list of all valid category keys
+ * @returns {string[]} Array of category keys
+ */
+export function getValidCategoryKeys() {
+  return Object.keys(CATEGORIES);
+}

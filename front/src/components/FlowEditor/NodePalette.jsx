@@ -10,7 +10,6 @@ import {
   Divider,
 } from '@mui/material';
 import {
-  PlayCircle as TriggerIcon,
   Input as InputIcon,
   Output as OutputIcon,
   Functions as MathIcon,
@@ -19,12 +18,6 @@ import {
 } from '@mui/icons-material';
 
 const nodeTypes = [
-  {
-    type: 'trigger-manual',
-    label: 'Manual Trigger',
-    icon: <TriggerIcon />,
-    description: 'Start flow manually'
-  },
   {
     type: 'tag-input',
     label: 'Tag Input',

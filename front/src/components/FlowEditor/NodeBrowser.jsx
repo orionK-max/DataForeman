@@ -19,11 +19,11 @@ import {
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import {
-  NODE_CATEGORIES,
   getRecentNodes,
   addToRecentNodes,
   searchNodes,
   getOrganizedNodes,
+  getCategories,
 } from '../../constants/nodeTypes';
 import NodeItem from './NodeItem';
 

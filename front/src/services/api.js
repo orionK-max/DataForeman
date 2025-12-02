@@ -263,6 +263,14 @@ export default apiClient;
  */
 export const flowsApi = {
   /**
+   * Get category and section definitions
+   * @returns {Promise<{categories: Object}>}
+   */
+  getCategories: async () => {
+    return apiClient.get('/flows/categories');
+  },
+
+  /**
    * Get all available node types
    * @returns {Promise<{nodeTypes: Array, count: number}>}
    */

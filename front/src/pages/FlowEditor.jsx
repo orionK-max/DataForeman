@@ -48,7 +48,7 @@ import {
   Add as AddIcon,
   Terminal as TerminalIcon,
 } from '@mui/icons-material';
-import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger } from '../services/flowsApi';
+import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder } from '../services/flowsApi';
 import { getNodeMetadata, getBackendMetadata } from '../constants/nodeTypes';
 import NodeBrowser from '../components/FlowEditor/NodeBrowser';
 import NodeConfigPanel from '../components/FlowEditor/NodeConfigPanel';
@@ -85,6 +85,8 @@ const FlowEditor = () => {
   const [logPanelOpen, setLogPanelOpen] = useState(false); // Log panel visibility
   const [logPanelPosition, setLogPanelPosition] = useState('right'); // 'bottom' or 'right'
   const [currentExecutionId, setCurrentExecutionId] = useState(null); // Current execution for logs
+  const [executionOrder, setExecutionOrder] = useState(null); // { nodeId: orderNumber } map
+  const [showExecutionOrder, setShowExecutionOrder] = useState(false); // Toggle execution order display
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
 
@@ -312,6 +314,32 @@ const FlowEditor = () => {
     }, 2000);
   }, [setNodes, reactFlowInstance]);
 
+  // Update nodes with execution order when it changes
+  useEffect(() => {
+    if (showExecutionOrder && executionOrder) {
+      setNodes((nds) =>
+        nds.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            executionOrder: executionOrder[node.id] || null,
+          },
+        }))
+      );
+    } else {
+      // Clear execution order from nodes
+      setNodes((nds) =>
+        nds.map((node) => {
+          const { executionOrder, ...restData } = node.data;
+          return {
+            ...node,
+            data: restData,
+          };
+        })
+      );
+    }
+  }, [showExecutionOrder, executionOrder, setNodes]);
+
   const loadFlow = async () => {
     try {
       const data = await getFlow(id);
@@ -396,6 +424,33 @@ const FlowEditor = () => {
       }
     } catch (error) {
       showSnackbar('Failed to save flow: ' + error.message, 'error');
+    }
+  };
+
+  // Calculate and show execution order
+  const handleShowExecutionOrder = async () => {
+    if (showExecutionOrder) {
+      // Toggle off - hide the order
+      setShowExecutionOrder(false);
+      setExecutionOrder(null);
+      return;
+    }
+
+    try {
+      const result = await calculateExecutionOrder(id);
+      
+      // Convert array to map: { nodeId: orderNumber }
+      const orderMap = {};
+      result.executionOrder.forEach(item => {
+        orderMap[item.nodeId] = item.order;
+      });
+      
+      setExecutionOrder(orderMap);
+      setShowExecutionOrder(true);
+      showSnackbar(`Execution order calculated: ${result.totalNodes} nodes`, 'success');
+    } catch (error) {
+      console.error('Calculate execution order failed:', error);
+      showSnackbar('Failed to calculate execution order: ' + error.message, 'error');
     }
   };
 
@@ -705,7 +760,16 @@ const FlowEditor = () => {
     if (!sourceMetadata || !targetMetadata) return true; // Allow if metadata not available
     
     // Get output type from source (always uses sourceHandle which is just 'source')
-    const sourceOutput = sourceMetadata.outputs?.[0];
+    // Handle both array format ([...]) and object format ({value: {...}, quality: {...}})
+    let sourceOutput;
+    if (Array.isArray(sourceMetadata.outputs)) {
+      sourceOutput = sourceMetadata.outputs[0];
+    } else if (sourceMetadata.outputs && typeof sourceMetadata.outputs === 'object') {
+      // For object format, get first value
+      const outputKeys = Object.keys(sourceMetadata.outputs);
+      sourceOutput = outputKeys.length > 0 ? sourceMetadata.outputs[outputKeys[0]] : undefined;
+    }
+    
     if (!sourceOutput) {
       showSnackbar('Cannot connect: source node has no output', 'error');
       return false;
@@ -713,7 +777,18 @@ const FlowEditor = () => {
     
     // Get input type from target using targetHandle (e.g., 'input-0', 'input-1')
     const targetHandleIndex = connection.targetHandle ? parseInt(connection.targetHandle.split('-')[1]) : 0;
-    const targetInput = targetMetadata.inputs?.[targetHandleIndex];
+    
+    // Handle both array format ([...]) and object format ({input0: {...}, input1: {...}})
+    let targetInput;
+    if (Array.isArray(targetMetadata.inputs)) {
+      targetInput = targetMetadata.inputs[targetHandleIndex];
+    } else if (targetMetadata.inputs && typeof targetMetadata.inputs === 'object') {
+      // For object format, get the Nth value
+      const inputKeys = Object.keys(targetMetadata.inputs);
+      const key = inputKeys[targetHandleIndex];
+      targetInput = key ? targetMetadata.inputs[key] : undefined;
+    }
+    
     if (!targetInput) {
       showSnackbar('Cannot connect: target node has no input', 'error');
       return false;
@@ -846,14 +921,26 @@ const FlowEditor = () => {
     const metadata = getNodeMetadata(nodeType);
     const inputCount = metadata?.inputs?.length || 0;
     
+    // Initialize node data with default values from properties
+    const initialData = {
+      // Initialize with default input count from node type metadata
+      inputCount: inputCount > 0 ? inputCount : undefined,
+    };
+    
+    // Add default values for all properties that have them
+    if (metadata?.properties) {
+      metadata.properties.forEach(prop => {
+        if (prop.default !== undefined && prop.name) {
+          initialData[prop.name] = prop.default;
+        }
+      });
+    }
+    
     const newNode = {
       id: `${nodeType}-${Date.now()}`,
       type: nodeType,
       position: finalPosition,
-      data: {
-        // Initialize with default input count from node type metadata
-        inputCount: inputCount > 0 ? inputCount : undefined,
-      }
+      data: initialData
     };
 
     setNodes((nds) => nds.concat(newNode));
@@ -947,6 +1034,17 @@ const FlowEditor = () => {
           >
             {flow.deployed ? 'Undeploy' : 'Deploy'}
           </Button>
+
+          <Tooltip title={showExecutionOrder ? 'Hide Execution Order' : 'Show Execution Order'}>
+            <Button
+              onClick={handleShowExecutionOrder}
+              variant={showExecutionOrder ? 'contained' : 'outlined'}
+              color={showExecutionOrder ? 'info' : 'inherit'}
+              sx={{ mr: 1, minWidth: '40px', px: 1 }}
+            >
+              {showExecutionOrder ? '123' : '123'}
+            </Button>
+          </Tooltip>
           
           <IconButton onClick={() => setNodeBrowserOpen(true)} title="Add Node (/)">
             <AddIcon />

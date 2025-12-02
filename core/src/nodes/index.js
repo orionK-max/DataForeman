@@ -7,9 +7,6 @@
 
 import { NodeRegistry } from './base/NodeRegistry.js';
 
-// Trigger nodes
-import { ManualTriggerNode } from './triggers/ManualTriggerNode.js';
-
 // Tag nodes
 import { TagInputNode } from './tags/TagInputNode.js';
 import { TagOutputNode } from './tags/TagOutputNode.js';
@@ -17,20 +14,24 @@ import { TagOutputNode } from './tags/TagOutputNode.js';
 // Math nodes
 import { MathNode } from './math/MathNode.js';
 
+// Logic nodes
+import { GateNode } from './logic/GateNode.js';
+
 // Comparison nodes
 import { ComparisonNode } from './comparison/ComparisonNode.js';
 
 // Script nodes
 import { JavaScriptNode } from './scripts/JavaScriptNode.js';
 
+// Utility nodes
+import { ConstantNode } from './utility/ConstantNode.js';
+import { CommentNode } from './utility/CommentNode.js';
+
 /**
  * Register all node types
  * Called during application startup
  */
 export function registerAllNodes() {
-  // Triggers
-  NodeRegistry.register('trigger-manual', ManualTriggerNode);
-  
   // Tag operations
   NodeRegistry.register('tag-input', TagInputNode);
   NodeRegistry.register('tag-output', TagOutputNode);
@@ -38,11 +39,18 @@ export function registerAllNodes() {
   // Math operations
   NodeRegistry.register('math', MathNode);
   
+  // Logic operations
+  NodeRegistry.register('gate', GateNode);
+  
   // Comparison operations
   NodeRegistry.register('comparison', ComparisonNode);
   
-  // Script operations
-  NodeRegistry.register('script-js', JavaScriptNode);
+  // Script operations (legacy - skip validation until Phase 4 refactor)
+  NodeRegistry.register('script-js', JavaScriptNode, { skipValidation: true });
+  
+  // Utility nodes
+  NodeRegistry.register('constant', ConstantNode);
+  NodeRegistry.register('comment', CommentNode);
   
   // More nodes will be registered here as we implement them
   

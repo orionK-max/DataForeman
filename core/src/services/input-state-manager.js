@@ -1,41 +1,62 @@
 // Input State Manager
 // Tracks latest input values for continuous flow execution
 // Each node's inputs are updated continuously and persist between scan cycles
+// 
+// IMPORTANT: Always stores {value, quality} objects to preserve OPC UA quality codes
+// Quality codes (OPC UA): 0 = Good, higher values indicate various statuses (Uncertain, Bad, etc.)
 
 /**
  * Manages input state for continuous flow execution.
- * Maintains a map of nodeId -> portName -> value
+ * Maintains a map of nodeId -> portName -> {value, quality}
  * Thread-safe for concurrent updates during scan cycles.
  */
 export class InputStateManager {
   constructor() {
-    // Map: nodeId -> Map(portName -> value)
+    // Map: nodeId -> Map(portName -> {value, quality})
     this.state = new Map();
   }
 
   /**
    * Update an input value for a node
+   * IMPORTANT: Always pass full output object {value, quality} to preserve quality codes
    * @param {string} nodeId - Node ID
    * @param {string} port - Input port name
-   * @param {*} value - Input value (can be any type)
+   * @param {Object} outputData - Output object {value, quality, ...other metadata}
    */
-  updateInput(nodeId, port, value) {
+  updateInput(nodeId, port, outputData) {
     if (!this.state.has(nodeId)) {
       this.state.set(nodeId, new Map());
     }
     
     const nodeInputs = this.state.get(nodeId);
-    nodeInputs.set(port, value);
+    
+    // Store the full output object to preserve quality codes
+    // If it's not an object or missing quality, default to good quality (0 = Good in OPC UA)
+    let storedValue;
+    if (outputData && typeof outputData === 'object' && 'value' in outputData) {
+      storedValue = {
+        value: outputData.value,
+        quality: outputData.quality ?? 0
+      };
+    } else {
+      // Legacy support: if raw value passed, wrap it with good quality
+      storedValue = {
+        value: outputData,
+        quality: 0
+      };
+    }
+    
+    nodeInputs.set(port, storedValue);
     
     // DEBUG logging for input updates
-    console.log(`[InputStateManager] Input updated: nodeId=${nodeId}, port=${port}, value=${JSON.stringify(value)}`);
+    console.log(`[InputStateManager] Input updated: nodeId=${nodeId}, port=${port}, value=${JSON.stringify(storedValue.value)}, quality=${storedValue.quality}`);
   }
 
   /**
    * Get an input value for a node
    * @param {string} nodeId - Node ID
    * @param {string} port - Input port name
-   * @returns {*} Input value or undefined if not set
+   * @returns {Object|undefined} Input object {value, quality} or undefined if not set
    */
   getInput(nodeId, port) {
     const nodeInputs = this.state.get(nodeId);

@@ -6,15 +6,15 @@ import { BaseNode } from '../base/BaseNode.js';
  */
 export class MathNode extends BaseNode {
   description = {
+    schemaVersion: 1,
     displayName: 'Math',
     name: 'math',
-    group: 'LOGIC_MATH',
     version: 1,
     description: 'Perform mathematical operations on multiple inputs (2 minimum, expandable)',
-    defaults: {
-      name: 'Math',
-      color: '#00A0A0',
-    },
+    category: 'LOGIC_MATH',
+    section: 'MATH',
+    icon: '🔢',
+    color: '#00A0A0',
     inputs: [
       { type: 'number', displayName: 'Input 1', required: true },
       { type: 'number', displayName: 'Input 2', required: true }
@@ -27,6 +27,19 @@ export class MathNode extends BaseNode {
       canRemoveInputs: true
     },
     outputs: [{ type: 'number', displayName: 'Result' }],
+    visual: {
+      iconMap: {
+        add: '➕',
+        subtract: '➖',
+        multiply: '✖️',
+        divide: '➗',
+        average: '📊',
+        min: '⬇️',
+        max: '⬆️',
+        formula: '𝑓',
+      },
+      subtitle: '{{operation}}',
+    },
     properties: [
       {
         displayName: 'Operation',

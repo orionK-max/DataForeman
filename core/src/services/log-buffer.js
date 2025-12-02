@@ -12,6 +12,24 @@ export class LogBuffer {
     this.buffer = [];
     this.timer = null;
     this.flushing = false;
+    this.sequenceCounter = 0; // High-resolution sequence for ordering
+  }
+
+  /**
+   * Generate high-resolution timestamp
+   * Returns ISO timestamp with microseconds for precise ordering
+   */
+  getHighResTimestamp() {
+    const hrtime = process.hrtime.bigint();
+    const microseconds = Number(hrtime / 1000n); // Convert to microseconds
+    const milliseconds = Math.floor(microseconds / 1000);
+    const microRemainder = microseconds % 1000;
+    
+    const date = new Date(milliseconds);
+    const isoBase = date.toISOString();
+    // Insert microseconds before the 'Z'
+    // Format: 2025-12-01T23:06:50.689123Z
+    return isoBase.replace('Z', String(microRemainder).padStart(3, '0') + 'Z');
   }
 
   /**
@@ -22,17 +40,20 @@ export class LogBuffer {
    * @param {string} [log.node_id] - Node ID (optional for system logs)
    * @param {string} log.log_level - 'debug', 'info', 'warn', 'error'
    * @param {string} log.message - Log message
-   * @param {Date} [log.timestamp] - Log timestamp (defaults to now)
+   * @param {Date} [log.timestamp] - Log timestamp (defaults to now with microseconds)
    * @param {Object} [log.metadata] - Additional metadata
    */
   add(log) {
+    // Use high-resolution timestamp if not provided
+    const timestamp = log.timestamp || this.getHighResTimestamp();
+    
     this.buffer.push({
       execution_id: log.execution_id,
       flow_id: log.flow_id,
       node_id: log.node_id || null,
       log_level: log.log_level,
       message: log.message,
-      timestamp: log.timestamp || new Date(),
+      timestamp: timestamp,
       metadata: log.metadata || null
     });
 
@@ -103,7 +124,7 @@ export class LogBuffer {
               node_id: log.node_id,
               log_level: log.log_level,
               message: log.message,
-              timestamp: log.timestamp.toISOString(),
+              timestamp: typeof log.timestamp === 'string' ? log.timestamp : log.timestamp.toISOString(),
               metadata: log.metadata
             });
           } catch (natsError) {

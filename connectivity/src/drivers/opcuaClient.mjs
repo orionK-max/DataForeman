@@ -609,14 +609,11 @@ export class OPCUAClientDriver {
           const mi = await sub.monitor(itemToMonitor, parameters, TimestampsToReturn.Both);
           mi.on('changed', (dataValue) => {
             const v = dataValue.value?.value;
-            const q = dataValue.statusCode?.value;
+            // Use native OPC UA statusCode value (32-bit)
+            // 0x00000000 (0) = Good, higher values indicate various statuses
+            const q = dataValue.statusCode?.value ?? null;
             const src_ts = dataValue.sourceTimestamp?.toISOString?.();
             const ts = (dataValue.serverTimestamp || new Date()).toISOString?.() || new Date().toISOString();
-            
-            // DEBUG: Log all changed events to see what OPC UA server is sending
-            if (tagId === 26) {
-              log.info({ tagId, v, q, nodeId }, 'DEBUG: Constant tag changed event received from OPC UA server');
-            }
             
             // Always publish the data - filtering will be done by _hasValueChanged if on_change is enabled
             this._onData({ tag_id: tagId, v, q, src_ts, ts });
@@ -644,7 +641,7 @@ export class OPCUAClientDriver {
             this._onData({
               tag_id: tagId,
               v: dv?.value?.value,
-              q: dv?.statusCode?.value,
+              q: dv?.statusCode?.value ?? null,
               src_ts: dv?.sourceTimestamp?.toISOString?.(),
               ts: dv?.serverTimestamp?.toISOString?.() || now,
             });

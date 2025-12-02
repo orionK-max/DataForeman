@@ -212,10 +212,22 @@ const TagSelectionDialog = ({
 
   const handleSelect = () => {
     if (tempSelectedTag) {
+      // Find connection name if this is a connectivity tag
+      let connectionName = null;
+      if (source === 'connectivity' && selectedConnection) {
+        const connection = connections.find(c => c.id === selectedConnection);
+        connectionName = connection?.name || null;
+      } else if (source === 'internal') {
+        connectionName = 'Internal';
+      } else if (source === 'system') {
+        connectionName = 'System';
+      }
+      
       onSelect({
         ...tempSelectedTag,
         source,
-        connectionId: source === 'connectivity' ? selectedConnection : null
+        connectionId: source === 'connectivity' ? selectedConnection : null,
+        connectionName
       });
       onClose();
     }

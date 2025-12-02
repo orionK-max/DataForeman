@@ -54,9 +54,18 @@ All flows use **Continuous Mode**: Flows run in a continuous loop at a configure
 - Sets flag for next scan cycle only
 - Icon greyed out when undeployed
 
-### Tag Input/Output
+### Tag Input
 - Select tag from browser
-- Tag Output: Only writes to internal tags
+- **Maximum Data Age**: Controls data freshness
+  - `-1` (default): Accept any age (use cached values)
+  - `0`: Require live data (within 1 second)
+  - `>0`: Custom maximum age in seconds
+  - Returns null/bad quality when data exceeds age limit
+  - Useful when OPC UA server or PLC connection is unstable
+
+### Tag Output
+- Only writes to internal tags
+- Select target tag from browser
 
 ### Math Node
 - Choose operation or custom formula

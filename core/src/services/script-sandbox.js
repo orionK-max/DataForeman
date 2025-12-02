@@ -42,7 +42,7 @@ function createTagsAPI(app, flowId, nodeOutputs) {
       // TODO: Integrate with actual tag value cache
       return {
         value: null,
-        quality: 192,
+        quality: 0, // Good quality (OPC UA standard)
         timestamp: new Date().toISOString(),
         tagId: result.rows[0].tag_id,
         dataType: result.rows[0].data_type

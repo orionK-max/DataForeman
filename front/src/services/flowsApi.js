@@ -49,6 +49,18 @@ export async function getFlow(id) {
 }
 
 /**
+ * Calculate execution order for a flow
+ */
+export async function calculateExecutionOrder(id) {
+  const response = await fetch(`${API_BASE}/flows/${id}/calculate-execution-order`, {
+    method: 'POST',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to calculate execution order');
+  return response.json();
+}
+
+/**
  * Create new flow
  */
 export async function createFlow(data) {

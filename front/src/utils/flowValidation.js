@@ -4,13 +4,6 @@
  */
 
 /**
- * Check if flow has at least one trigger node
- */
-const hasTriggerNode = (nodes) => {
-  return nodes.some(node => node.type === 'trigger-manual');
-};
-
-/**
  * Check if flow has cycles (circular dependencies)
  * Uses depth-first search to detect back edges
  */
@@ -94,10 +87,19 @@ const validateNodeConfig = (node) => {
       break;
 
     case 'comparison':
-      // Comparison node needs two input connections
-      if (!node.data?.operation) {
-        errors.push({ nodeId: node.id, message: 'Comparison operation is required' });
-      }
+      // Comparison node has default operation, no validation needed
+      break;
+
+    case 'gate':
+      // Gate node has default configuration, no validation needed
+      break;
+
+    case 'constant':
+      // Constant node has default values, no validation needed
+      break;
+
+    case 'comment':
+      // Comment node is passive, no validation needed
       break;
 
     case 'trigger-manual':
@@ -126,22 +128,14 @@ const validateConnections = (nodes, edges) => {
   nodes.forEach(node => {
     const inputCount = nodeInputCounts[node.id] || 0;
 
-    // Triggers should have no inputs
-    if (node.type === 'trigger-manual' && inputCount > 0) {
-      errors.push({ nodeId: node.id, message: 'Trigger nodes cannot have input connections' });
-    }
-
-    // Source nodes don't need inputs (triggers, tag-input)
-    const sourceNodes = ['trigger-manual', 'tag-input'];
+    // Source nodes don't need inputs
+    const sourceNodes = ['tag-input', 'constant', 'trigger-manual'];
+    // Passive nodes don't need inputs
+    const passiveNodes = ['comment'];
     
-    // Most nodes need at least one input (except source nodes)
-    if (!sourceNodes.includes(node.type) && inputCount === 0) {
+    // Most nodes need at least one input (except source and passive nodes)
+    if (!sourceNodes.includes(node.type) && !passiveNodes.includes(node.type) && inputCount === 0) {
       errors.push({ nodeId: node.id, message: 'Node requires at least one input connection' });
-    }
-
-    // Math and comparison nodes need inputs (handled by unified nodes)
-    if ((node.type === 'math' || node.type === 'comparison') && inputCount === 0) {
-      errors.push({ nodeId: node.id, message: `${node.type} node requires at least one input connection` });
     }
   });
 
@@ -162,11 +156,6 @@ export const validateFlow = (nodes, edges) => {
   if (!nodes || nodes.length === 0) {
     errors.push({ message: 'Flow must contain at least one node' });
     return { valid: false, errors, warnings };
-  }
-
-  // Check for trigger node
-  if (!hasTriggerNode(nodes)) {
-    errors.push({ message: 'Flow must have at least one trigger node' });
   }
 
   // Check for cycles
@@ -197,7 +186,7 @@ export const validateFlow = (nodes, edges) => {
   });
   
   const disconnectedNodes = nodes.filter(node => 
-    node.type !== 'trigger-manual' && !connectedNodeIds.has(node.id)
+    !connectedNodeIds.has(node.id)
   );
 
   if (disconnectedNodes.length > 0) {
@@ -228,14 +217,5 @@ export const validateForSave = (nodes, edges) => {
  * Strict validation for deploy operation
  */
 export const validateForDeploy = (nodes, edges) => {
-  const result = validateFlow(nodes, edges);
-  
-  // Check for trigger node - now a warning since trigger could be in user script
-  if (!hasTriggerNode(nodes)) {
-    result.warnings.push({ 
-      message: 'No manual trigger node found. Flow must be triggered manually or via events/scripts.' 
-    });
-  }
-
-  return result;
+  return validateFlow(nodes, edges);
 };

@@ -8,6 +8,9 @@
  * (inputs, outputs, properties, descriptions) should be defined here in each node's
  * static description object. Frontend can fetch this via GET /api/flows/node-types.
  */
+
+import { SchemaValidator } from './SchemaValidator.js';
+
 class NodeRegistryClass {
   constructor() {
     /**
@@ -25,13 +28,19 @@ class NodeRegistryClass {
 
   /**
    * Register a node class
+   * Validates description against schema and applies defaults
    * 
    * @param {string} nodeType - Node type identifier (e.g., 'tag-input')
    * @param {Class} NodeClass - Node class that extends BaseNode
+   * @param {Object} options - Registration options
+   * @param {boolean} options.skipValidation - Skip schema validation (for legacy nodes)
    * @throws {Error} If node type already registered
    * @throws {Error} If NodeClass is invalid
+   * @throws {Error} If description fails schema validation
    */
-  register(nodeType, NodeClass) {
+  register(nodeType, NodeClass, options = {}) {
+    const { skipValidation = false } = options;
+    
     // Validation
     if (!nodeType || typeof nodeType !== 'string') {
       throw new Error('Node type must be a non-empty string');
@@ -56,10 +65,32 @@ class NodeRegistryClass {
       throw new Error(`Node class for '${nodeType}' must have a description object`);
     }
     
+    // Validate and apply defaults using SchemaValidator
+    if (!skipValidation) {
+      const validation = SchemaValidator.validateAndApplyDefaults(nodeType, instance.description);
+      
+      // Log warnings
+      if (validation.warnings && validation.warnings.length > 0) {
+        console.warn(`[NodeRegistry] Warnings for ${nodeType}:`);
+        validation.warnings.forEach(warning => console.warn(`  - ${warning}`));
+      }
+      
+      // Fail on errors
+      if (!validation.valid) {
+        console.error(`[NodeRegistry] Schema validation failed for ${nodeType}:`);
+        validation.errors.forEach(error => console.error(`  - ${error}`));
+        throw new Error(`Schema validation failed for '${nodeType}': ${validation.errors.join('; ')}`);
+      }
+      
+      // Apply defaults to the instance description
+      instance.description = validation.description;
+    }
+    
     // Register
     this._registry.set(nodeType, NodeClass);
     
-    console.log(`[NodeRegistry] Registered node type: ${nodeType}`);
+    const schemaVersion = instance.description.schemaVersion || 'unknown';
+    console.log(`[NodeRegistry] Registered node type: ${nodeType} (schema v${schemaVersion})`);
   }
 
   /**
@@ -153,6 +184,26 @@ class NodeRegistryClass {
    */
   count() {
     return this._registry.size;
+  }
+  
+  /**
+   * Check if a schema version is supported
+   * 
+   * @param {number} version - Schema version to check
+   * @returns {boolean} True if version is supported
+   */
+  isSchemaVersionSupported(version) {
+    // Currently only version 1 is supported
+    return version === 1;
+  }
+  
+  /**
+   * Get supported schema versions
+   * 
+   * @returns {Array<number>} Array of supported schema versions
+   */
+  getSupportedSchemaVersions() {
+    return [1];
   }
 
   /**

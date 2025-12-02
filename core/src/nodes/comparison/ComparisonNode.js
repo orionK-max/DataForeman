@@ -19,42 +19,57 @@ export class ComparisonNode extends BaseNode {
    * Node description following Flow Studio convention
    */
   description = {
+    schemaVersion: 1,
     displayName: 'Comparison',
-    description: 'Compare two values using various comparison operators (>, <, >=, <=, ==, !=)',
-    group: 'Logic & Math',
+    name: 'comparison',
     version: 1,
+    description: 'Compare two values using various comparison operators (>, <, >=, <=, ==, !=)',
+    category: 'LOGIC_MATH',
+    section: 'COMPARISON',
     icon: '🔍',
     color: '#9C27B0',
     
-    inputs: {
-      input0: {
+    inputs: [
+      {
         displayName: 'First Value',
         type: 'number',
         required: true
       },
-      input1: {
+      {
         displayName: 'Second Value',
         type: 'number',
         required: true
       }
-    },
+    ],
     
-    outputs: {
-      value: {
+    outputs: [
+      {
         displayName: 'Result',
         type: 'boolean',
         description: 'Comparison result (true/false)'
       },
-      quality: {
+      {
         displayName: 'Quality',
         type: 'number',
         description: 'OPC UA quality code (minimum of input qualities)'
       },
-      operator: {
+      {
         displayName: 'Operator',
         type: 'string',
         description: 'The comparison operator used'
       }
+    ],
+    
+    visual: {
+      iconMap: {
+        gt: '>',
+        lt: '<',
+        gte: '≥',
+        lte: '≤',
+        eq: '=',
+        neq: '≠',
+      },
+      subtitle: '{{operation}}',
     },
     
     properties: [
@@ -65,12 +80,12 @@ export class ComparisonNode extends BaseNode {
         default: 'gt',
         required: true,
         options: [
-          { value: 'gt', label: 'Greater Than (>)' },
-          { value: 'lt', label: 'Less Than (<)' },
-          { value: 'gte', label: 'Greater or Equal (>=)' },
-          { value: 'lte', label: 'Less or Equal (<=)' },
-          { value: 'eq', label: 'Equal (==)' },
-          { value: 'neq', label: 'Not Equal (!=)' }
+          { value: 'gt', name: 'Greater Than (In1 > In2)' },
+          { value: 'lt', name: 'Less Than (In1 < In2)' },
+          { value: 'gte', name: 'Greater or Equal (In1 >= In2)' },
+          { value: 'lte', name: 'Less or Equal (In1 <= In2)' },
+          { value: 'eq', name: 'Equal (In1 == In2)' },
+          { value: 'neq', name: 'Not Equal (In1 != In2)' }
         ],
         description: 'Comparison operator to use'
       },
@@ -104,10 +119,19 @@ export class ComparisonNode extends BaseNode {
     
     return {
       info: (result) => {
+        if (result.error || !result.inputs) {
+          return `Comparison failed: ${result.error || 'unknown error'}`;
+        }
         const symbol = operatorSymbols[result.operator] || result.operator;
         return `Compare: ${result.inputs[0]} ${symbol} ${result.inputs[1]} = ${result.value}`;
       },
-      debug: (result) => `Comparison quality: ${result.quality}`,
+      debug: (result) => {
+        if (result.error || !result.inputs) {
+          return `Comparison error: ${result.error || 'unknown error'}, quality: ${result.quality}`;
+        }
+        const symbol = operatorSymbols[result.operator] || result.operator;
+        return `${result.inputs[0]} ${symbol} ${result.inputs[1]} = ${result.value}, operator: ${result.operator}, quality: ${result.quality}`;
+      },
       error: (error) => `Comparison failed: ${error.message}`
     };
   }
@@ -175,7 +199,10 @@ export class ComparisonNode extends BaseNode {
    */
   async execute(context) {
     const { node, log } = context;
-    const { operation, tolerance } = node.data || {};
+    
+    // Use getParameter to get values with defaults applied
+    const operation = this.getParameter(node, 'operation', 'gt');
+    const tolerance = this.getParameter(node, 'tolerance', null);
 
     // Get input values
     const input0Data = context.getInputValue(0);
@@ -209,15 +236,16 @@ export class ComparisonNode extends BaseNode {
       };
     }
 
-    // Check quality threshold (64 = uncertain)
+    // Check quality - in OPC UA: 0 = Good, 64-191 = Uncertain, 192+ = Bad
+    // For our purposes: accept quality 0 (Good) and reject quality >= 192 (Bad)
     const minQuality = Math.min(quality0, quality1);
-    if (minQuality < 64) {
-      log.warn('Comparison node input quality too low', { minQuality });
+    if (minQuality >= 192) {
+      log.warn('Comparison node input quality bad', { minQuality, quality0, quality1 });
       return {
         value: false,
-        quality: 0,
+        quality: minQuality,
         operator: operation,
-        error: 'Low quality inputs'
+        error: 'Bad quality inputs'
       };
     }
 

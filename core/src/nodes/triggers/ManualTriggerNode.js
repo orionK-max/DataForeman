@@ -8,11 +8,15 @@ import { BaseNode } from '../base/BaseNode.js';
  */
 export class ManualTriggerNode extends BaseNode {
   description = {
+    schemaVersion: 1,
     displayName: 'Manual Trigger',
     name: 'trigger-manual',
     version: 1,
     description: 'Control downstream execution with a button',
-    category: 'TRIGGERS',
+    category: 'TAG_OPERATIONS',
+    section: 'BASIC',
+    icon: '▶️',
+    color: '#2196F3',
     
     // No inputs for trigger nodes
     inputs: [],
@@ -66,7 +70,7 @@ export class ManualTriggerNode extends BaseNode {
     
     const result = {
       value: outputValue,
-      quality: 192, // Good quality
+      quality: 0, // Good quality (OPC UA standard)
       metadata: {
         triggeredAt: new Date().toISOString(),
         triggerType: 'manual',

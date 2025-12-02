@@ -20,6 +20,15 @@ export class BaseNode {
    * @property {Array<Object>} inputs - Input port definitions
    * @property {Array<Object>} outputs - Output port definitions
    * @property {Array<Object>} properties - Parameter definitions
+   * @property {Object} [visual] - Visual representation configuration (optional)
+   * @property {string} [visual.subtitle] - Template for node subtitle (supports {{field}} placeholders)
+   * @property {Object|Function} [visual.iconMap] - Map of field values to emoji/icons, or function(data) => icon
+   * @property {Array<Object>} [visual.badges] - Badges to display on node
+   * @property {string} [visual.badges[].field] - Field name from node.data
+   * @property {string} [visual.badges[].template] - Template string with {{placeholders}}
+   * @property {string} [visual.badges[].color] - Badge background color
+   * @property {Array<Object>} [visual.infoLines] - Additional info lines below node title
+   * @property {string} [visual.infoLines[].template] - Template string with {{placeholders}}
    */
   description = {
     displayName: 'Base Node',
@@ -154,6 +163,109 @@ export class BaseNode {
    */
   getDisplayName() {
     return this.description.displayName || this.description.name;
+  }
+
+  /**
+   * Get extension field value
+   * Extensions allow adding custom metadata without breaking schema compatibility
+   * 
+   * @param {string} key - Extension field name
+   * @param {*} [defaultValue] - Default value if extension not found
+   * @returns {*} Extension value or default
+   * 
+   * @example
+   * const maxRetries = this.getExtension('maxRetries', 3);
+   */
+  getExtension(key, defaultValue = undefined) {
+    if (!this.description.extensions || typeof this.description.extensions !== 'object') {
+      return defaultValue;
+    }
+    
+    const value = this.description.extensions[key];
+    return value !== undefined ? value : defaultValue;
+  }
+
+  /**
+   * Check if an extension field exists
+   * 
+   * @param {string} key - Extension field name
+   * @returns {boolean} True if extension exists
+   */
+  hasExtension(key) {
+    return this.description.extensions && 
+           typeof this.description.extensions === 'object' &&
+           key in this.description.extensions;
+  }
+
+  /**
+   * Get all extensions
+   * 
+   * @returns {Object} Extensions object or empty object
+   */
+  getExtensions() {
+    return this.description.extensions || {};
+  }
+
+  /**
+   * Validate parameter value against expected type
+   * 
+   * @param {Object} node - Node instance
+   * @param {string} name - Parameter name
+   * @param {string} expectedType - Expected type (string, number, boolean, options, tag, code)
+   * @returns {Object} { valid: boolean, error: string|null }
+   */
+  validateParameter(node, name, expectedType) {
+    const value = this.getParameter(node, name);
+    
+    if (value === undefined || value === null) {
+      return { valid: true, error: null }; // Null/undefined is valid, check required separately
+    }
+    
+    switch (expectedType) {
+      case 'string':
+      case 'code':
+      case 'tag':
+        if (typeof value !== 'string') {
+          return { valid: false, error: `${name} must be a string` };
+        }
+        break;
+        
+      case 'number':
+        if (typeof value !== 'number' || isNaN(value)) {
+          return { valid: false, error: `${name} must be a number` };
+        }
+        break;
+        
+      case 'boolean':
+        if (typeof value !== 'boolean') {
+          return { valid: false, error: `${name} must be a boolean` };
+        }
+        break;
+        
+      case 'options':
+        // Options validation requires checking against allowed values
+        // This is done in the property definition's options array
+        break;
+        
+      default:
+        return { valid: true, error: null };
+    }
+    
+    return { valid: true, error: null };
+  }
+
+  /**
+   * Get parameter definition from description
+   * 
+   * @param {string} name - Parameter name
+   * @returns {Object|null} Parameter definition or null if not found
+   */
+  getParameterDefinition(name) {
+    if (!this.description.properties) {
+      return null;
+    }
+    
+    return this.description.properties.find(prop => prop.name === name) || null;
   }
 
   /**

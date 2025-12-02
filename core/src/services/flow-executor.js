@@ -127,6 +127,73 @@ export function topologicalSort(nodes, edges) {
 }
 
 /**
+ * Check if a node should skip execution based on inputs
+ * Used for skipNodeOnNull feature - checks if any critical inputs are null or bad quality
+ * 
+ * @param {Object} node - Node to check
+ * @param {Object} context - Execution context with inputStateManager
+ * @param {Array} edges - Flow edges to find incoming connections
+ * @returns {Object|null} Skip reason {skipped: true, reason: string} or null if should execute
+ */
+function shouldSkipNode(node, context, edges) {
+  const { inputStateManager } = context;
+  
+  // Only applies to continuous execution mode with InputStateManager
+  if (!inputStateManager) {
+    return null; // Don't skip in manual mode
+  }
+  
+  // Get node description to check skipNodeOnNull configuration
+  if (!NodeRegistry.has(node.type)) {
+    return null; // Unknown node type, let it execute (will fail later)
+  }
+  
+  const nodeInstance = NodeRegistry.getInstance(node.type);
+  const description = nodeInstance.description;
+  const inputs = description.inputs || [];
+  
+  // Find incoming edges for this node
+  const incomingEdges = edges.filter(e => e.target === node.id);
+  
+  // Check each input defined in node description
+  for (let i = 0; i < inputs.length; i++) {
+    const inputDef = inputs[i];
+    const skipOnNull = inputDef.skipNodeOnNull ?? (inputDef.required ?? true); // Default: true for required, false for optional
+    
+    if (!skipOnNull) continue; // This input allows null, skip check
+    
+    // Find the edge for this input by matching targetHandle (e.g., "input-0", "input-1")
+    const expectedHandle = `input-${i}`;
+    const edge = incomingEdges.find(e => (e.targetHandle || 'input') === expectedHandle);
+    
+    if (!edge) {
+      // No connection for required input
+      if (inputDef.required) {
+        return { skipped: true, reason: 'missing_required_input', inputIndex: i };
+      }
+      continue;
+    }
+    
+    // Get input value from state manager
+    const portName = edge.targetHandle || 'input';
+    const inputData = inputStateManager.getInput(node.id, portName);
+    
+    if (!inputData) {
+      return { skipped: true, reason: 'input_not_ready', inputIndex: i };
+    }
+    
+    // Check for null/undefined value
+    // Note: OPC UA statusCode 0 = Good, so we don't skip on quality=0
+    // Only skip if value is actually null/undefined
+    if (inputData.value === null || inputData.value === undefined) {
+      return { skipped: true, reason: 'null_value', inputIndex: i, quality: inputData.quality };
+    }
+  }
+  
+  return null; // All checks passed, execute normally
+}
+
+/**
  * Execute a single node using class-based implementation from NodeRegistry
  * @param {Object} node - Node to execute
  * @param {Map} nodeOutputs - Map of node outputs
@@ -466,6 +533,8 @@ export async function executeFlow(context) {
   }
 }
 
+// Note: shouldSkipNode is defined above as a module-level function
+
 /**
  * Scan-based executor for continuous flow execution
  */
@@ -535,8 +604,14 @@ class ScanExecutor {
       const { nodes = [], edges = [] } = this.flow.definition;
       const executionOrder = topologicalSort(nodes, edges);
       
-      // Update input state from edges BEFORE executing nodes
-      this.updateInputState(nodes, edges);
+      cycleLog.debug({ executionOrder, totalNodes: nodes.length }, 'Execution order determined');
+      
+      // Clear outputs from previous scan
+      this.nodeOutputs.clear();
+      
+      // NOTE: We don't call updateInputState() here anymore!
+      // Input state will be updated immediately after each node executes,
+      // so downstream nodes in the same scan get fresh values
       
       // Log input state snapshot
       this.inputStateManager.logState(`Scan ${this.scanCycle}:`);
@@ -562,17 +637,24 @@ class ScanExecutor {
         const node = nodeMap.get(nodeId);
         if (!node) continue;
         
+        cycleLog.debug({ nodeId, nodeType: node.type }, 'Processing node in execution order');
+        
+        // Skip passive nodes (e.g., comment nodes) - they don't execute
+        if (node.type === 'comment') {
+          cycleLog.debug({ nodeId, nodeType: node.type }, 'Skipping passive node');
+          continue;
+        }
+        
         // Get node log level (default to 'none')
         const nodeLogLevel = node.data?.logLevel || 'none';
         const shouldLog = this.logBuffer && nodeLogLevel !== 'none';
         
-        // Check if node has required inputs but no values yet (first cycle only)
+        // Check if all required inputs are ready (source nodes have executed in this scan)
         const incomingEdges = edges.filter(e => e.target === nodeId);
         if (incomingEdges.length > 0) {
+          // Check if all source nodes have executed in THIS scan cycle
           const hasAllInputs = incomingEdges.every(edge => {
-            const portName = edge.targetHandle || 'input';
-            const value = this.inputStateManager.getInput(nodeId, portName);
-            return value !== undefined;
+            return this.nodeOutputs.has(edge.source);
           });
           
           if (!hasAllInputs) {
@@ -620,12 +702,64 @@ class ScanExecutor {
             skipped: true,
             skipReason: 'trigger_false'
           });
+          
+          // Update downstream inputs with null output
+          const outgoingEdges = edges.filter(e => e.source === nodeId);
+          for (const edge of outgoingEdges) {
+            const targetPort = edge.targetHandle || 'input';
+            this.inputStateManager.updateInput(edge.target, targetPort, { value: null, quality: 0 });
+          }
+          
+          continue;
+        }
+        
+        // Check if node should skip based on skipNodeOnNull configuration
+        const skipCheck = shouldSkipNode(node, scanContext, edges);
+        if (skipCheck) {
+          cycleLog.debug({ nodeId, skipCheck }, 'Node skipped - skipNodeOnNull check failed');
+          
+          // Log skip if logging enabled
+          if (shouldLog && this.shouldLogLevel(nodeLogLevel, 'debug')) {
+            this.logBuffer.add({
+              execution_id: null,
+              flow_id: this.flow.id,
+              node_id: nodeId,
+              log_level: 'debug',
+              message: `Node skipped - ${skipCheck.reason}`,
+              timestamp: new Date(),
+              metadata: { scan_cycle: this.scanCycle, ...skipCheck }
+            });
+          }
+          
+          // Set output to null with bad quality
+          this.nodeOutputs.set(nodeId, {
+            value: null,
+            quality: 0,
+            skipped: true,
+            skipReason: skipCheck.reason
+          });
+          
+          // Update downstream inputs with null output
+          const outgoingEdges = edges.filter(e => e.source === nodeId);
+          for (const edge of outgoingEdges) {
+            const targetPort = edge.targetHandle || 'input';
+            this.inputStateManager.updateInput(edge.target, targetPort, { value: null, quality: 0 });
+          }
+          
           continue;
         }
         
         try {
           const output = await executeNode(node, this.nodeOutputs, scanContext);
           this.nodeOutputs.set(nodeId, output);
+          
+          // Update input state for downstream nodes immediately after execution
+          // Find all edges where this node is the source
+          const outgoingEdges = edges.filter(e => e.source === nodeId);
+          for (const edge of outgoingEdges) {
+            const targetPort = edge.targetHandle || 'input';
+            this.inputStateManager.updateInput(edge.target, targetPort, output);
+          }
           
           // Automatic logging now handled by executeNode via node's getLogMessages()
         } catch (error) {
@@ -640,10 +774,37 @@ class ScanExecutor {
             quality: 0,
             error: error.message
           });
+          
+          // Update downstream inputs with null output
+          const outgoingEdges = edges.filter(e => e.source === nodeId);
+          for (const edge of outgoingEdges) {
+            const targetPort = edge.targetHandle || 'input';
+            this.inputStateManager.updateInput(edge.target, targetPort, { value: null, quality: 0 });
+          }
         }
       }
       
       cycleLog.debug('Scan cycle complete');
+      
+      // Add cycle separator log
+      if (this.logBuffer) {
+        this.logBuffer.add({
+          execution_id: null,
+          flow_id: this.flow.id,
+          node_id: null,
+          log_level: 'info',
+          message: `──────────`,
+          metadata: { 
+            scan_cycle: this.scanCycle,
+            separator: true
+          }
+        });
+      }
+      
+      // Flush logs after each scan cycle to ensure they're visible
+      if (this.logBuffer) {
+        await this.logBuffer.flush();
+      }
       
     } catch (error) {
       cycleLog.error({ err: error }, 'Scan cycle error');
@@ -653,15 +814,17 @@ class ScanExecutor {
   /**
    * Update input state from node outputs and edges
    * This runs BEFORE each scan cycle to ensure nodes see latest values
+   * IMPORTANT: Passes full output object {value, quality} to preserve quality codes
    */
   updateInputState(nodes, edges) {
-    // For each edge, copy output value to target node's input
+    // For each edge, copy output object (with quality) to target node's input
     for (const edge of edges) {
       const sourceOutput = this.nodeOutputs.get(edge.source);
       if (!sourceOutput) continue; // Source hasn't executed yet
       
       const targetPort = edge.targetHandle || 'input';
-      this.inputStateManager.updateInput(edge.target, targetPort, sourceOutput.value);
+      // Pass the full output object to preserve quality codes
+      this.inputStateManager.updateInput(edge.target, targetPort, sourceOutput);
     }
   }
   

@@ -12,15 +12,12 @@ import {
   Button,
   Divider,
   Chip,
-  FormControlLabel,
-  Switch,
 } from '@mui/material';
 import { Close as CloseIcon, Add as AddIcon, Edit as EditIcon } from '@mui/icons-material';
 import Editor from '@monaco-editor/react';
 import { getInternalTags } from '../../services/flowsApi';
 import TagCreationDialog from './TagCreationDialog';
 import TagSelectionDialog from './TagSelectionDialog';
-import { getNodeMetadata } from '../../constants/nodeTypes';
 
 const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
@@ -44,179 +41,18 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
     handleChange('tagName', tag.tag_name || tag.tag_path);
     handleChange('dataType', tag.data_type);
     handleChange('source', tag.source);
-    handleChange('driverType', tag.driver_type); // Store driver type (OPCUA, EIP, S7, INTERNAL, SYSTEM)
     handleChange('connectionId', tag.connectionId);
-    handleChange('connectionName', tag.connectionName); // Store connection name for visual display
-  };
-
-  // Check if property should be shown based on displayOptions.show
-  const shouldShowProperty = (property, nodeData, metadata) => {
-    if (!property.displayOptions?.show) return true;
-    
-    for (const [fieldName, expectedValues] of Object.entries(property.displayOptions.show)) {
-      // Get current value or use default from metadata
-      let currentValue = nodeData[fieldName];
-      
-      // If value is undefined, try to get default from metadata
-      if (currentValue === undefined) {
-        const fieldProperty = metadata?.properties?.find(p => p.name === fieldName);
-        currentValue = fieldProperty?.default;
-      }
-      
-      if (!expectedValues.includes(currentValue)) {
-        return false;
-      }
-    }
-    return true;
-  };
-
-  // Render a single property based on its type
-  const renderProperty = (property, value, onChange) => {
-    const key = property.name;
-    
-    switch (property.type) {
-      case 'string':
-        return (
-          <TextField
-            key={key}
-            fullWidth
-            label={property.displayName}
-            placeholder={property.placeholder}
-            value={value ?? property.default ?? ''}
-            onChange={(e) => onChange(property.name, e.target.value)}
-            helperText={property.description}
-            sx={{ mb: 2 }}
-            multiline={property.placeholder?.includes('\n') || (value && value.length > 50)}
-            rows={property.placeholder?.includes('\n') ? 3 : undefined}
-          />
-        );
-      
-      case 'number':
-        return (
-          <TextField
-            key={key}
-            fullWidth
-            type="number"
-            label={property.displayName}
-            placeholder={property.placeholder}
-            value={value ?? property.default ?? ''}
-            onChange={(e) => onChange(property.name, e.target.value === '' ? undefined : parseFloat(e.target.value))}
-            helperText={property.description}
-            sx={{ mb: 2 }}
-          />
-        );
-      
-      case 'boolean':
-        return (
-          <FormControlLabel
-            key={key}
-            control={
-              <Switch
-                checked={value ?? property.default ?? false}
-                onChange={(e) => onChange(property.name, e.target.checked)}
-              />
-            }
-            label={
-              <Box>
-                <Typography variant="body2">{property.displayName}</Typography>
-                {property.description && (
-                  <Typography variant="caption" color="text.secondary">
-                    {property.description}
-                  </Typography>
-                )}
-              </Box>
-            }
-            sx={{ mb: 2, display: 'block', alignItems: 'flex-start' }}
-          />
-        );
-      
-      case 'options':
-        return (
-          <FormControl key={key} fullWidth sx={{ mb: 2 }}>
-            <InputLabel>{property.displayName}</InputLabel>
-            <Select
-              value={value ?? property.default ?? ''}
-              onChange={(e) => onChange(property.name, e.target.value)}
-              label={property.displayName}
-            >
-              {property.options?.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.name}
-                </MenuItem>
-              ))}
-            </Select>
-            {property.description && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                {property.description}
-              </Typography>
-            )}
-          </FormControl>
-        );
-      
-      case 'code':
-        return (
-          <Box key={key} sx={{ mb: 2 }}>
-            <Typography variant="body2" gutterBottom>
-              {property.displayName}
-            </Typography>
-            <Box sx={{ height: 200, border: '1px solid rgba(0, 0, 0, 0.23)', borderRadius: 1 }}>
-              <Editor
-                height="100%"
-                defaultLanguage="javascript"
-                value={value ?? property.default ?? ''}
-                onChange={(val) => onChange(property.name, val)}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 12,
-                  lineNumbers: 'on',
-                  scrollBeyondLastLine: false,
-                }}
-              />
-            </Box>
-            {property.description && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                {property.description}
-              </Typography>
-            )}
-          </Box>
-        );
-      
-      case 'tag':
-        // Special handling for tag selection - skip here, handled separately
-        return null;
-      
-      case 'collection':
-        // Collection type - render nested properties  (expandable options section)
-        return (
-          <Box key={key} sx={{ mb: 2, p: 2, border: '1px solid rgba(0, 0, 0, 0.12)', borderRadius: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              {property.displayName}
-            </Typography>
-            {property.options?.map((nestedProp) => {
-              const nestedValue = value?.[nestedProp.name];
-              return renderProperty(nestedProp, nestedValue, (name, val) => {
-                const currentCollection = value || {};
-                onChange(property.name, { ...currentCollection, [name]: val });
-              });
-            })}
-          </Box>
-        );
-      
-      default:
-        return (
-          <Typography key={key} variant="caption" color="error">
-            Unknown property type: {property.type}
-          </Typography>
-        );
-    }
   };
 
   const renderConfig = () => {
-    // Get node metadata from backend
-    const metadata = getNodeMetadata(node.type);
-    
-    // Special cases that need completely custom UI
     switch (node.type) {
+      case 'trigger-manual':
+        return (
+          <Typography variant="body2" color="text.secondary">
+            Manual trigger - no configuration needed
+          </Typography>
+        );
+
       case 'tag-input':
       case 'tag-output':
         const isOutput = node.type === 'tag-output';
@@ -303,8 +139,232 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
           </Box>
         );
 
+      case 'math':
+        return (
+          <Box>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Operation</InputLabel>
+              <Select
+                value={node.data?.operation || 'add'}
+                onChange={(e) => handleChange('operation', e.target.value)}
+                label="Operation"
+              >
+                <MenuItem value="add">Add</MenuItem>
+                <MenuItem value="subtract">Subtract</MenuItem>
+                <MenuItem value="multiply">Multiply</MenuItem>
+                <MenuItem value="divide">Divide</MenuItem>
+                <MenuItem value="average">Average</MenuItem>
+                <MenuItem value="min">Minimum</MenuItem>
+                <MenuItem value="max">Maximum</MenuItem>
+                <MenuItem value="formula">Custom Formula</MenuItem>
+              </Select>
+            </FormControl>
+
+            {node.data?.operation === 'formula' && (
+              <TextField
+                fullWidth
+                label="Formula"
+                placeholder="input0 * 2 + input1"
+                value={node.data?.formula || ''}
+                onChange={(e) => handleChange('formula', e.target.value)}
+                sx={{ mb: 2 }}
+                helperText="Use input0, input1, etc. Supports Math functions."
+              />
+            )}
+
+            <TextField
+              fullWidth
+              type="number"
+              label="Decimal Places (optional)"
+              placeholder="Leave empty for no rounding"
+              value={node.data?.decimalPlaces ?? ''}
+              onChange={(e) => handleChange('decimalPlaces', e.target.value === '' ? undefined : parseInt(e.target.value))}
+              sx={{ mb: 2 }}
+            />
+
+            <FormControl fullWidth>
+              <InputLabel>Skip Invalid Inputs</InputLabel>
+              <Select
+                value={node.data?.skipInvalid !== false}
+                onChange={(e) => handleChange('skipInvalid', e.target.value)}
+                label="Skip Invalid Inputs"
+              >
+                <MenuItem value={true}>Yes (skip NaN/Infinity)</MenuItem>
+                <MenuItem value={false}>No (throw error)</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        );
+
+      case 'comparison':
+        return (
+          <Box>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Operation</InputLabel>
+              <Select
+                value={node.data?.operation || 'gt'}
+                onChange={(e) => handleChange('operation', e.target.value)}
+                label="Operation"
+              >
+                <MenuItem value="gt">Greater Than (&gt;)</MenuItem>
+                <MenuItem value="lt">Less Than (&lt;)</MenuItem>
+                <MenuItem value="gte">Greater or Equal (&gt;=)</MenuItem>
+                <MenuItem value="lte">Less or Equal (&lt;=)</MenuItem>
+                <MenuItem value="eq">Equal (==)</MenuItem>
+                <MenuItem value="neq">Not Equal (!=)</MenuItem>
+              </Select>
+            </FormControl>
+
+            {(node.data?.operation === 'eq' || node.data?.operation === 'neq') && (
+              <TextField
+                fullWidth
+                type="number"
+                label="Equality Tolerance (optional)"
+                placeholder="Leave empty for Number.EPSILON"
+                value={node.data?.tolerance ?? ''}
+                onChange={(e) => handleChange('tolerance', e.target.value === '' ? null : parseFloat(e.target.value))}
+                sx={{ mb: 2 }}
+                helperText="Tolerance for floating-point comparisons"
+              />
+            )}
+          </Box>
+        );
+
+      case 'gate':
+        return (
+          <Box>
+            <FormControl fullWidth>
+              <InputLabel>Output When False</InputLabel>
+              <Select
+                value={node.data?.falseOutputMode || 'null'}
+                onChange={(e) => handleChange('falseOutputMode', e.target.value)}
+                label="Output When False"
+              >
+                <MenuItem value="null">Output Null</MenuItem>
+                <MenuItem value="previous">Output Previous Value</MenuItem>
+              </Select>
+            </FormControl>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              When condition is false: output null (stops downstream) or hold last valid value
+            </Typography>
+          </Box>
+        );
+
+      case 'constant':
+        return (
+          <Box>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Value Type</InputLabel>
+              <Select
+                value={node.data?.valueType || 'number'}
+                onChange={(e) => handleChange('valueType', e.target.value)}
+                label="Value Type"
+              >
+                <MenuItem value="number">Number</MenuItem>
+                <MenuItem value="string">String</MenuItem>
+                <MenuItem value="boolean">Boolean</MenuItem>
+                <MenuItem value="json">JSON</MenuItem>
+              </Select>
+            </FormControl>
+
+            {node.data?.valueType === 'number' && (
+              <TextField
+                fullWidth
+                type="number"
+                label="Number Value"
+                value={node.data?.numberValue ?? 0}
+                onChange={(e) => handleChange('numberValue', parseFloat(e.target.value))}
+                sx={{ mb: 2 }}
+              />
+            )}
+
+            {node.data?.valueType === 'string' && (
+              <TextField
+                fullWidth
+                label="String Value"
+                value={node.data?.stringValue || ''}
+                onChange={(e) => handleChange('stringValue', e.target.value)}
+                sx={{ mb: 2 }}
+                multiline
+                rows={3}
+              />
+            )}
+
+            {node.data?.valueType === 'boolean' && (
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel>Boolean Value</InputLabel>
+                <Select
+                  value={node.data?.booleanValue ?? false}
+                  onChange={(e) => handleChange('booleanValue', e.target.value)}
+                  label="Boolean Value"
+                >
+                  <MenuItem value={true}>True</MenuItem>
+                  <MenuItem value={false}>False</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+
+            {node.data?.valueType === 'json' && (
+              <TextField
+                fullWidth
+                label="JSON Value"
+                value={node.data?.jsonValue || '{}'}
+                onChange={(e) => handleChange('jsonValue', e.target.value)}
+                sx={{ mb: 2 }}
+                multiline
+                rows={6}
+                helperText="Enter valid JSON object or array"
+              />
+            )}
+          </Box>
+        );
+
+      case 'comment':
+        return (
+          <Box>
+            <TextField
+              fullWidth
+              label="Comment Text"
+              value={node.data?.text || 'Add your comment here...'}
+              onChange={(e) => handleChange('text', e.target.value)}
+              sx={{ mb: 2 }}
+              multiline
+              rows={6}
+              placeholder="Enter your comment or documentation..."
+            />
+
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Font Size</InputLabel>
+              <Select
+                value={node.data?.fontSize || 'medium'}
+                onChange={(e) => handleChange('fontSize', e.target.value)}
+                label="Font Size"
+              >
+                <MenuItem value="small">Small</MenuItem>
+                <MenuItem value="medium">Medium</MenuItem>
+                <MenuItem value="large">Large</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl fullWidth>
+              <InputLabel>Background Color</InputLabel>
+              <Select
+                value={node.data?.backgroundColor || 'yellow'}
+                onChange={(e) => handleChange('backgroundColor', e.target.value)}
+                label="Background Color"
+              >
+                <MenuItem value="yellow">Yellow</MenuItem>
+                <MenuItem value="blue">Blue</MenuItem>
+                <MenuItem value="green">Green</MenuItem>
+                <MenuItem value="orange">Orange</MenuItem>
+                <MenuItem value="pink">Pink</MenuItem>
+                <MenuItem value="gray">Gray</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        );
+
       case 'script-js':
-        // Script node needs Monaco editor with custom autocomplete
         return (
           <Box>
             <Typography variant="body2" gutterBottom>
@@ -441,27 +501,10 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
         );
 
       default:
-        // Generic property renderer for all other nodes
-        if (!metadata || !metadata.properties || metadata.properties.length === 0) {
-          return (
-            <Typography variant="body2" color="text.secondary">
-              No configuration available
-            </Typography>
-          );
-        }
-
         return (
-          <Box>
-            {metadata.properties.map((property) => {
-              // Check if property should be shown based on displayOptions
-              if (!shouldShowProperty(property, node.data || {}, metadata)) {
-                return null;
-              }
-
-              const value = node.data?.[property.name];
-              return renderProperty(property, value, handleChange);
-            })}
-          </Box>
+          <Typography variant="body2" color="text.secondary">
+            Unknown node type
+          </Typography>
         );
     }
   };
@@ -505,10 +548,11 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
             onChange={(e) => handleChange('logLevel', e.target.value)}
             label="Log Level"
           >
-            <MenuItem value="none">None (No Logs)</MenuItem>
-            <MenuItem value="error">Error Only</MenuItem>
-            <MenuItem value="info">Info + Error</MenuItem>
-            <MenuItem value="debug">Debug + Info + Error</MenuItem>
+            <MenuItem value="none">None (no logging)</MenuItem>
+            <MenuItem value="error">Error (errors only)</MenuItem>
+            <MenuItem value="warn">Warning (warnings + errors)</MenuItem>
+            <MenuItem value="info">Info (info + warnings + errors)</MenuItem>
+            <MenuItem value="debug">Debug (all messages)</MenuItem>
           </Select>
         </FormControl>
         
@@ -517,22 +561,21 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
         {renderConfig()}
       </Box>
 
-      {/* Tag Selection and Creation Dialogs */}
-      {tagSelectionOpen && (
-        <TagSelectionDialog
-          open={tagSelectionOpen}
-          onClose={() => setTagSelectionOpen(false)}
-          onSelect={handleTagSelected}
-          currentTagId={node.data?.tagId}
-        />
-      )}
-      {tagDialogOpen && (
-        <TagCreationDialog
-          open={tagDialogOpen}
-          onClose={() => setTagDialogOpen(false)}
-          onTagCreated={handleTagCreated}
-        />
-      )}
+      {/* Tag Selection Dialog */}
+      <TagSelectionDialog
+        open={tagSelectionOpen}
+        onClose={() => setTagSelectionOpen(false)}
+        onSelect={handleTagSelected}
+        mode={node.type === 'tag-output' ? 'output' : 'input'}
+        title={node.type === 'tag-output' ? 'Select Tag to Write' : 'Select Tag to Read'}
+      />
+
+      {/* Tag Creation Dialog */}
+      <TagCreationDialog
+        open={tagDialogOpen}
+        onClose={() => setTagDialogOpen(false)}
+        onTagCreated={handleTagCreated}
+      />
     </Paper>
   );
 };
