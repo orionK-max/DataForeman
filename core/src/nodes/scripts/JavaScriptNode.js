@@ -19,37 +19,96 @@ export class JavaScriptNode extends BaseNode {
    * Node description following Flow Studio convention
    */
   description = {
+    schemaVersion: 1,
     displayName: 'JavaScript',
-    description: 'Execute custom JavaScript code with access to flow context and APIs',
-    group: 'Logic & Math',
+    name: 'script-js',
     version: 1,
+    description: 'Execute custom JavaScript code with access to flow context and APIs',
+    category: 'LOGIC_MATH',
+    section: 'SCRIPTS',
     icon: '📜',
-    color: '#F44336',
+    color: '#F57C00',
     
-    inputs: {
-      input: {
+    inputs: [
+      {
         displayName: 'Input',
-        type: 'any',
+        type: 'main',
         required: false,
         description: 'Optional input value (available as $input in script)'
       }
-    },
+    ],
     
-    outputs: {
-      value: {
+    outputs: [
+      {
         displayName: 'Result',
-        type: 'any',
+        type: 'main',
         description: 'Script execution result'
+      }
+    ],
+    
+    visual: {
+      canvas: {
+        minWidth: 180,
+        shape: 'rounded-rect',
+        borderRadius: 8,
+        resizable: false
       },
-      quality: {
-        displayName: 'Quality',
-        type: 'number',
-        description: 'Inherited from input quality'
+      layout: [
+        {
+          type: 'header',
+          icon: '📜',
+          title: 'JavaScript',
+          color: '#F57C00',
+          badges: ['executionOrder']
+        },
+        {
+          type: 'subtitle',
+          text: 'Custom script'
+        },
+        {
+          type: 'divider',
+          color: '#e0e0e0',
+          margin: 8,
+          visible: '{{code}}'
+        },
+        {
+          type: 'code',
+          language: 'javascript',
+          content: '{{code}}',
+          maxLines: 3,
+          showLineNumbers: false,
+          visible: '{{code}}'
+        }
+      ],
+      handles: {
+        inputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        outputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        size: 12,
+        borderWidth: 2,
+        borderColor: '#ffffff'
       },
-      logs: {
-        displayName: 'Logs',
-        type: 'array',
-        description: 'Console logs from script execution'
+      status: {
+        execution: {
+          enabled: true,
+          position: 'top-left',
+          offset: { x: -10, y: -10 }
+        },
+        pinned: {
+          enabled: true,
+          position: 'top-right',
+          offset: { x: -8, y: -8 }
+        },
+        executionOrder: {
+          enabled: true,
+          position: 'header'
+        }
+      },
+      runtime: {
+        enabled: false
       }
     },
     

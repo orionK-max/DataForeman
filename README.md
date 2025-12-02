@@ -580,7 +580,21 @@ If you're a regular user just wanting to use DataForeman, you can stop reading h
 - **Database**: PostgreSQL 16 + TimescaleDB, node-pg-migrate
 - **Frontend**: React 18 + Material UI v5 + React Router v6 + Vite
 - **Messaging**: NATS with JetStream
+- **Caching**: In-memory RuntimeStateStore for zero-latency tag value reads
 - **Containers**: Docker Compose (postgres, nats, tsdb, core, connectivity, rotator)
+
+### Data Flow Architecture
+
+**Tag Values:**
+1. Connectivity reads devices → publishes to NATS (`df.telemetry.raw.*`)
+2. Core ingestor subscribes to NATS → writes to TimescaleDB **and** updates in-memory cache
+3. Flow execution reads from cache first (~5ms), falls back to DB on cache miss (~1400ms)
+4. Live values API reads from cache for instant UI updates
+
+**Flow Processing:**
+- Deployed flows run continuously or on-demand via visual node-based editor
+- Nodes read tag values from in-memory cache for zero-latency execution
+- Results can be written back to internal tags or device tags
 
 ### Project Structure
 

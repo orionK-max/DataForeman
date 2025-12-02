@@ -112,6 +112,7 @@ export function getNodeMetadata(nodeType) {
   // All metadata comes from backend
   return {
     displayName: backendMeta.displayName || nodeType,
+    name: backendMeta.name || nodeType,
     description: backendMeta.description || '',
     icon: backendMeta.icon || '📦',
     color: backendMeta.color || '#666666',
@@ -119,6 +120,7 @@ export function getNodeMetadata(nodeType) {
     section: backendMeta.section || 'BASIC',
     inputs: backendMeta.inputs || [],
     outputs: backendMeta.outputs || [],
+    inputConfiguration: backendMeta.inputConfiguration || null,
     properties: backendMeta.properties || [],
     schemaVersion: backendMeta.schemaVersion || 1,
     visual: backendMeta.visual || null,

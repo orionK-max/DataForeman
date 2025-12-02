@@ -236,13 +236,9 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
                   </IconButton>
                 </Box>
                 <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 0.5 }}>
-                  {node.data.tagPath}
+                  {(node.data.connectionName || (node.data.source === 'internal' ? 'Internal' : node.data.source === 'system' ? 'System' : '')) && `${node.data.connectionName || (node.data.source === 'internal' ? 'Internal' : node.data.source === 'system' ? 'System' : '')}: `}
+                  {node.data.tagName || node.data.tagPath}
                 </Typography>
-                {node.data.tagName && node.data.tagName !== node.data.tagPath && (
-                  <Typography variant="caption" color="text.secondary">
-                    {node.data.tagName}
-                  </Typography>
-                )}
                 <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
                   {node.data.dataType && (
                     <Chip label={node.data.dataType} size="small" />

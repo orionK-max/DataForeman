@@ -47,6 +47,7 @@ import {
   History as HistoryIcon,
   Add as AddIcon,
   Terminal as TerminalIcon,
+  Visibility as LiveIcon,
 } from '@mui/icons-material';
 import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder } from '../services/flowsApi';
 import { getNodeMetadata, getBackendMetadata } from '../constants/nodeTypes';
@@ -56,6 +57,7 @@ import NodeDetailsPanel from '../components/FlowEditor/NodeDetailsPanel';
 import FlowSettingsDialog from '../components/FlowEditor/FlowSettingsDialog';
 import ExecutionHistoryDialog from '../components/FlowEditor/ExecutionHistoryDialog';
 import LogPanel from '../components/FlowEditor/LogPanel';
+import { useFlowLiveData } from '../hooks/useFlowLiveData';
 
 const FlowEditor = () => {
   const { id } = useParams();
@@ -87,8 +89,12 @@ const FlowEditor = () => {
   const [currentExecutionId, setCurrentExecutionId] = useState(null); // Current execution for logs
   const [executionOrder, setExecutionOrder] = useState(null); // { nodeId: orderNumber } map
   const [showExecutionOrder, setShowExecutionOrder] = useState(false); // Toggle execution order display
+  const [showLiveValues, setShowLiveValues] = useState(false); // Toggle live values display on nodes
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
+
+  // Fetch live cached tag values when showLiveValues is enabled
+  const liveData = useFlowLiveData(id, showLiveValues);
 
   // Use ref to store trigger handler so it has a stable reference
   const handleExecuteTriggerRef = useRef(null);
@@ -339,6 +345,19 @@ const FlowEditor = () => {
       );
     }
   }, [showExecutionOrder, executionOrder, setNodes]);
+
+  // Update nodes with showLiveValues flag when it changes
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          _showLiveValues: showLiveValues,
+        },
+      }))
+    );
+  }, [showLiveValues, setNodes]);
 
   const loadFlow = async () => {
     try {
@@ -719,18 +738,25 @@ const FlowEditor = () => {
     }
   };
 
-  // Update nodes with hasPinnedData flag when pinnedData changes
+  // Update nodes with hasPinnedData flag and runtime data
+  // Use live data when available, otherwise fall back to pinned data
   useEffect(() => {
     setNodes((nds) =>
-      nds.map((node) => ({
-        ...node,
-        data: {
-          ...node.data,
-          hasPinnedData: !!pinnedData[node.id],
-        },
-      }))
+      nds.map((node) => {
+        // Prefer live data over pinned data
+        const runtimeData = liveData[node.id] || pinnedData[node.id] || {};
+        
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            hasPinnedData: !!pinnedData[node.id],
+            runtime: runtimeData,
+          },
+        };
+      })
     );
-  }, [pinnedData, setNodes]);
+  }, [pinnedData, liveData, setNodes]);
 
   // Update flow settings
   const handleSaveSettings = async (settings) => {
@@ -1044,6 +1070,22 @@ const FlowEditor = () => {
             >
               {showExecutionOrder ? '123' : '123'}
             </Button>
+          </Tooltip>
+          
+          <Tooltip title={showLiveValues ? 'Hide Live Values' : 'Show Live Values'}>
+            <IconButton
+              onClick={() => setShowLiveValues(!showLiveValues)}
+              sx={{
+                mr: 1,
+                color: showLiveValues ? '#1976d2' : 'inherit',
+                bgcolor: showLiveValues ? '#e3f2fd' : 'transparent',
+                '&:hover': {
+                  bgcolor: showLiveValues ? '#bbdefb' : 'rgba(0, 0, 0, 0.04)',
+                },
+              }}
+            >
+              <LiveIcon />
+            </IconButton>
           </Tooltip>
           
           <IconButton onClick={() => setNodeBrowserOpen(true)} title="Add Node (/)">

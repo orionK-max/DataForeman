@@ -35,8 +35,54 @@ export class ConstantNode extends BaseNode {
     ],
     
     visual: {
-      // Subtitle logic is handled in frontend CustomNodes.jsx for Constant node
-      // Frontend computes subtitle based on valueType and corresponding value fields
+      canvas: {
+        minWidth: 160,
+        shape: 'rounded-rect',
+        borderRadius: 8,
+        resizable: false
+      },
+      layout: [
+        {
+          type: 'header',
+          icon: '🔢',
+          title: 'Constant',
+          color: '#607D8B',
+          badges: ['executionOrder']
+        },
+        {
+          type: 'subtitle',
+          text: '{{_constantValue}}',
+          visible: '{{_constantValue}}'
+        }
+      ],
+      handles: {
+        inputs: [],
+        outputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        size: 12,
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      },
+      status: {
+        execution: {
+          enabled: true,
+          position: 'top-left',
+          offset: { x: -10, y: -10 }
+        },
+        pinned: {
+          enabled: true,
+          position: 'top-right',
+          offset: { x: -8, y: -8 }
+        },
+        executionOrder: {
+          enabled: true,
+          position: 'header'
+        }
+      },
+      runtime: {
+        enabled: false
+      }
     },
     
     properties: [

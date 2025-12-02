@@ -27,6 +27,36 @@ export class CommentNode extends BaseNode {
     inputs: [], // No inputs - passive documentation node
     outputs: [], // No outputs - does not process data
     
+    visual: {
+      canvas: {
+        minWidth: 200,
+        minHeight: 80,
+        shape: 'rectangle',
+        borderRadius: 0,
+        resizable: true
+      },
+      layout: [
+        {
+          type: 'text',
+          content: '{{text}}',
+          fontSize: 14,
+          align: 'left'
+        }
+      ],
+      handles: {
+        inputs: [],
+        outputs: []
+      },
+      status: {
+        execution: { enabled: false },
+        pinned: { enabled: false },
+        executionOrder: { enabled: false }
+      },
+      runtime: {
+        enabled: false
+      }
+    },
+    
     properties: [
       {
         name: 'text',

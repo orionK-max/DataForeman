@@ -25,10 +25,62 @@ export class TagInputNode extends BaseNode {
     outputs: [{ type: 'main', displayName: 'Output' }],
     
     visual: {
-      subtitle: '{{tagPath}}',
-      badges: [
-        { field: 'connectionName', color: '#1976d2' }
-      ]
+      canvas: {
+        minWidth: 160,
+        shape: 'rounded-rect',
+        borderRadius: 8,
+        resizable: false
+      },
+      layout: [
+        {
+          type: 'header',
+          icon: '📥',
+          title: 'Tag Input',
+          color: '#4CAF50',
+          badges: ['executionOrder']
+        },
+        {
+          type: 'subtitle',
+          text: '{{connectionName}}: {{tagName}}',
+          visible: '{{tagName}}'
+        },
+        {
+          type: 'values',
+          items: [
+            { label: 'Value', value: '{{runtime.value}}' },
+            { label: 'Quality', value: '{{runtime.quality}}' }
+          ],
+          visible: '{{_showLiveValues}}'
+        }
+      ],
+      handles: {
+        inputs: [],
+        outputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        size: 12,
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      },
+      status: {
+        execution: {
+          enabled: true,
+          position: 'top-left',
+          offset: { x: -10, y: -10 }
+        },
+        pinned: {
+          enabled: true,
+          position: 'top-right',
+          offset: { x: -8, y: -8 }
+        },
+        executionOrder: {
+          enabled: true,
+          position: 'header'
+        }
+      },
+      runtime: {
+        enabled: false
+      }
     },
     
     // Configuration parameters
@@ -94,6 +146,42 @@ export class TagInputNode extends BaseNode {
       throw new Error('Tag input node missing tagId');
     }
 
+    // Try to read from in-memory cache first (zero latency)
+    if (context.runtimeState) {
+      const cached = context.runtimeState.getTagValue(tagId);
+      if (cached) {
+        // Check data age if maxDataAge is set
+        if (maxDataAge >= 0) {
+          const ageSeconds = (Date.now() - new Date(cached.timestamp).getTime()) / 1000;
+          // Treat 0 as "live data only" with 1 second tolerance
+          const effectiveMaxAge = maxDataAge === 0 ? 1 : maxDataAge;
+          if (ageSeconds > effectiveMaxAge) {
+            context.logWarn({ tagId, ageSeconds, maxDataAge }, 'Cached data too old, falling back to DB');
+            // Fall through to DB query below
+          } else {
+            // Cache hit with acceptable age
+            return {
+              value: cached.value,
+              quality: cached.quality,
+              tagPath: cached.tagPath,
+              timestamp: cached.timestamp,
+              fromCache: true
+            };
+          }
+        } else {
+          // No age restriction, use cached value
+          return {
+            value: cached.value,
+            quality: cached.quality,
+            tagPath: cached.tagPath,
+            timestamp: cached.timestamp,
+            fromCache: true
+          };
+        }
+      }
+    }
+
+    // Fallback to database query if cache miss or data too old
     // Get tag metadata from postgres
     const metaResult = await context.query(
       'SELECT tag_path, data_type, connection_id, driver_type FROM tag_metadata WHERE tag_id = $1',

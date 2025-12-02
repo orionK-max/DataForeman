@@ -28,17 +28,62 @@ export class MathNode extends BaseNode {
     },
     outputs: [{ type: 'number', displayName: 'Result' }],
     visual: {
-      iconMap: {
-        add: '➕',
-        subtract: '➖',
-        multiply: '✖️',
-        divide: '➗',
-        average: '📊',
-        min: '⬇️',
-        max: '⬆️',
-        formula: '𝑓',
+      canvas: {
+        minWidth: 160,
+        shape: 'rounded-rect',
+        borderRadius: 8,
+        resizable: false
       },
-      subtitle: '{{operation}}',
+      layout: [
+        {
+          type: 'header',
+          icon: '🔢',
+          title: 'Math',
+          color: '#00A0A0',
+          badges: ['executionOrder']
+        },
+        {
+          type: 'subtitle',
+          text: '{{operation}}',
+          visible: '{{operation}}'
+        },
+        {
+          type: 'text',
+          content: '{{formula}}',
+          fontSize: 11,
+          color: '#999999',
+          align: 'left',
+          visible: '{{operation}} === "formula"'
+        }
+      ],
+      handles: {
+        inputs: [],  // Dynamic - populated by backend based on inputCount
+        outputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        size: 12,
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      },
+      status: {
+        execution: {
+          enabled: true,
+          position: 'top-left',
+          offset: { x: -10, y: -10 }
+        },
+        pinned: {
+          enabled: true,
+          position: 'top-right',
+          offset: { x: -8, y: -8 }
+        },
+        executionOrder: {
+          enabled: true,
+          position: 'header'
+        }
+      },
+      runtime: {
+        enabled: false
+      }
     },
     properties: [
       {

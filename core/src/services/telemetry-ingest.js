@@ -74,6 +74,10 @@ export const telemetryIngestPlugin = fp(async (app) => {
   const deletedTags = new Set();
   let lastDeletedRefresh = 0;
   const DELETED_REFRESH_INTERVAL_MS = 30_000; // refresh every 30s (cheap query)
+  
+  // Cache tag metadata (tag_path) for RuntimeStateStore
+  const tagMetadataCache = new Map(); // tagId -> { tag_path, driver_type }
+  
   async function refreshDeletedTags(force = false) {
     if (!force && Date.now() - lastDeletedRefresh < DELETED_REFRESH_INTERVAL_MS) return;
     try {
@@ -177,7 +181,7 @@ export const telemetryIngestPlugin = fp(async (app) => {
   const sc = { decode: (d) => { try { return JSON.parse(Buffer.from(d).toString('utf8')); } catch { return null; } } };
 
   try {
-    const sub = nats.subscribe(subject, (msg) => {
+    const sub = nats.subscribe(subject, async (msg) => {
       try {
         const obj = typeof msg === 'object' && msg?.connection_id ? msg : sc.decode(msg.data || msg);
         if (!obj || !obj.connection_id || obj.tag_id == null || obj.ts == null) return;
@@ -204,6 +208,50 @@ export const telemetryIngestPlugin = fp(async (app) => {
         }
         
         batch.push({ connection_id: String(obj.connection_id), tag_id: Number(obj.tag_id), ts: tsMs, quality: obj.q == null ? null : Number(obj.q), v_num, v_text, v_json });
+        
+        // Update in-memory tag cache for instant reads (if RuntimeStateStore is available)
+        if (app.runtimeState) {
+          const tagIdNum = Number(obj.tag_id);
+          
+          // Determine the actual value based on type
+          let value = v_num;
+          if (v_num === null && v_text !== null) value = v_text;
+          else if (v_num === null && v_text === null && v_json !== null) value = v_json;
+          
+          // Get tag_path from metadata cache (query once per tag)
+          let tagPath = null;
+          if (!tagMetadataCache.has(tagIdNum)) {
+            try {
+              const metaResult = await app.db.query(
+                'SELECT tag_path, driver_type FROM tag_metadata WHERE tag_id = $1',
+                [tagIdNum]
+              );
+              if (metaResult.rows.length > 0) {
+                tagMetadataCache.set(tagIdNum, {
+                  tag_path: metaResult.rows[0].tag_path,
+                  driver_type: metaResult.rows[0].driver_type
+                });
+              }
+            } catch (err) {
+              // Ignore metadata query errors, cache will work without tagPath
+            }
+          }
+          
+          const cached = tagMetadataCache.get(tagIdNum);
+          if (cached) {
+            tagPath = cached.tag_path;
+          }
+          
+          app.runtimeState.setTagValue(
+            tagIdNum,
+            value,
+            obj.q,
+            tsMs,
+            String(obj.connection_id),
+            tagPath
+          );
+        }
+        
         maybeFlush();
       } catch {}
     });

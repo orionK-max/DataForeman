@@ -24,6 +24,67 @@ export class TagOutputNode extends BaseNode {
     // Single output (passes through the written value)
     outputs: [{ type: 'main', displayName: 'Output' }],
     
+    visual: {
+      canvas: {
+        minWidth: 160,
+        shape: 'rounded-rect',
+        borderRadius: 8,
+        resizable: false
+      },
+      layout: [
+        {
+          type: 'header',
+          icon: '📤',
+          title: 'Tag Output',
+          color: '#FF9800',
+          badges: ['executionOrder']
+        },
+        {
+          type: 'subtitle',
+          text: '{{connectionName}}: {{tagName}}',
+          visible: '{{tagName}}'
+        },
+        {
+          type: 'values',
+          items: [
+            { label: 'Written', value: '{{runtime.value}}' },
+            { label: 'Quality', value: '{{runtime.quality}}' }
+          ],
+          visible: '{{_showLiveValues}}'
+        }
+      ],
+      handles: {
+        inputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        outputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        size: 12,
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      },
+      status: {
+        execution: {
+          enabled: true,
+          position: 'top-left',
+          offset: { x: -10, y: -10 }
+        },
+        pinned: {
+          enabled: true,
+          position: 'top-right',
+          offset: { x: -8, y: -8 }
+        },
+        executionOrder: {
+          enabled: true,
+          position: 'header'
+        }
+      },
+      runtime: {
+        enabled: false
+      }
+    },
+    
     // Configuration parameters
     properties: [
       {

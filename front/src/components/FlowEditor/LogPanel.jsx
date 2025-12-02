@@ -137,9 +137,9 @@ export default function LogPanel({
           try {
             const allFlowLogs = await getFlowLogs(flowId, { limit: 100 });
             const systemLogs = allFlowLogs.logs.filter(log => !log.execution_id);
-            // Merge execution logs with system logs and sort by timestamp
+            // Merge execution logs with system logs and sort by timestamp (as strings to preserve microseconds)
             response.logs = [...response.logs, ...systemLogs].sort((a, b) => 
-              new Date(b.timestamp) - new Date(a.timestamp)
+              b.timestamp.localeCompare(a.timestamp)
             );
           } catch (err) {
             console.warn('Failed to load system logs:', err);
@@ -353,6 +353,8 @@ export default function LogPanel({
       await clearFlowLogs(flowId);
       setLogs([]);
       setClearDialogOpen(false);
+      // Reload logs after clearing to ensure fresh state
+      await loadLogs();
     } catch (error) {
       console.error('Failed to clear logs:', error);
       alert('Failed to clear logs: ' + error.message);
@@ -412,7 +414,22 @@ export default function LogPanel({
   // Format timestamp
   const formatTimestamp = (timestamp) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+    const today = new Date();
+    const isToday = date.toDateString() === today.toDateString();
+    
+    if (isToday) {
+      return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+    } else {
+      return date.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        hour12: false, 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit', 
+        fractionalSecondDigits: 3 
+      });
+    }
   };
 
   // Render log entry

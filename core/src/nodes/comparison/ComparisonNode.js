@@ -61,15 +61,59 @@ export class ComparisonNode extends BaseNode {
     ],
     
     visual: {
-      iconMap: {
-        gt: '>',
-        lt: '<',
-        gte: '≥',
-        lte: '≤',
-        eq: '=',
-        neq: '≠',
+      canvas: {
+        minWidth: 160,
+        shape: 'rounded-rect',
+        borderRadius: 8,
+        resizable: false
       },
-      subtitle: '{{operation}}',
+      layout: [
+        {
+          type: 'header',
+          icon: '🔍',
+          title: 'Comparison',
+          color: '#9C27B0',
+          badges: ['executionOrder']
+        },
+        {
+          type: 'subtitle',
+          text: '{{_displayOperation}}',
+          visible: '{{operation}}'
+        }
+      ],
+      handles: {
+        inputs: [
+          { index: 0, position: '33.33%', color: 'auto', label: null, visible: true },
+          { index: 1, position: '66.67%', color: 'auto', label: null, visible: true }
+        ],
+        outputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true },
+          { index: 1, position: 'auto', color: 'auto', label: null, visible: true },
+          { index: 2, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        size: 12,
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      },
+      status: {
+        execution: {
+          enabled: true,
+          position: 'top-left',
+          offset: { x: -10, y: -10 }
+        },
+        pinned: {
+          enabled: true,
+          position: 'top-right',
+          offset: { x: -8, y: -8 }
+        },
+        executionOrder: {
+          enabled: true,
+          position: 'header'
+        }
+      },
+      runtime: {
+        enabled: false
+      }
     },
     
     properties: [

@@ -13,8 +13,12 @@
  */
 export class RuntimeStateStore {
   constructor() {
-    // Structure: flowId -> { triggers: Map<nodeId, boolean>, tags: Map<tagId, value> }
+    // Flow runtime state: flowId -> { triggers: Map<nodeId, boolean>, tags: Map<tagId, any> }
     this.flows = new Map();
+    
+    // Tag value cache: tagId -> { value, quality, timestamp, connectionId }
+    // Provides zero-latency reads for flows
+    this.tagCache = new Map();
   }
 
   /**
@@ -96,35 +100,58 @@ export class RuntimeStateStore {
   }
 
   // ============================================================
-  // TAG VALUE CACHE (Phase 2 - Placeholder)
+  // TAG VALUE CACHE
   // ============================================================
 
   /**
    * Set cached tag value (from NATS→Ingestor flow)
-   * @param {string} tagId - Tag identifier
-   * @param {*} value - Tag value
-   * @param {number} timestamp - Timestamp of the value
+   * @param {number} tagId - Tag identifier
+   * @param {*} value - Tag value (v_num, v_text, or v_json)
+   * @param {number} quality - Quality code
+   * @param {number} timestamp - Timestamp in milliseconds
+   * @param {string} connectionId - Connection UUID
+   * @param {string} [tagPath] - Optional tag path (for display purposes)
    * 
-   * TODO: Implement in Phase 2
-   * - Called by ingestor when receiving tag updates from NATS
-   * - Provides zero-latency tag reads for flows
-   * - Eliminates DB queries for tag values during flow execution
+   * Called by ingestor when receiving tag updates from NATS
+   * Provides zero-latency tag reads for flows
    */
-  setTagValue(tagId, value, timestamp) {
-    // Phase 2 implementation
-    // For now, this is a no-op stub
+  setTagValue(tagId, value, quality, timestamp, connectionId, tagPath) {
+    this.tagCache.set(Number(tagId), {
+      value,
+      quality: quality != null ? Number(quality) : null,
+      timestamp: new Date(timestamp).toISOString(),
+      connectionId,
+      tagPath: tagPath || null,
+      cachedAt: Date.now()
+    });
   }
 
   /**
    * Get cached tag value
-   * @param {string} tagId - Tag identifier
-   * @returns {*} - Cached value or undefined if not in cache
-   * 
-   * TODO: Implement in Phase 2
+   * @param {number} tagId - Tag identifier
+   * @returns {Object|undefined} - Cached value object or undefined if not in cache
+   * @returns {*} result.value - Tag value
+   * @returns {number} result.quality - Quality code
+   * @returns {string} result.timestamp - ISO timestamp
+   * @returns {string} result.connectionId - Connection UUID
    */
   getTagValue(tagId) {
-    // Phase 2 implementation
-    return undefined;
+    return this.tagCache.get(Number(tagId));
+  }
+
+  /**
+   * Clear cached value for a tag (useful when tag is deleted)
+   * @param {number} tagId - Tag identifier
+   */
+  clearTagValue(tagId) {
+    this.tagCache.delete(Number(tagId));
+  }
+
+  /**
+   * Clear all cached tag values
+   */
+  clearAllTagValues() {
+    this.tagCache.clear();
   }
 
   /**
@@ -136,6 +163,7 @@ export class RuntimeStateStore {
       flowCount: this.flows.size,
       totalTriggers: 0,
       totalTags: 0,
+      cachedTagValues: this.tagCache.size,
       flows: []
     };
 

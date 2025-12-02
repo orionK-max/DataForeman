@@ -154,6 +154,1188 @@ This document defines the standard schema for Flow Studio nodes. All nodes must 
 }
 ```
 
+  // ============================================
+  // VISUAL DEFINITION (Optional)
+  // Defines how node appears on canvas
+  // ============================================
+  
+  visual: {
+    // Canvas appearance
+    canvas: {
+      minWidth: 160,           // Minimum node width in pixels
+      shape: 'rounded-rect',   // Node shape: 'rounded-rect', 'rectangle', 'circle'
+      borderRadius: 8,         // Corner radius (if rounded)
+      resizable: false,        // Can user resize? (e.g., Comment node)
+      minHeight: 80,           // Minimum height (for resizable nodes)
+      aspectRatio: null        // Lock aspect ratio (for circle nodes, set 1:1)
+    },
+    
+    // Layout blocks (rendered top to bottom)
+    layout: [
+      {
+        type: 'header',           // Block type (see Visual Block Types section)
+        icon: '{{icon}}',         // Template or literal
+        title: '{{displayName}}', // Template or literal
+        color: '{{color}}',       // Template or literal
+        badges: ['executionOrder'] // System badges: 'executionOrder', 'executionStatus', 'pinnedData'
+      },
+      {
+        type: 'subtitle',
+        text: '{{tagName}}',      // Template: {{field}} replaced with data[field]
+        color: '#666666',         // Hex color or template
+        visible: '{{tagName}}'    // Conditional: only show if tagName exists
+      },
+      {
+        type: 'text',
+        content: 'Processing...',
+        fontSize: 12,
+        color: '#999999',
+        align: 'center',          // 'left', 'center', 'right'
+        visible: '{{status}} === "processing"'
+      },
+      {
+        type: 'values',
+        items: [
+          {
+            label: 'Operation',
+            value: '{{operation}}',
+            color: null             // null = default text color
+          }
+        ]
+      },
+      {
+        type: 'badges',
+        items: [
+          {
+            text: '{{quality}}',
+            color: '#ff9800',       // Orange
+            visible: '{{quality}} < 192'
+          }
+        ],
+        position: 'inline'          // 'inline' or 'stacked'
+      },
+      {
+        type: 'divider',
+        color: '#e0e0e0',
+        margin: 8                   // Vertical margin in pixels
+      },
+      {
+        type: 'code',
+        language: 'javascript',
+        content: '{{code}}',
+        maxLines: 3,                // Show max 3 lines, rest scrollable
+        showLineNumbers: false
+      },
+      {
+        type: 'progress',
+        value: '{{runtime.progress}}',    // Template accessing nested data
+        max: '{{runtime.total}}',
+        label: '{{runtime.progressText}}',
+        color: '#2196F3',
+        visible: '{{runtime.enabled}}'
+      },
+      {
+        type: 'status-text',
+        text: '{{runtime.statusMessage}}',
+        color: '{{runtime.statusColor}}',
+        icon: '{{runtime.statusIcon}}',
+        visible: '{{runtime.enabled}}'
+      }
+    ],
+    
+    // Handle configuration
+    handles: {
+      inputs: [
+        {
+          index: 0,                // Input index from inputs array
+          position: 'auto',        // 'auto' (evenly distributed) or percentage (e.g., '50%', '33.33%')
+          color: 'auto',           // 'auto' (from input.type) or hex color
+          label: null,             // Override displayName (null = use input.displayName)
+          visible: true            // Show this handle?
+        }
+      ],
+      outputs: [
+        {
+          index: 0,
+          position: 'auto',
+          color: 'auto',
+          label: null,
+          visible: true
+        }
+      ],
+      // Handle sizing
+      size: 12,                    // Handle diameter in pixels
+      borderWidth: 2,              // Border width in pixels
+      borderColor: '#ffffff'       // Border color
+    },
+    
+    // Status indicators
+    status: {
+      execution: {
+        enabled: true,             // Show execution status badge?
+        position: 'top-left',      // 'top-left', 'top-right', 'bottom-left', 'bottom-right'
+        offset: { x: -10, y: -10 } // Offset from corner in pixels
+      },
+      pinned: {
+        enabled: true,
+        position: 'top-right',
+        offset: { x: -8, y: -8 }
+      },
+      executionOrder: {
+        enabled: true,
+        position: 'header'         // 'header' (in title bar) or coordinates
+      }
+    },
+    
+    // Runtime data configuration (for async nodes)
+    runtime: {
+      enabled: false,              // Poll for runtime data?
+      updateInterval: 1000,        // Poll interval in milliseconds
+      endpoint: '/api/flows/nodes/{{nodeId}}/runtime', // API endpoint ({{nodeId}} replaced)
+      fields: [                    // Fields to poll
+        'progress',
+        'total',
+        'progressText',
+        'statusMessage',
+        'statusColor',
+        'statusIcon'
+      ]
+    }
+  }
+}
+```
+
+---
+
+## Visual Block Types
+
+The `visual.layout` array defines the node's visual appearance using composable blocks. Each block is rendered in order from top to bottom.
+
+### 1. Header Block
+
+Displays the node's main identifier with icon and title.
+
+**Schema:**
+```javascript
+{
+  type: 'header',
+  icon: '{{icon}}',              // Template or literal emoji/icon
+  title: '{{displayName}}',      // Template or literal text
+  color: '{{color}}',            // Hex color template or literal
+  badges: ['executionOrder'],    // System badges to show in header
+  fontSize: 14,                  // Optional: title font size (default: 14)
+  iconSize: 16                   // Optional: icon size (default: 16)
+}
+```
+
+**System Badges:**
+- `'executionOrder'`: Blue numbered circle showing execution sequence
+- Custom badges can be added via properties
+
+**Example:**
+```javascript
+{
+  type: 'header',
+  icon: '📥',
+  title: 'Tag Input',
+  color: '#2196F3',
+  badges: ['executionOrder']
+}
+```
+
+**Rendered as:**
+- Flex row with icon in colored box + title + badges
+- Icon box: 28×28px with node color background
+- Title: Body2 weight 600
+- Badges: 24×24px circles on the right
+
+---
+
+### 2. Subtitle Block
+
+Secondary text below header (operation name, tag name, etc.)
+
+**Schema:**
+```javascript
+{
+  type: 'subtitle',
+  text: '{{tagName}}',         // Template or literal
+  color: '#666666',            // Optional: text color (default: #666666 light, #999999 dark)
+  fontSize: 12,                // Optional: font size (default: 12)
+  fontWeight: 400,             // Optional: font weight (default: 400)
+  visible: '{{tagName}}'       // Optional: conditional visibility
+}
+```
+
+**Template Syntax:**
+- `{{field}}`: Replaced with `data.field`
+- If field is undefined/null/empty string, subtitle hidden
+
+**Example:**
+```javascript
+// Math node showing operation
+{
+  type: 'subtitle',
+  text: '{{operation}}',
+  color: '#666666'
+}
+
+// Renders: "add", "subtract", "formula", etc.
+```
+
+---
+
+### 3. Text Block
+
+General-purpose text display
+
+**Schema:**
+```javascript
+{
+  type: 'text',
+  content: 'Processing file...',  // Template or literal
+  fontSize: 12,                    // Optional: font size (default: 12)
+  fontWeight: 400,                 // Optional: font weight (default: 400)
+  color: '#999999',                // Optional: text color (default: theme text)
+  align: 'center',                 // Optional: 'left', 'center', 'right' (default: 'left')
+  padding: 4,                      // Optional: vertical padding (default: 4)
+  visible: '{{status}} === "processing"' // Optional: conditional visibility
+}
+```
+
+**Use Cases:**
+- Status messages
+- Help text
+- Static labels
+- Conditional messages
+
+**Example:**
+```javascript
+{
+  type: 'text',
+  content: 'Waiting for input...',
+  color: '#999999',
+  align: 'center',
+  visible: '{{hasInput}} === false'
+}
+```
+
+---
+
+### 4. Values Block
+
+Key-value pairs display
+
+**Schema:**
+```javascript
+{
+  type: 'values',
+  items: [
+    {
+      label: 'Operation',         // Label text
+      value: '{{operation}}',     // Template or literal
+      color: null,                // Optional: value color (null = default)
+      visible: '{{operation}}'    // Optional: conditional visibility
+    }
+  ],
+  layout: 'horizontal',           // Optional: 'horizontal' or 'vertical' (default: 'horizontal')
+  spacing: 8,                     // Optional: spacing between items (default: 8)
+  labelWidth: 80                  // Optional: fixed label width (default: auto)
+}
+```
+
+**Example:**
+```javascript
+{
+  type: 'values',
+  items: [
+    {
+      label: 'Type',
+      value: '{{valueType}}',
+      color: '#2196F3'
+    },
+    {
+      label: 'Value',
+      value: '{{currentValue}}',
+      color: '#4CAF50'
+    }
+  ]
+}
+```
+
+**Rendered as:**
+- Horizontal: `Label: Value  Label: Value`
+- Vertical: 
+  ```
+  Label: Value
+  Label: Value
+  ```
+
+---
+
+### 5. Badges Block
+
+Small colored pills/chips for status indicators
+
+**Schema:**
+```javascript
+{
+  type: 'badges',
+  items: [
+    {
+      text: '{{quality}}',               // Template or literal
+      color: '#ff9800',                  // Badge background color
+      textColor: '#ffffff',              // Optional: text color (default: white)
+      icon: 'warning',                   // Optional: icon name or emoji
+      visible: '{{quality}} < 192',      // Optional: conditional visibility
+      tooltip: 'Quality code: {{quality}}' // Optional: hover tooltip
+    }
+  ],
+  position: 'inline',                    // 'inline' (horizontal) or 'stacked' (vertical)
+  spacing: 4,                            // Optional: spacing between badges (default: 4)
+  align: 'left'                          // Optional: 'left', 'center', 'right' (default: 'left')
+}
+```
+
+**Example:**
+```javascript
+{
+  type: 'badges',
+  items: [
+    {
+      text: 'Low Quality',
+      color: '#ff9800',
+      visible: '{{quality}} < 192'
+    },
+    {
+      text: 'Cached',
+      color: '#9E9E9E',
+      visible: '{{cached}} === true'
+    }
+  ],
+  position: 'inline'
+}
+```
+
+**Rendered as:**
+- Inline: [Badge1] [Badge2] [Badge3]
+- Stacked:
+  ```
+  [Badge1]
+  [Badge2]
+  [Badge3]
+  ```
+
+---
+
+### 6. Divider Block
+
+Visual separator between sections
+
+**Schema:**
+```javascript
+{
+  type: 'divider',
+  color: '#e0e0e0',              // Optional: line color (default: theme divider)
+  thickness: 1,                  // Optional: line thickness (default: 1)
+  margin: 8,                     // Optional: vertical margin (default: 8)
+  style: 'solid',                // Optional: 'solid', 'dashed', 'dotted' (default: 'solid')
+  visible: true                  // Optional: conditional visibility (default: true)
+}
+```
+
+**Example:**
+```javascript
+{
+  type: 'divider',
+  color: '#e0e0e0',
+  margin: 8
+}
+```
+
+**Rendered as:**
+- Horizontal line spanning node width
+- Margin above and below
+
+---
+
+### 7. Code Block
+
+Display code snippet with syntax highlighting
+
+**Schema:**
+```javascript
+{
+  type: 'code',
+  language: 'javascript',         // Syntax highlighting language
+  content: '{{code}}',            // Template or literal code
+  maxLines: 3,                    // Optional: max visible lines (default: null = no limit)
+  showLineNumbers: false,         // Optional: show line numbers (default: false)
+  fontSize: 11,                   // Optional: font size (default: 11)
+  fontFamily: 'monospace',        // Optional: font family (default: 'Fira Code, monospace')
+  wrap: false,                    // Optional: word wrap (default: false)
+  visible: '{{code}}'             // Optional: conditional visibility
+}
+```
+
+**Supported Languages:**
+- `javascript`
+- `python`
+- `sql`
+- `json`
+- `text`
+
+**Example:**
+```javascript
+{
+  type: 'code',
+  language: 'javascript',
+  content: '{{code}}',
+  maxLines: 3,
+  showLineNumbers: false
+}
+```
+
+**Rendered as:**
+- Monaco-style code display with syntax highlighting
+- Scrollable if content exceeds maxLines
+- Dark/light theme aware
+
+---
+
+### 8. Progress Block
+
+Progress bar for async operations (file processing, downloads, etc.)
+
+**Schema:**
+```javascript
+{
+  type: 'progress',
+  value: '{{runtime.progress}}',        // Template: current value
+  max: '{{runtime.total}}',             // Template: maximum value
+  label: '{{runtime.progressText}}',    // Optional: label text template
+  color: '#2196F3',                     // Optional: progress bar color (default: #2196F3)
+  backgroundColor: '#e0e0e0',           // Optional: track color (default: #e0e0e0)
+  height: 4,                            // Optional: bar height in pixels (default: 4)
+  showPercentage: true,                 // Optional: show percentage text (default: true)
+  visible: '{{runtime.enabled}}'        // Optional: conditional visibility
+}
+```
+
+**Use Cases:**
+- File processing progress
+- Download/upload progress
+- Long-running calculations
+- Multi-step operations
+
+**Example:**
+```javascript
+{
+  type: 'progress',
+  value: '{{runtime.progress}}',
+  max: '{{runtime.total}}',
+  label: 'Processing: {{runtime.progressText}}',
+  color: '#4CAF50',
+  visible: '{{runtime.enabled}}'
+}
+```
+
+**Rendered as:**
+```
+Processing: file.csv (50%)
+[████████░░░░░░░░] 50%
+```
+
+---
+
+### 9. Status Text Block
+
+Dynamic status message with icon (for async nodes)
+
+**Schema:**
+```javascript
+{
+  type: 'status-text',
+  text: '{{runtime.statusMessage}}',    // Template: status message
+  color: '{{runtime.statusColor}}',     // Template or literal: text color
+  icon: '{{runtime.statusIcon}}',       // Optional: icon name or emoji
+  fontSize: 12,                         // Optional: font size (default: 12)
+  fontWeight: 500,                      // Optional: font weight (default: 500)
+  align: 'left',                        // Optional: 'left', 'center', 'right' (default: 'left')
+  visible: '{{runtime.enabled}}'        // Optional: conditional visibility
+}
+```
+
+**Use Cases:**
+- "Processing file..."
+- "Waiting for connection..."
+- "Complete: 1000 records"
+- "Error: Timeout"
+
+**Example:**
+```javascript
+{
+  type: 'status-text',
+  text: '{{runtime.statusMessage}}',
+  color: '{{runtime.statusColor}}',
+  icon: '{{runtime.statusIcon}}',
+  visible: '{{runtime.enabled}}'
+}
+```
+
+**Rendered as:**
+```
+⏳ Processing file... (blue text)
+✓ Complete (green text)
+✗ Error: Timeout (red text)
+```
+
+---
+
+## Template System
+
+### Basic Syntax
+
+Templates use `{{field}}` syntax to inject dynamic data:
+
+```javascript
+// In visual definition:
+text: '{{tagName}}'
+
+// With node data:
+data = { tagName: 'Temperature_01' }
+
+// Renders as:
+"Temperature_01"
+```
+
+### Nested Paths
+
+Access nested object properties with dot notation:
+
+```javascript
+// In visual definition:
+value: '{{runtime.progress}}'
+
+// With node data:
+data = {
+  runtime: {
+    progress: 75,
+    total: 100
+  }
+}
+
+// Renders as:
+75
+```
+
+### Conditional Visibility
+
+Use JavaScript expressions for conditional rendering:
+
+```javascript
+// Show only when condition is true:
+visible: '{{status}} === "processing"'
+
+// Show when value exists:
+visible: '{{tagName}}'
+
+// Show when number is below threshold:
+visible: '{{quality}} < 192'
+
+// Complex conditions:
+visible: '{{operation}} === "formula" && {{code}}'
+```
+
+**Supported Operators:**
+- Equality: `===`, `!==`, `==`, `!=`
+- Comparison: `<`, `>`, `<=`, `>=`
+- Logical: `&&`, `||`
+- Existence: Just `{{field}}` (truthy check)
+
+### Fallback Values
+
+If template field is undefined/null/empty:
+- Text blocks: Hidden (not rendered)
+- Subtitle: Hidden
+- Values: Item hidden
+- Badges: Item hidden
+- Progress: Shows 0 value
+- Code: Shows empty code block
+
+**Best Practice:** Always use `visible` condition when field might be missing:
+
+```javascript
+// Good:
+{
+  type: 'subtitle',
+  text: '{{tagName}}',
+  visible: '{{tagName}}'  // Only show if tagName exists
+}
+
+// Bad (shows empty subtitle):
+{
+  type: 'subtitle',
+  text: '{{tagName}}'
+}
+```
+
+---
+
+## Handle Configuration
+
+### Auto-Positioning
+
+Most nodes use automatic handle distribution:
+
+```javascript
+handles: {
+  inputs: [
+    { index: 0, position: 'auto', color: 'auto' },
+    { index: 1, position: 'auto', color: 'auto' }
+  ],
+  outputs: [
+    { index: 0, position: 'auto', color: 'auto' }
+  ]
+}
+```
+
+**Algorithm:**
+- Inputs distributed evenly on left side
+- Outputs distributed evenly on right side
+- Position = `(100 / (count + 1)) * (index + 1)`%
+
+**Examples:**
+- 1 handle: 50%
+- 2 handles: 33.33%, 66.67%
+- 3 handles: 25%, 50%, 75%
+- 4 handles: 20%, 40%, 60%, 80%
+
+### Manual Positioning
+
+Override with specific percentages:
+
+```javascript
+handles: {
+  inputs: [
+    { index: 0, position: '25%', color: 'auto' },
+    { index: 1, position: '75%', color: 'auto' }
+  ]
+}
+```
+
+### Color Mapping
+
+Auto colors based on input/output type:
+
+| Type | Color | Hex |
+|------|-------|-----|
+| main | Gray | #757575 |
+| number | Green | #4CAF50 |
+| string | Orange | #FF9800 |
+| boolean | Blue | #2196F3 |
+| json | Purple | #9C27B0 |
+| trigger | Red | #F44336 |
+| any | Gray | #757575 |
+
+**Override with explicit color:**
+
+```javascript
+handles: {
+  inputs: [
+    { index: 0, position: 'auto', color: '#FF5722' }  // Custom red-orange
+  ]
+}
+```
+
+### Dynamic Handle Count
+
+For nodes with variable inputs (Math node):
+
+```javascript
+// Backend generates handles based on data.inputCount
+handles: {
+  inputs: Array.from({ length: data.inputCount || 2 }, (_, i) => ({
+    index: i,
+    position: 'auto',
+    color: 'auto'
+  })),
+  outputs: [
+    { index: 0, position: 'auto', color: 'auto' }
+  ]
+}
+```
+
+Frontend receives pre-calculated handle array from backend.
+
+---
+
+## Status Indicators
+
+### Execution Status Badge
+
+Shows current execution state:
+
+```javascript
+status: {
+  execution: {
+    enabled: true,
+    position: 'top-left',
+    offset: { x: -10, y: -10 }
+  }
+}
+```
+
+**States:**
+- ✓ Success: Green (#4CAF50) checkmark
+- ✗ Error: Red (#F44336) error icon
+- ⏳ Running: Blue (#2196F3) hourglass with pulse animation
+
+**Rendered as:**
+- 24×24px circle at specified position
+- Absolute positioning with offset from node corner
+
+### Pinned Data Indicator
+
+Shows when node has pinned test data:
+
+```javascript
+status: {
+  pinned: {
+    enabled: true,
+    position: 'top-right',
+    offset: { x: -8, y: -8 }
+  }
+}
+```
+
+**Rendered as:**
+- 20×20px orange (#FF9800) circle
+- Pin icon (📌)
+- Top-right corner by default
+
+### Execution Order Badge
+
+Shows sequence number in flow execution:
+
+```javascript
+status: {
+  executionOrder: {
+    enabled: true,
+    position: 'header'  // Shows in header next to icon
+  }
+}
+```
+
+**Rendered as:**
+- 24×24px blue (#1976D2) circle
+- White number (1, 2, 3, ...)
+- Positioned in header before icon
+
+---
+
+## Runtime Data (Async Nodes)
+
+For nodes that perform long-running operations, enable runtime data polling:
+
+```javascript
+visual: {
+  runtime: {
+    enabled: true,
+    updateInterval: 1000,  // Poll every 1 second
+    endpoint: '/api/flows/nodes/{{nodeId}}/runtime',
+    fields: [
+      'progress',
+      'total',
+      'progressText',
+      'statusMessage',
+      'statusColor',
+      'statusIcon'
+    ]
+  },
+  layout: [
+    {
+      type: 'progress',
+      value: '{{runtime.progress}}',
+      max: '{{runtime.total}}',
+      label: '{{runtime.progressText}}',
+      visible: '{{runtime.enabled}}'
+    },
+    {
+      type: 'status-text',
+      text: '{{runtime.statusMessage}}',
+      color: '{{runtime.statusColor}}',
+      icon: '{{runtime.statusIcon}}',
+      visible: '{{runtime.enabled}}'
+    }
+  ]
+}
+```
+
+### Backend Implementation
+
+Node's `execute()` method updates runtime data:
+
+```javascript
+async execute(data, inputs, context) {
+  // Update runtime data (persisted for polling)
+  await context.updateRuntimeData({
+    enabled: true,
+    progress: 0,
+    total: 100,
+    progressText: 'Starting...',
+    statusMessage: 'Initializing',
+    statusColor: '#2196F3',
+    statusIcon: '⏳'
+  });
+  
+  // Long-running operation
+  for (let i = 0; i < 100; i++) {
+    // Do work...
+    
+    // Update progress
+    await context.updateRuntimeData({
+      progress: i + 1,
+      progressText: `Processing item ${i + 1}/100`,
+      statusMessage: `Processing...`
+    });
+  }
+  
+  // Complete
+  await context.updateRuntimeData({
+    progress: 100,
+    progressText: 'Complete',
+    statusMessage: 'Finished processing 100 items',
+    statusColor: '#4CAF50',
+    statusIcon: '✓'
+  });
+  
+  return { outputs: [result] };
+}
+```
+
+### Frontend Polling
+
+When `runtime.enabled` is true:
+1. Frontend starts polling at specified interval
+2. GET `runtime.endpoint` (e.g., `/api/flows/nodes/12345/runtime`)
+3. Response merged into `data.runtime` object
+4. Blocks re-render with updated values
+5. Polling stops when execution completes or node unmounts
+
+---
+
+## Canvas Configuration
+
+### Basic Shape
+
+Most nodes use rounded rectangle:
+
+```javascript
+canvas: {
+  minWidth: 160,
+  shape: 'rounded-rect',
+  borderRadius: 8,
+  resizable: false
+}
+```
+
+### Resizable Nodes
+
+Comment nodes can be resized by user:
+
+```javascript
+canvas: {
+  minWidth: 200,
+  minHeight: 80,
+  shape: 'rectangle',
+  borderRadius: 0,
+  resizable: true
+}
+```
+
+**Features:**
+- Drag handles on edges and corners
+- Respects minWidth/minHeight
+- Size persisted in node data
+- Uses ReactFlow's NodeResizer component
+
+### Special Shapes
+
+Circle nodes (future):
+
+```javascript
+canvas: {
+  minWidth: 100,
+  shape: 'circle',
+  aspectRatio: 1,  // Force square aspect ratio
+  resizable: false
+}
+```
+
+---
+
+## Complete Visual Definition Examples
+
+### Example 1: Tag Input (Simple)
+
+```javascript
+visual: {
+  canvas: {
+    minWidth: 160,
+    shape: 'rounded-rect',
+    borderRadius: 8,
+    resizable: false
+  },
+  layout: [
+    {
+      type: 'header',
+      icon: '📥',
+      title: 'Tag Input',
+      color: '#2196F3',
+      badges: ['executionOrder']
+    },
+    {
+      type: 'subtitle',
+      text: '{{tagName}}',
+      color: '#666666',
+      visible: '{{tagName}}'
+    }
+  ],
+  handles: {
+    inputs: [],
+    outputs: [
+      { index: 0, position: 'auto', color: 'auto' }
+    ],
+    size: 12,
+    borderWidth: 2,
+    borderColor: '#ffffff'
+  },
+  status: {
+    execution: { enabled: true, position: 'top-left', offset: { x: -10, y: -10 } },
+    pinned: { enabled: true, position: 'top-right', offset: { x: -8, y: -8 } },
+    executionOrder: { enabled: true, position: 'header' }
+  },
+  runtime: {
+    enabled: false
+  }
+}
+```
+
+### Example 2: Math (Dynamic Inputs)
+
+```javascript
+visual: {
+  canvas: {
+    minWidth: 160,
+    shape: 'rounded-rect',
+    borderRadius: 8,
+    resizable: false
+  },
+  layout: [
+    {
+      type: 'header',
+      icon: '🔢',
+      title: 'Math',
+      color: '#9C27B0',
+      badges: ['executionOrder']
+    },
+    {
+      type: 'subtitle',
+      text: '{{operation}}',
+      color: '#666666',
+      visible: '{{operation}}'
+    },
+    {
+      type: 'text',
+      content: '{{formula}}',
+      fontSize: 11,
+      color: '#999999',
+      visible: '{{operation}} === "formula"'
+    }
+  ],
+  handles: {
+    // Backend generates inputs array based on data.inputCount
+    inputs: [],  // Populated by backend
+    outputs: [
+      { index: 0, position: 'auto', color: 'auto' }
+    ]
+  },
+  status: {
+    execution: { enabled: true, position: 'top-left', offset: { x: -10, y: -10 } },
+    pinned: { enabled: true, position: 'top-right', offset: { x: -8, y: -8 } },
+    executionOrder: { enabled: true, position: 'header' }
+  },
+  runtime: {
+    enabled: false
+  }
+}
+```
+
+### Example 3: Script-JS (Code Preview)
+
+```javascript
+visual: {
+  canvas: {
+    minWidth: 180,
+    shape: 'rounded-rect',
+    borderRadius: 8,
+    resizable: false
+  },
+  layout: [
+    {
+      type: 'header',
+      icon: '📜',
+      title: 'JavaScript',
+      color: '#F57C00',
+      badges: ['executionOrder']
+    },
+    {
+      type: 'subtitle',
+      text: 'Custom script',
+      color: '#666666'
+    },
+    {
+      type: 'divider',
+      color: '#e0e0e0',
+      margin: 8
+    },
+    {
+      type: 'code',
+      language: 'javascript',
+      content: '{{code}}',
+      maxLines: 3,
+      showLineNumbers: false,
+      visible: '{{code}}'
+    }
+  ],
+  handles: {
+    inputs: [],  // Dynamic, populated by backend
+    outputs: [
+      { index: 0, position: 'auto', color: 'auto' }
+    ]
+  },
+  status: {
+    execution: { enabled: true, position: 'top-left', offset: { x: -10, y: -10 } },
+    pinned: { enabled: true, position: 'top-right', offset: { x: -8, y: -8 } },
+    executionOrder: { enabled: true, position: 'header' }
+  },
+  runtime: {
+    enabled: false
+  }
+}
+```
+
+### Example 4: Comment (Resizable)
+
+```javascript
+visual: {
+  canvas: {
+    minWidth: 200,
+    minHeight: 80,
+    shape: 'rectangle',
+    borderRadius: 0,
+    resizable: true
+  },
+  layout: [
+    {
+      type: 'text',
+      content: '{{text}}',
+      fontSize: 14,
+      color: '#333333',
+      align: 'left'
+    }
+  ],
+  handles: {
+    inputs: [],
+    outputs: []
+  },
+  status: {
+    execution: { enabled: false },
+    pinned: { enabled: false },
+    executionOrder: { enabled: false }
+  },
+  runtime: {
+    enabled: false
+  }
+}
+```
+
+### Example 5: File Processor (Async with Progress)
+
+```javascript
+visual: {
+  canvas: {
+    minWidth: 200,
+    shape: 'rounded-rect',
+    borderRadius: 8,
+    resizable: false
+  },
+  layout: [
+    {
+      type: 'header',
+      icon: '📄',
+      title: 'File Processor',
+      color: '#00BCD4',
+      badges: ['executionOrder']
+    },
+    {
+      type: 'subtitle',
+      text: '{{filename}}',
+      color: '#666666',
+      visible: '{{filename}}'
+    },
+    {
+      type: 'divider',
+      color: '#e0e0e0',
+      margin: 8,
+      visible: '{{runtime.enabled}}'
+    },
+    {
+      type: 'progress',
+      value: '{{runtime.progress}}',
+      max: '{{runtime.total}}',
+      label: '{{runtime.progressText}}',
+      color: '#4CAF50',
+      visible: '{{runtime.enabled}}'
+    },
+    {
+      type: 'status-text',
+      text: '{{runtime.statusMessage}}',
+      color: '{{runtime.statusColor}}',
+      icon: '{{runtime.statusIcon}}',
+      visible: '{{runtime.enabled}}'
+    }
+  ],
+  handles: {
+    inputs: [
+      { index: 0, position: 'auto', color: 'auto' }
+    ],
+    outputs: [
+      { index: 0, position: 'auto', color: 'auto' }
+    ]
+  },
+  status: {
+    execution: { enabled: true, position: 'top-left', offset: { x: -10, y: -10 } },
+    pinned: { enabled: true, position: 'top-right', offset: { x: -8, y: -8 } },
+    executionOrder: { enabled: true, position: 'header' }
+  },
+  runtime: {
+    enabled: true,
+    updateInterval: 1000,
+    endpoint: '/api/flows/nodes/{{nodeId}}/runtime',
+    fields: [
+      'progress',
+      'total',
+      'progressText',
+      'statusMessage',
+      'statusColor',
+      'statusIcon'
+    ]
+  }
+}
+```
+
 ---
 
 ## Field Definitions
@@ -873,6 +2055,82 @@ All nodes MUST have:
 - `outputs`: Each output must have `type` and `displayName`
 - `properties`: Each property must have `name`, `displayName`, and `type`
 - `color`: Must be valid hex color (e.g., `#RRGGBB`)
+
+### Visual Definition Constraints
+
+If `visual` object is present:
+
+**Canvas:**
+- `minWidth`: Must be positive integer >= 100
+- `shape`: Must be one of `'rounded-rect'`, `'rectangle'`, `'circle'`
+- `borderRadius`: Must be non-negative integer
+- `resizable`: Must be boolean
+- `minHeight`: Required if `resizable: true`, must be positive integer >= 40
+
+**Layout:**
+- Must be array of valid block objects
+- Each block must have `type` field
+- Block `type` must be one of: `'header'`, `'subtitle'`, `'text'`, `'values'`, `'badges'`, `'divider'`, `'code'`, `'progress'`, `'status-text'`
+- Template strings must use valid syntax: `{{field}}` or `{{nested.path}}`
+- Conditional `visible` must use valid JavaScript expression
+- At least one `header` block recommended (not enforced)
+
+**Block-Specific Validation:**
+
+*Header Block:*
+- Must have `icon`, `title`, `color` fields
+- `badges` array items must be strings
+
+*Subtitle/Text/Status-Text:*
+- Must have `text` or `content` field
+- `fontSize` must be positive integer (8-32 range recommended)
+- `align` must be one of: `'left'`, `'center'`, `'right'`
+
+*Values Block:*
+- `items` must be array with at least one item
+- Each item must have `label` and `value`
+- `layout` must be `'horizontal'` or `'vertical'`
+
+*Badges Block:*
+- `items` must be array with at least one item
+- Each item must have `text` and `color`
+- `position` must be `'inline'` or `'stacked'`
+
+*Code Block:*
+- Must have `language` and `content` fields
+- `language` must be one of: `'javascript'`, `'python'`, `'sql'`, `'json'`, `'text'`
+- `maxLines` must be positive integer if specified
+
+*Progress Block:*
+- Must have `value` and `max` fields
+- `height` must be positive integer if specified
+- `color` must be valid hex color if specified
+
+*Divider Block:*
+- `thickness` must be positive integer if specified
+- `margin` must be non-negative integer if specified
+- `style` must be one of: `'solid'`, `'dashed'`, `'dotted'`
+
+**Handles:**
+- `inputs` and `outputs` must be arrays
+- Each handle must have `index`, `position`, `color` fields
+- `position` must be `'auto'` or percentage string (e.g., `'50%'`, `'33.33%'`)
+- `color` must be `'auto'` or valid hex color
+- `index` must reference valid input/output in metadata
+- `size` must be positive integer (8-20 range recommended)
+- `borderWidth` must be non-negative integer
+
+**Status:**
+- Each status indicator must have `enabled`, `position`, `offset` fields
+- `enabled` must be boolean
+- `position` must be one of: `'top-left'`, `'top-right'`, `'bottom-left'`, `'bottom-right'`, `'header'`
+- `offset` must be object with `x` and `y` integer fields
+
+**Runtime:**
+- `enabled` must be boolean
+- `updateInterval` must be positive integer (>= 100ms recommended)
+- `endpoint` must be valid URL template with `{{nodeId}}`
+- `fields` must be array of strings
 
 ### Property Validation
 

@@ -49,12 +49,57 @@ export class GateNode extends BaseNode {
     ],
     
     visual: {
-      iconMap: {
-        null: '🚫',
-        previous: '💾',
+      canvas: {
+        minWidth: 160,
+        shape: 'rounded-rect',
+        borderRadius: 8,
+        resizable: false
       },
-      iconField: 'falseOutputMode',
-      subtitle: 'Output {{falseOutputMode}} when false',
+      layout: [
+        {
+          type: 'header',
+          icon: '🚪',
+          title: 'Gate',
+          color: '#00BCD4',
+          badges: ['executionOrder']
+        },
+        {
+          type: 'subtitle',
+          text: '{{falseOutputMode}}',
+          visible: '{{falseOutputMode}}'
+        }
+      ],
+      handles: {
+        inputs: [
+          { index: 0, position: '33.33%', color: 'auto', label: null, visible: true },
+          { index: 1, position: '66.67%', color: 'auto', label: null, visible: true }
+        ],
+        outputs: [
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
+        ],
+        size: 12,
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      },
+      status: {
+        execution: {
+          enabled: true,
+          position: 'top-left',
+          offset: { x: -10, y: -10 }
+        },
+        pinned: {
+          enabled: true,
+          position: 'top-right',
+          offset: { x: -8, y: -8 }
+        },
+        executionOrder: {
+          enabled: true,
+          position: 'header'
+        }
+      },
+      runtime: {
+        enabled: false
+      }
     },
     
     properties: [

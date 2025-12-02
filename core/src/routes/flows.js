@@ -60,6 +60,7 @@ export default async function flowRoutes(app) {
         schemaVersion: desc.schemaVersion || 1,
         inputs: desc.inputs || [],
         outputs: desc.outputs || [],
+        inputConfiguration: desc.inputConfiguration || null,
         properties: desc.properties || [],
         visual: desc.visual || null,
         extensions: desc.extensions || {}

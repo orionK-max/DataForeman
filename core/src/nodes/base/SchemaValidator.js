@@ -8,6 +8,8 @@
  * See: docs/flow-node-schema.md for full specification
  */
 
+import { VisualDefinitionValidator } from './VisualDefinitionValidator.mjs';
+
 export class SchemaValidator {
   /**
    * Validate a node description
@@ -131,6 +133,13 @@ export class SchemaValidator {
       if (typeof description.extensions !== 'object' || Array.isArray(description.extensions)) {
         errors.push('extensions must be an object');
       }
+    }
+
+    // Validate visual definition (optional)
+    if (description.visual !== undefined) {
+      const visualValidation = VisualDefinitionValidator.validate(description.visual, description);
+      errors.push(...visualValidation.errors);
+      warnings.push(...visualValidation.warnings);
     }
 
     return {
@@ -343,6 +352,11 @@ export class SchemaValidator {
       
       return propWithDefaults;
     });
+
+    // Apply visual defaults
+    if (result.visual !== undefined) {
+      result.visual = VisualDefinitionValidator.applyDefaults(result.visual, result);
+    }
 
     return result;
   }

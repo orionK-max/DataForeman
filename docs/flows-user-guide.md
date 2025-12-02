@@ -46,6 +46,46 @@ All flows use **Continuous Mode**: Flows run in a continuous loop at a configure
 5. **Test**: Click "Test Run" to test with optional write protection
 6. **Deploy**: Click "Deploy" to start continuous execution
 
+### Execution Order
+
+**How DataForeman determines node execution order:**
+
+Execution order is determined by the **dependency graph** (connections between nodes), NOT by visual position on the canvas. DataForeman uses a topological sort algorithm to execute nodes in the correct order:
+
+1. **Nodes with no incoming connections execute first** (e.g., Tag Inputs, Constant nodes, Manual Triggers)
+2. **Nodes execute only after their dependencies are ready** (all input connections have values)
+3. **Multiple nodes with no dependencies may execute in any order** (e.g., two Tag Input nodes)
+
+**Example Flow:** *Add A and B only if A > 0*
+```
+    Tag Input A ───────────────────┐─────────┐
+                                   ▼         │
+    Constant (0) ───────────> Comparison     │      
+                                   │         │          
+                                   │         │          
+                                   ▼         │          
+                                 Gate <──────┘
+                                   │
+                                   ▼
+                                 Math ──────> Tag Output
+                                   ▲
+                                   │
+    Tag Input B ───────────────────┘
+```
+
+**Execution Order:**
+1. Tag Input A - no dependencies
+2. Tag Input B - no dependencies  
+3. Constant - no dependencies
+4. Comparison - waits for Tag Input A + Constant (checks if A > 0)
+5. Gate - waits for Comparison + Tag Input A (passes A if condition is true)
+6. Math - waits for Gate output + Tag Input B (adds A + B)
+7. Tag Output - waits for Math
+
+**Visual Position Does Not Matter**: You can place a Constant node at the top-left of the canvas, but if it has no connections, it will execute at step 3 (after Tag Inputs with no dependencies).
+
+**To see execution order**: Click the "123" button in the toolbar to show/hide execution numbers on each node.
+
 ## Node Configuration
 
 ### Manual Trigger
@@ -57,11 +97,12 @@ All flows use **Continuous Mode**: Flows run in a continuous loop at a configure
 ### Tag Input
 - Select tag from browser
 - **Maximum Data Age**: Controls data freshness
-  - `-1` (default): Accept any age (use cached values)
+  - `-1` (default): Accept any age (use cached values from in-memory cache)
   - `0`: Require live data (within 1 second)
   - `>0`: Custom maximum age in seconds
   - Returns null/bad quality when data exceeds age limit
   - Useful when OPC UA server or PLC connection is unstable
+- **Performance**: Reads from in-memory cache (~5ms) with automatic DB fallback (~1400ms) on cache miss
 
 ### Tag Output
 - Only writes to internal tags
@@ -124,6 +165,14 @@ View real-time execution logs:
 - Pauses when scrolling up
 
 **Log Retention**: Configured per flow (1-365 days, default: 30)
+
+## Live Values
+
+Toggle the eye icon to see real-time tag values on nodes:
+- Updates every 2 seconds from in-memory cache
+- Shows value, quality, and timestamp on Tag Input/Output nodes
+- Useful for monitoring during development and debugging
+- No performance impact - reads from cache (~5ms response)
 
 ## Flow Sharing
 

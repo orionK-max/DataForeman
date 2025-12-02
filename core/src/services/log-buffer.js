@@ -20,16 +20,21 @@ export class LogBuffer {
    * Returns ISO timestamp with microseconds for precise ordering
    */
   getHighResTimestamp() {
-    const hrtime = process.hrtime.bigint();
-    const microseconds = Number(hrtime / 1000n); // Convert to microseconds
-    const milliseconds = Math.floor(microseconds / 1000);
-    const microRemainder = microseconds % 1000;
+    // Get current time in milliseconds
+    const now = Date.now();
     
-    const date = new Date(milliseconds);
+    // Get high-resolution time for sub-millisecond precision
+    // hrtime returns [seconds, nanoseconds] since arbitrary time
+    const [seconds, nanoseconds] = process.hrtime();
+    
+    // Extract microseconds from nanoseconds (ignore nanosecond precision beyond microseconds)
+    const microseconds = Math.floor(nanoseconds / 1000) % 1000;
+    
+    const date = new Date(now);
     const isoBase = date.toISOString();
     // Insert microseconds before the 'Z'
     // Format: 2025-12-01T23:06:50.689123Z
-    return isoBase.replace('Z', String(microRemainder).padStart(3, '0') + 'Z');
+    return isoBase.replace('Z', String(microseconds).padStart(3, '0') + 'Z');
   }
 
   /**
