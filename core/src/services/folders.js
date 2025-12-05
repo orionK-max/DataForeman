@@ -8,16 +8,31 @@
 export const FOLDER_TYPES = {
   DASHBOARD: 'dashboard',
   CHART: 'chart',
+  FLOW: 'flow',
 };
 
 const FOLDER_TABLES = {
   [FOLDER_TYPES.DASHBOARD]: 'dashboard_folders',
   [FOLDER_TYPES.CHART]: 'chart_folders',
+  [FOLDER_TYPES.FLOW]: 'flow_folders',
 };
 
 const ITEM_TABLES = {
   [FOLDER_TYPES.DASHBOARD]: 'dashboard_configs',
   [FOLDER_TYPES.CHART]: 'chart_configs',
+  [FOLDER_TYPES.FLOW]: 'flows',
+};
+
+const ITEM_USER_COLUMNS = {
+  [FOLDER_TYPES.DASHBOARD]: 'user_id',
+  [FOLDER_TYPES.CHART]: 'user_id',
+  [FOLDER_TYPES.FLOW]: 'owner_user_id',
+};
+
+const ITEM_FOLDER_STORAGE = {
+  [FOLDER_TYPES.DASHBOARD]: 'options', // stored in options JSONB
+  [FOLDER_TYPES.CHART]: 'options',     // stored in options JSONB
+  [FOLDER_TYPES.FLOW]: 'column',       // direct column
 };
 
 /**
@@ -272,6 +287,9 @@ export async function getFolderTree(userId, folderType, db) {
 export async function moveItemToFolder(db, folderType, itemId, folderId, sortOrder, userId) {
   try {
     const table = ITEM_TABLES[folderType];
+    const userColumn = ITEM_USER_COLUMNS[folderType];
+    const storage = ITEM_FOLDER_STORAGE[folderType];
+    
     if (!table) throw new Error(`Invalid folder type: ${folderType}`);
 
     // If folderId is provided, verify it exists and user has access
@@ -282,20 +300,32 @@ export async function moveItemToFolder(db, folderType, itemId, folderId, sortOrd
       }
     }
 
-    // Build the JSONB object in JavaScript to avoid PostgreSQL type inference issues
-    const folderData = JSON.stringify({
-      folder_id: folderId,
-      sort_order: sortOrder
-    });
+    let result;
+    
+    if (storage === 'column') {
+      // For flows: folder_id is a direct column
+      result = await db.query(
+        `UPDATE ${table}
+         SET folder_id = $1
+         WHERE id = $2 AND ${userColumn} = $3
+         RETURNING *`,
+        [folderId, itemId, userId]
+      );
+    } else {
+      // For dashboards/charts: folder_id is stored in options JSONB
+      const folderData = JSON.stringify({
+        folder_id: folderId,
+        sort_order: sortOrder
+      });
 
-    // Update the item's folder_id in the options JSONB column
-    const result = await db.query(
-      `UPDATE ${table}
-       SET options = COALESCE(options, '{}'::jsonb) || $1::jsonb
-       WHERE id = $2 AND user_id = $3
-       RETURNING *`,
-      [folderData, itemId, userId]
-    );
+      result = await db.query(
+        `UPDATE ${table}
+         SET options = COALESCE(options, '{}'::jsonb) || $1::jsonb
+         WHERE id = $2 AND ${userColumn} = $3
+         RETURNING *`,
+        [folderData, itemId, userId]
+      );
+    }
 
     if (result.rows.length === 0) {
       throw new Error('Item not found or access denied');

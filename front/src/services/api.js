@@ -286,4 +286,20 @@ export const flowsApi = {
   getNodeType: async (type) => {
     return apiClient.get(`/flows/node-types/${type}`);
   },
+
+  /**
+   * Get resource usage for all active flows
+   * @returns {Promise<{flows: Array, totalActive: number, totalWarnings: number}>}
+   */
+  getActiveFlowResources: async () => {
+    return apiClient.get('/flows/resources/active');
+  },
+
+  /**
+   * Get aggregate resource usage summary
+   * @returns {Promise<Object>} Summary statistics
+   */
+  getResourcesSummary: async () => {
+    return apiClient.get('/flows/resources/summary');
+  },
 };

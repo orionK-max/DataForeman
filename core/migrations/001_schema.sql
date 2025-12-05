@@ -384,6 +384,21 @@ CREATE TABLE IF NOT EXISTS chart_folders (
 CREATE INDEX IF NOT EXISTS idx_chart_folders_user ON chart_folders(user_id);
 CREATE INDEX IF NOT EXISTS idx_chart_folders_parent ON chart_folders(parent_folder_id);
 
+-- Flow folders (for organizing flows)
+CREATE TABLE IF NOT EXISTS flow_folders (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name varchar(255) NOT NULL,
+    description text,
+    parent_folder_id uuid REFERENCES flow_folders(id) ON DELETE CASCADE,
+    sort_order integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_flow_folders_user ON flow_folders(user_id);
+CREATE INDEX IF NOT EXISTS idx_flow_folders_parent ON flow_folders(parent_folder_id);
+
 -- =====================================================
 -- Seed Data
 -- =====================================================
@@ -552,7 +567,7 @@ CREATE TABLE IF NOT EXISTS flows (
   name text NOT NULL,
   description text,
   owner_user_id uuid REFERENCES users(id) ON DELETE CASCADE,
-  folder_id uuid,
+  folder_id uuid REFERENCES flow_folders(id) ON DELETE SET NULL,
   deployed boolean DEFAULT false,
   shared boolean DEFAULT false,
   test_mode boolean DEFAULT false,
@@ -563,6 +578,7 @@ CREATE TABLE IF NOT EXISTS flows (
   scan_rate_ms integer DEFAULT 1000,
   logs_enabled boolean DEFAULT false,
   logs_retention_days integer DEFAULT 30 CHECK (logs_retention_days > 0 AND logs_retention_days <= 365),
+  save_usage_data boolean DEFAULT true,
   definition jsonb NOT NULL DEFAULT '{}'::jsonb,
   static_data jsonb DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -577,8 +593,10 @@ COMMENT ON COLUMN flows.execution_mode IS 'Execution mode: continuous (default) 
 COMMENT ON COLUMN flows.scan_rate_ms IS 'Time between scan cycles in milliseconds (100-60000ms). Default: 1000ms (1 second).';
 COMMENT ON COLUMN flows.logs_enabled IS 'Enable persistent log storage for this flow (deployed flows only)';
 COMMENT ON COLUMN flows.logs_retention_days IS 'Number of days to retain logs before automatic deletion (1-365)';
+COMMENT ON COLUMN flows.save_usage_data IS 'Save resource usage metrics (CPU, memory, scan duration) as system tags for charting';
 
 CREATE INDEX IF NOT EXISTS idx_flows_owner ON flows(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_flows_folder ON flows(folder_id);
 CREATE INDEX IF NOT EXISTS idx_flows_shared ON flows(shared) WHERE shared = true;
 CREATE INDEX IF NOT EXISTS idx_flows_test_mode ON flows(test_mode) WHERE test_mode = true;
 
@@ -625,14 +643,18 @@ CREATE INDEX IF NOT EXISTS idx_flow_execution_logs_level ON flow_execution_logs(
 CREATE INDEX IF NOT EXISTS idx_flow_execution_logs_created_cleanup ON flow_execution_logs(flow_id, created_at);
 
 -- Flow sessions (continuous execution tracking)
+-- Flow Sessions
+-- Stores metadata about flow execution sessions (no time-series metrics)
+-- All real-time metrics are:
+-- 1. Calculated in-memory by ScanExecutor
+-- 2. Exposed via /api/flows/resources/active from session manager
+-- 3. Saved to TimescaleDB system_metrics table for historical analysis
 CREATE TABLE IF NOT EXISTS flow_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   flow_id uuid REFERENCES flows(id) ON DELETE CASCADE,
   status varchar(20) NOT NULL CHECK (status IN ('active', 'stopped', 'error', 'stalled')),
   started_at timestamptz NOT NULL DEFAULT now(),
   stopped_at timestamptz,
-  last_scan_at timestamptz,
-  scan_count bigint DEFAULT 0 NOT NULL,
   error_message text,
   config jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -640,7 +662,7 @@ CREATE TABLE IF NOT EXISTS flow_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_flow_sessions_flow ON flow_sessions(flow_id, started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_flow_sessions_status ON flow_sessions(status, last_scan_at);
+CREATE INDEX IF NOT EXISTS idx_flow_sessions_status ON flow_sessions(status, started_at DESC);
 
 -- Tag-Flow dependencies (cross-reference)
 CREATE TABLE IF NOT EXISTS flow_tag_dependencies (

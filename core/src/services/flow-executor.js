@@ -258,7 +258,7 @@ export async function executeNode(node, nodeOutputs, context) {
  * @param {String} flowId - Flow UUID
  * @param {Object} definition - Flow definition
  */
-async function updateFlowTagDependencies(app, flowId, definition) {
+export async function updateFlowTagDependencies(app, flowId, definition) {
   const { nodes = [] } = definition;
   
   // Delete existing dependencies
@@ -546,10 +546,22 @@ class ScanExecutor {
     this.scanCycle = 0;
     this.scanTimer = null;
     this.isRunning = false;
+    this.isExecuting = false; // Flag to prevent concurrent scan cycles
     this.nodeOutputs = new Map();
     this.inputStateManager = new InputStateManager();
     this.logBuffer = null;
+    this.onMetricsUpdate = null; // Callback for metrics updates after each scan
     this.log = context.app.log.child({ flowId: flow.id, sessionId: this.sessionId });
+    
+    // Resource monitoring metrics
+    this.metrics = {
+      totalCycles: 0,         // Number of scan cycles executed
+      startTime: Date.now(),  // Flow start timestamp
+      memoryPeakMb: 0,
+      memorySamplesMb: [],
+      scanDurations: [],
+      scanDurationMax: 0
+    };
   }
   
   async start() {
@@ -596,11 +608,37 @@ class ScanExecutor {
   async executeScanCycle() {
     if (!this.isRunning) return;
     
+    // Prevent concurrent scan cycles
+    if (this.isExecuting) {
+      this.log.warn({ scanCycle: this.scanCycle }, 'Skipping scan cycle - previous cycle still executing');
+      return;
+    }
+    
+    this.isExecuting = true;
     this.scanCycle++;
     const cycleLog = this.log.child({ scanCycle: this.scanCycle });
+    
+    // Resource monitoring - start timing
+    const startTime = performance.now();
+    const startMem = process.memoryUsage().heapUsed / 1024 / 1024;
     cycleLog.debug('Scan cycle start');
     
     try {
+      // Add cycle separator at START of scan (except first scan)
+      if (this.scanCycle > 1 && this.logBuffer) {
+        this.logBuffer.add({
+          execution_id: null,
+          flow_id: this.flow.id,
+          node_id: null,
+          log_level: 'info',
+          message: `──────────`,
+          metadata: { 
+            scan_cycle: this.scanCycle,
+            separator: true
+          }
+        });
+      }
+      
       const { nodes = [], edges = [] } = this.flow.definition;
       const executionOrder = topologicalSort(nodes, edges);
       
@@ -648,6 +686,9 @@ class ScanExecutor {
         // Get node log level (default to 'none')
         const nodeLogLevel = node.data?.logLevel || 'none';
         const shouldLog = this.logBuffer && nodeLogLevel !== 'none';
+        
+        // Performance timing for this node
+        const nodeStart = performance.now();
         
         // Check if all required inputs are ready (source nodes have executed in this scan)
         const incomingEdges = edges.filter(e => e.target === nodeId);
@@ -753,6 +794,16 @@ class ScanExecutor {
           const output = await executeNode(node, this.nodeOutputs, scanContext);
           this.nodeOutputs.set(nodeId, output);
           
+          // Performance check
+          const nodeDuration = performance.now() - nodeStart;
+          if (nodeDuration > 100) {
+            cycleLog.warn({ 
+              nodeId, 
+              nodeType: node.type, 
+              duration: Math.round(nodeDuration) 
+            }, 'Slow node execution detected');
+          }
+          
           // Update input state for downstream nodes immediately after execution
           // Find all edges where this node is the source
           const outgoingEdges = edges.filter(e => e.source === nodeId);
@@ -786,28 +837,43 @@ class ScanExecutor {
       
       cycleLog.debug('Scan cycle complete');
       
-      // Add cycle separator log
-      if (this.logBuffer) {
-        this.logBuffer.add({
-          execution_id: null,
-          flow_id: this.flow.id,
-          node_id: null,
-          log_level: 'info',
-          message: `──────────`,
-          metadata: { 
-            scan_cycle: this.scanCycle,
-            separator: true
-          }
+      // Resource monitoring - end timing
+      const duration = performance.now() - startTime;
+      const endMem = process.memoryUsage().heapUsed / 1024 / 1024;
+      
+      // Update metrics
+      this.metrics.totalCycles += 1;
+      this.metrics.scanDurations.push(duration);
+      this.metrics.scanDurationMax = Math.max(this.metrics.scanDurationMax, duration);
+      this.metrics.memorySamplesMb.push(endMem);
+      this.metrics.memoryPeakMb = Math.max(this.metrics.memoryPeakMb, endMem);
+      
+      // Keep only last 100 samples for rolling average
+      if (this.metrics.scanDurations.length > 100) {
+        this.metrics.scanDurations.shift();
+        this.metrics.memorySamplesMb.shift();
+      }
+      
+      // Call metrics update callback if provided (for writing to TSDB)
+      if (this.onMetricsUpdate) {
+        const metrics = this.getMetrics();
+        this.onMetricsUpdate(metrics).catch(err => {
+          cycleLog.warn({ err }, 'Metrics update callback failed');
         });
       }
       
-      // Flush logs after each scan cycle to ensure they're visible
+      // Flush logs after each scan cycle (fire-and-forget to avoid blocking)
       if (this.logBuffer) {
-        await this.logBuffer.flush();
+        this.logBuffer.flush().catch(err => {
+          cycleLog.warn({ err }, 'Log flush failed');
+        });
       }
       
     } catch (error) {
       cycleLog.error({ err: error }, 'Scan cycle error');
+    } finally {
+      // Always reset the executing flag
+      this.isExecuting = false;
     }
   }
   
@@ -868,6 +934,46 @@ class ScanExecutor {
     }
     
     this.log.info({ totalScans: this.scanCycle }, 'Stopped scan-based execution');
+  }
+  
+  /**
+   * Get resource usage metrics
+   * @returns {Object} Current resource metrics
+   */
+  getMetrics() {
+    const avgScanDuration = this.metrics.scanDurations.length > 0
+      ? this.metrics.scanDurations.reduce((a, b) => a + b, 0) / this.metrics.scanDurations.length
+      : 0;
+    
+    const avgMemory = this.metrics.memorySamplesMb.length > 0
+      ? this.metrics.memorySamplesMb.reduce((a, b) => a + b, 0) / this.metrics.memorySamplesMb.length
+      : 0;
+    
+    // Calculate uptime in seconds
+    const uptimeSeconds = Math.floor((Date.now() - this.metrics.startTime) / 1000);
+    
+    // Calculate cycles per second (throughput)
+    const cyclesPerSecond = uptimeSeconds > 0
+      ? this.metrics.totalCycles / uptimeSeconds
+      : 0;
+    
+    // Calculate scan efficiency - what % of scan rate is used for execution
+    // Uses flow's configured scan rate
+    const scanRateMs = this.flow?.scan_rate_ms || 1000;
+    const scanEfficiencyPercent = scanRateMs > 0
+      ? (avgScanDuration / scanRateMs) * 100
+      : 0;
+    
+    return {
+      scanEfficiencyPercent: Number(scanEfficiencyPercent.toFixed(1)),
+      totalCycles: this.metrics.totalCycles,
+      cyclesPerSecond: Number(cyclesPerSecond.toFixed(2)),
+      uptimeSeconds: uptimeSeconds,
+      memoryPeakMb: Number(this.metrics.memoryPeakMb.toFixed(2)),
+      memoryAvgMb: Number(avgMemory.toFixed(2)),
+      scanDurationAvgMs: Math.round(avgScanDuration),
+      scanDurationMaxMs: Math.round(this.metrics.scanDurationMax)
+    };
   }
 }
 

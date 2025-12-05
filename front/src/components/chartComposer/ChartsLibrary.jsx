@@ -223,12 +223,14 @@ const ChartsLibrary = () => {
   // Filter charts based on selection
   const filteredCharts = React.useMemo(() => {
     if (selectedFolderId === 'all') {
-      return charts;
+      // 'all' now means Home - charts without folders
+      return charts.filter(c => !c.options?.folder_id);
     } else if (selectedFolderId === 'mine') {
       return charts.filter(c => c.is_owner);
     } else if (selectedFolderId === 'shared') {
       return charts.filter(c => !c.is_owner);
     } else if (selectedFolderId === 'root') {
+      // Backward compatibility (same as 'all' now)
       return charts.filter(c => !c.options?.folder_id);
     } else {
       return charts.filter(c => c.options?.folder_id === selectedFolderId);
@@ -269,8 +271,8 @@ const ChartsLibrary = () => {
             >
               <MenuItem value="all">
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ListAlt fontSize="small" />
-                  <span>All Charts</span>
+                  <HomeIcon fontSize="small" />
+                  <span>Home</span>
                 </Box>
               </MenuItem>
               <MenuItem value="mine">
@@ -286,12 +288,6 @@ const ChartsLibrary = () => {
                 </Box>
               </MenuItem>
               <Divider sx={{ my: 1 }} />
-              <MenuItem value="root">
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <HomeIcon fontSize="small" />
-                  <span>No Folder</span>
-                </Box>
-              </MenuItem>
               {flatFolders.map((folder) => (
                 <MenuItem key={folder.id} value={folder.id}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: folder.level * 2 }}>
@@ -331,8 +327,8 @@ const ChartsLibrary = () => {
           <Alert severity="info">
             {selectedFolderId === 'mine' && 'You have no saved charts yet'}
             {selectedFolderId === 'shared' && 'No charts have been shared with you'}
-            {selectedFolderId === 'all' && 'No charts available'}
-            {selectedFolderId === 'root' && 'No charts without folders'}
+            {selectedFolderId === 'all' && 'No charts at home level. All charts are in folders.'}
+            {selectedFolderId === 'root' && 'No charts at home level. All charts are in folders.'}
             {selectedFolderId !== 'mine' && selectedFolderId !== 'shared' && selectedFolderId !== 'all' && selectedFolderId !== 'root' && 'No charts in this folder'}
           </Alert>
         )}

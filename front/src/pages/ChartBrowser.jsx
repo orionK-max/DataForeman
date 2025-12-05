@@ -2,11 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
-  Paper,
   Typography,
   Button,
-  Tabs,
-  Tab,
   Card,
   CardContent,
   CardActions,
@@ -27,93 +24,68 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Edit as EditIcon,
   Delete as DeleteIcon,
   ContentCopy as DuplicateIcon,
-  PlayArrow as RunIcon,
-  CloudUpload as DeployedIcon,
-  CloudOff as UndeployedIcon,
-  Memory as ResourceIcon,
+  Timeline as ChartIcon,
   DriveFileMove as MoveIcon,
   Home as HomeIcon,
   FolderOpen as FolderOpenIcon,
   People as PeopleIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
-import { listFlows, listSharedFlows, createFlow, deleteFlow, duplicateFlow } from '../services/flowsApi';
-import FlowResourceMonitor from '../components/FlowEditor/FlowResourceMonitor';
-import { useFlowResources } from '../hooks/useFlowResources';
+import chartComposerService from '../services/chartComposerService';
 import folderService, { FOLDER_TYPES } from '../services/folderService';
 import FolderTree from '../components/folders/FolderTree';
 import FolderDialog from '../components/folders/FolderDialog';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { usePageTitle } from '../contexts/PageTitleContext';
 
-const FlowBrowser = () => {
+const ChartBrowser = () => {
   const { setPageTitle, setPageSubtitle } = usePageTitle();
   const navigate = useNavigate();
-  const [tab, setTab] = useState(0);
-  const [myFlows, setMyFlows] = useState([]);
-  const [sharedFlows, setSharedFlows] = useState([]);
+  const [charts, setCharts] = useState([]);
   const [folders, setFolders] = useState([]);
   const [selectedFolderId, setSelectedFolderId] = useState(null);
-  const [viewMode, setViewMode] = useState('all'); // 'all' | 'shared'
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('all'); // 'all' | 'mine' | 'shared'
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
-  const [resourceMonitorOpen, setResourceMonitorOpen] = useState(false);
-  const [selectedFlow, setSelectedFlow] = useState(null);
-  const [flowToDelete, setFlowToDelete] = useState(null);
-  const [flowToDuplicate, setFlowToDuplicate] = useState(null);
-  const [duplicateFlowName, setDuplicateFlowName] = useState('');
-  const [newFlowName, setNewFlowName] = useState('');
-  const [newFlowDescription, setNewFlowDescription] = useState('');
+  const [chartToDelete, setChartToDelete] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderDialogMode, setFolderDialogMode] = useState('create');
   const [editingFolder, setEditingFolder] = useState(null);
   const [parentFolderId, setParentFolderId] = useState(null);
-  const [moveMenuAnchor, setMoveMenuAnchor] = useState(null);
-  const [movingFlow, setMovingFlow] = useState(null);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [movingChart, setMovingChart] = useState(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [folderToDelete, setFolderToDelete] = useState(null);
   const [deletingFolder, setDeletingFolder] = useState(false);
 
-  const { data: resourceData, loading: resourceLoading, refetch: refetchResources } = useFlowResources(
-    selectedFlow?.id,
-    resourceMonitorOpen && selectedFlow?.deployed,
-    5000
-  );
-
   useEffect(() => {
-    setPageTitle('Flows');
+    setPageTitle('Charts');
     setPageSubtitle('');
   }, [setPageTitle, setPageSubtitle]);
 
   useEffect(() => {
-    loadFlows();
+    loadCharts();
     loadFolders();
   }, []);
 
   useEffect(() => {
-    loadFlows();
+    loadCharts();
   }, [viewMode]);
 
-  const loadFlows = async () => {
+  const loadCharts = async () => {
     try {
-      const [myData, sharedData] = await Promise.all([
-        listFlows(),
-        listSharedFlows()
-      ]);
-      setMyFlows(myData.flows || []);
-      setSharedFlows(sharedData.flows || []);
+      const response = await chartComposerService.listCharts('all', 200, 0);
+      setCharts(response.items || []);
     } catch (error) {
-      showSnackbar('Failed to load flows: ' + error.message, 'error');
+      showSnackbar('Failed to load charts: ' + error.message, 'error');
     }
   };
 
   const loadFolders = async () => {
     try {
-      const tree = await folderService.getFolderTree(FOLDER_TYPES.FLOW);
+      const tree = await folderService.getFolderTree(FOLDER_TYPES.CHART);
       setFolders(tree);
     } catch (err) {
       console.error('Error loading folders:', err);
@@ -124,66 +96,32 @@ const FlowBrowser = () => {
     setSnackbar({ open: true, message, severity });
   };
 
-  const handleCreateFlow = async () => {
-    try {
-      const result = await createFlow({
-        name: newFlowName,
-        description: newFlowDescription,
-        definition: {
-          nodes: [],
-          edges: []
-        }
-      });
-      setCreateDialogOpen(false);
-      setNewFlowName('');
-      setNewFlowDescription('');
-      navigate(`/flows/${result.flow.id}`);
-    } catch (error) {
-      showSnackbar('Failed to create flow: ' + error.message, 'error');
-    }
-  };
-
-  const handleDeleteFlow = (flow) => {
-    setFlowToDelete(flow);
+  const handleDeleteChart = (chart) => {
+    setChartToDelete(chart);
     setDeleteDialogOpen(true);
   };
 
-  const confirmDeleteFlow = async () => {
+  const confirmDeleteChart = async () => {
     try {
-      await deleteFlow(flowToDelete.id);
-      await loadFlows();
-      showSnackbar('Flow deleted successfully', 'success');
+      await chartComposerService.deleteChart(chartToDelete.id);
+      await loadCharts();
+      showSnackbar('Chart deleted successfully', 'success');
     } catch (error) {
-      showSnackbar('Failed to delete flow: ' + error.message, 'error');
+      showSnackbar('Failed to delete chart: ' + error.message, 'error');
     } finally {
       setDeleteDialogOpen(false);
-      setFlowToDelete(null);
+      setChartToDelete(null);
     }
   };
 
-  const handleDuplicateFlow = (flow) => {
-    setFlowToDuplicate(flow);
-    setDuplicateFlowName(`${flow.name} (Copy)`);
-    setDuplicateDialogOpen(true);
-  };
-
-  const confirmDuplicateFlow = async () => {
+  const handleDuplicateChart = async (chart) => {
     try {
-      await duplicateFlow(flowToDuplicate.id, duplicateFlowName.trim());
-      await loadFlows();
-      showSnackbar('Flow duplicated successfully', 'success');
+      const duplicated = await chartComposerService.duplicateChart(chart.id);
+      await loadCharts();
+      showSnackbar('Chart duplicated successfully', 'success');
     } catch (error) {
-      showSnackbar('Failed to duplicate flow: ' + error.message, 'error');
-    } finally {
-      setDuplicateDialogOpen(false);
-      setFlowToDuplicate(null);
-      setDuplicateFlowName('');
+      showSnackbar('Failed to duplicate chart: ' + error.message, 'error');
     }
-  };
-
-  const handleOpenResourceMonitor = (flow) => {
-    setSelectedFlow(flow);
-    setResourceMonitorOpen(true);
   };
 
   // Folder management handlers
@@ -195,6 +133,11 @@ const FlowBrowser = () => {
   const handleSelectShared = () => {
     setSelectedFolderId(null);
     setViewMode('shared');
+  };
+
+  const handleSelectMine = () => {
+    setSelectedFolderId(null);
+    setViewMode('mine');
   };
 
   const handleCreateFolder = (parentId = null) => {
@@ -220,7 +163,7 @@ const FlowBrowser = () => {
     
     try {
       setDeletingFolder(true);
-      await folderService.deleteFolder(FOLDER_TYPES.FLOW, folderToDelete.id);
+      await folderService.deleteFolder(FOLDER_TYPES.CHART, folderToDelete.id);
       await loadFolders();
       if (selectedFolderId === folderToDelete.id) {
         setSelectedFolderId(null);
@@ -242,9 +185,9 @@ const FlowBrowser = () => {
   const handleSaveFolder = async (folderData) => {
     try {
       if (folderDialogMode === 'edit' && editingFolder) {
-        await folderService.updateFolder(FOLDER_TYPES.FLOW, editingFolder.id, folderData);
+        await folderService.updateFolder(FOLDER_TYPES.CHART, editingFolder.id, folderData);
       } else {
-        await folderService.createFolder(FOLDER_TYPES.FLOW, folderData);
+        await folderService.createFolder(FOLDER_TYPES.CHART, folderData);
       }
       await loadFolders();
       setFolderDialogOpen(false);
@@ -253,41 +196,57 @@ const FlowBrowser = () => {
     }
   };
 
-  // Move flow to folder
-  const handleOpenMoveMenu = (event, flow) => {
+  // Move chart to folder
+  const handleOpenMoveDialog = (event, chart) => {
     event.stopPropagation();
-    setMovingFlow(flow);
-    setMoveMenuAnchor(true); // Just use boolean for dialog
+    setMovingChart(chart);
+    setMoveDialogOpen(true);
   };
 
-  const handleCloseMoveMenu = () => {
-    setMoveMenuAnchor(false);
-    setMovingFlow(null);
+  const handleCloseMoveDialog = () => {
+    setMoveDialogOpen(false);
+    setMovingChart(null);
   };
 
-  const handleMoveFlow = async (folderId) => {
+  const handleMoveChart = async (folderId) => {
     try {
       await folderService.moveItemToFolder(
-        FOLDER_TYPES.FLOW,
-        movingFlow.id,
+        FOLDER_TYPES.CHART,
+        movingChart.id,
         folderId,
         0
       );
-      await loadFlows();
-      handleCloseMoveMenu();
+      await loadCharts();
+      handleCloseMoveDialog();
     } catch (err) {
-      showSnackbar('Failed to move flow: ' + err.message, 'error');
+      showSnackbar('Failed to move chart: ' + err.message, 'error');
     }
   };
 
-  // Filter flows by selected folder
-  const filteredFlows = viewMode === 'shared' 
-    ? sharedFlows
-    : (selectedFolderId === null
-        ? myFlows.filter(f => f.folder_id === null || f.folder_id === undefined) // Show only root-level flows
-        : myFlows.filter(f => f.folder_id === selectedFolderId));
+  // Filter charts by selected folder and view mode
+  const filteredCharts = (() => {
+    let filtered = charts;
 
-  // Flatten folders for move menu
+    // Apply view mode filter
+    if (viewMode === 'mine') {
+      filtered = filtered.filter(c => c.is_owner);
+    } else if (viewMode === 'shared') {
+      filtered = filtered.filter(c => !c.is_owner);
+    }
+
+    // Apply folder filter
+    if (viewMode !== 'shared' && viewMode !== 'mine') {
+      if (selectedFolderId === null) {
+        filtered = filtered.filter(c => !c.options?.folder_id);
+      } else {
+        filtered = filtered.filter(c => c.options?.folder_id === selectedFolderId);
+      }
+    }
+
+    return filtered;
+  })();
+
+  // Flatten folders for move dialog
   const flattenFolders = (folders, level = 0) => {
     let result = [];
     for (const folder of folders) {
@@ -301,7 +260,16 @@ const FlowBrowser = () => {
 
   const flatFolders = flattenFolders(folders);
 
-  const FlowCard = ({ flow, isOwner }) => (
+  const formatDate = (isoString) => {
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleString();
+    } catch {
+      return 'Unknown';
+    }
+  };
+
+  const ChartCard = ({ chart, isOwner }) => (
     <Card 
       sx={{ 
         cursor: 'pointer',
@@ -316,10 +284,11 @@ const FlowBrowser = () => {
       }}
     >
       <CardContent 
-        onClick={() => navigate(`/flows/${flow.id}`)}
+        onClick={() => navigate(`/charts/${chart.id}`)}
         sx={{ flexGrow: 1, pb: 1 }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+          <ChartIcon sx={{ mr: 1, color: 'primary.main' }} />
           <Typography 
             variant="h6" 
             sx={{ 
@@ -330,12 +299,10 @@ const FlowBrowser = () => {
               mr: 1
             }}
           >
-            {flow.name}
+            {chart.name}
           </Typography>
-          {flow.deployed ? (
-            <Chip icon={<DeployedIcon />} label="Deployed" size="small" color="primary" />
-          ) : (
-            <Chip icon={<UndeployedIcon />} label="Not Deployed" size="small" />
+          {chart.is_shared && (
+            <Chip label="Shared" size="small" color="info" />
           )}
         </Box>
         
@@ -351,35 +318,23 @@ const FlowBrowser = () => {
             WebkitBoxOrient: 'vertical',
             minHeight: '2.5em',
           }}
-          title={flow.description || 'No description'}
+          title={chart.description || 'No description'}
         >
-          {flow.description || 'No description'}
+          {chart.description || 'No description'}
         </Typography>
         
-        {flow.shared && !isOwner && (
-          <Chip label="Shared" size="small" sx={{ mt: 1 }} />
-        )}
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+          Updated: {formatDate(chart.updated_at)}
+        </Typography>
       </CardContent>
       
       <CardActions sx={{ pt: 0, justifyContent: 'flex-end', px: 2, pb: 2 }}>
-        {flow.deployed && (
-          <IconButton 
-            size="small" 
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenResourceMonitor(flow);
-            }}
-            title="View Resource Monitor"
-          >
-            <ResourceIcon fontSize="small" />
-          </IconButton>
-        )}
         {isOwner && viewMode !== 'shared' && (
           <IconButton 
             size="small" 
             onClick={(e) => {
               e.stopPropagation();
-              handleOpenMoveMenu(e, flow);
+              handleOpenMoveDialog(e, chart);
             }}
             title="Move to folder"
           >
@@ -392,7 +347,7 @@ const FlowBrowser = () => {
               size="small" 
               onClick={(e) => {
                 e.stopPropagation();
-                handleDuplicateFlow(flow);
+                handleDuplicateChart(chart);
               }}
               title="Duplicate"
             >
@@ -402,7 +357,7 @@ const FlowBrowser = () => {
               size="small" 
               onClick={(e) => {
                 e.stopPropagation();
-                handleDeleteFlow(flow);
+                handleDeleteChart(chart);
               }}
               title="Delete"
             >
@@ -433,10 +388,45 @@ const FlowBrowser = () => {
           onCreateFolder={handleCreateFolder}
           onEditFolder={handleEditFolder}
           onDeleteFolder={handleDeleteFolder}
-          showSharedOption={true}
-          onSelectShared={handleSelectShared}
-          isSharedView={viewMode === 'shared'}
+          showSharedOption={false}
+          isSharedView={false}
         />
+        
+        {/* Additional filters below folder tree */}
+        <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
+          <MenuItem 
+            onClick={handleSelectMine}
+            selected={viewMode === 'mine'}
+            sx={{ borderRadius: 1 }}
+          >
+            <ListItemIcon>
+              <PersonIcon fontSize="small" color={viewMode === 'mine' ? 'primary' : 'action'} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="My Charts"
+              primaryTypographyProps={{
+                variant: 'body2',
+                fontWeight: viewMode === 'mine' ? 600 : 400,
+              }}
+            />
+          </MenuItem>
+          <MenuItem 
+            onClick={handleSelectShared}
+            selected={viewMode === 'shared'}
+            sx={{ borderRadius: 1 }}
+          >
+            <ListItemIcon>
+              <PeopleIcon fontSize="small" color={viewMode === 'shared' ? 'primary' : 'action'} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Shared with Me"
+              primaryTypographyProps={{
+                variant: 'body2',
+                fontWeight: viewMode === 'shared' ? 600 : 400,
+              }}
+            />
+          </MenuItem>
+        </Box>
       </Box>
 
       {/* Main Content */}
@@ -451,17 +441,25 @@ const FlowBrowser = () => {
                 </Typography>
               </>
             )}
-            {selectedFolderId && viewMode !== 'shared' && (
+            {viewMode === 'mine' && (
               <>
-                <FolderOpenIcon color="primary" />
+                <PersonIcon color="primary" />
                 <Typography variant="h6" color="primary">
-                  {/* Show folder name */}
+                  My Charts
                 </Typography>
               </>
             )}
-            {!selectedFolderId && viewMode !== 'shared' && (
+            {selectedFolderId && viewMode === 'all' && (
+              <>
+                <FolderOpenIcon color="primary" />
+                <Typography variant="h6" color="primary">
+                  {/* Folder name would go here */}
+                </Typography>
+              </>
+            )}
+            {!selectedFolderId && viewMode === 'all' && (
               <Typography variant="h4">
-                Flows
+                Charts
               </Typography>
             )}
           </Box>
@@ -469,37 +467,39 @@ const FlowBrowser = () => {
             <Button
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={() => setCreateDialogOpen(true)}
+              onClick={() => navigate('/charts/new')}
             >
-              Create Flow
+              Create Chart
             </Button>
           )}
         </Box>
 
         <Grid container spacing={2}>
-          {filteredFlows.map((flow) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={flow.id}>
-              <FlowCard flow={flow} isOwner={viewMode !== 'shared'} />
+          {filteredCharts.map((chart) => (
+            <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={chart.id}>
+              <ChartCard chart={chart} isOwner={chart.is_owner} />
             </Grid>
           ))}
           
-          {filteredFlows.length === 0 && (
+          {filteredCharts.length === 0 && (
             <Grid item xs={12}>
               <Typography color="text.secondary" align="center">
                 {viewMode === 'shared' 
-                  ? 'No shared flows' 
+                  ? 'No shared charts' 
+                  : viewMode === 'mine'
+                  ? 'You have no charts yet'
                   : (selectedFolderId === null 
-                      ? 'No flows at home level. All flows are in folders.' 
-                      : 'No flows in this folder')}
+                      ? 'No charts at home level. All charts are in folders.' 
+                      : 'No charts in this folder')}
               </Typography>
             </Grid>
           )}
         </Grid>
 
-        {/* Move Flow Dialog */}
+        {/* Move Chart Dialog */}
         <Dialog
-          open={Boolean(moveMenuAnchor && movingFlow)}
-          onClose={handleCloseMoveMenu}
+          open={moveDialogOpen && movingChart}
+          onClose={handleCloseMoveDialog}
           maxWidth="xs"
           fullWidth
           PaperProps={{
@@ -509,18 +509,18 @@ const FlowBrowser = () => {
             }
           }}
         >
-          <DialogTitle>Move "{movingFlow?.name}" to Folder</DialogTitle>
+          <DialogTitle>Move "{movingChart?.name}" to Folder</DialogTitle>
           <DialogContent>
-            <MenuItem onClick={() => handleMoveFlow(null)} sx={{ borderRadius: 1, mb: 0.5 }}>
+            <MenuItem onClick={() => handleMoveChart(null)} sx={{ borderRadius: 1, mb: 0.5 }}>
               <ListItemIcon>
                 <HomeIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText>Root (No Folder)</ListItemText>
+              <ListItemText>Home (No Folder)</ListItemText>
             </MenuItem>
             {flatFolders.map((folder) => (
               <MenuItem 
                 key={folder.id} 
-                onClick={() => handleMoveFlow(folder.id)}
+                onClick={() => handleMoveChart(folder.id)}
                 sx={{ borderRadius: 1, mb: 0.5 }}
               >
                 <ListItemIcon sx={{ pl: folder.level * 2 }}>
@@ -536,131 +536,37 @@ const FlowBrowser = () => {
             )}
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseMoveMenu}>Cancel</Button>
+            <Button onClick={handleCloseMoveDialog}>Cancel</Button>
           </DialogActions>
         </Dialog>
 
-      {/* Create Flow Dialog */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New Flow</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Flow Name"
-            fullWidth
-            value={newFlowName}
-            onChange={(e) => setNewFlowName(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            margin="dense"
-            label="Description"
-            fullWidth
-            multiline
-            rows={3}
-            value={newFlowDescription}
-            onChange={(e) => setNewFlowDescription(e.target.value)}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleCreateFlow} variant="contained" disabled={!newFlowName}>
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Delete Flow</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete <strong>{flowToDelete?.name}</strong>?
-          </Typography>
-          {flowToDelete?.deployed && (
-            <Alert severity="warning" sx={{ mt: 2 }}>
-              This flow is currently deployed. Please undeploy it before deleting.
-            </Alert>
-          )}
-          {!flowToDelete?.deployed && (
+        {/* Delete Confirmation Dialog */}
+        <Dialog
+          open={deleteDialogOpen}
+          onClose={() => setDeleteDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Delete Chart</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete <strong>{chartToDelete?.name}</strong>?
+            </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }}>
               This action cannot be undone.
             </Typography>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button 
-            onClick={confirmDeleteFlow} 
-            variant="contained" 
-            color="error"
-            disabled={flowToDelete?.deployed}
-          >
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Duplicate Confirmation Dialog */}
-      <Dialog
-        open={duplicateDialogOpen}
-        onClose={() => setDuplicateDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Duplicate Flow</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ mb: 2 }}>
-            Create a copy of <strong>{flowToDuplicate?.name}</strong>
-          </Typography>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="New Flow Name"
-            type="text"
-            fullWidth
-            value={duplicateFlowName}
-            onChange={(e) => setDuplicateFlowName(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter' && duplicateFlowName.trim()) {
-                confirmDuplicateFlow();
-              }
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDuplicateDialogOpen(false)}>Cancel</Button>
-          <Button 
-            onClick={confirmDuplicateFlow} 
-            variant="contained"
-            disabled={!duplicateFlowName.trim()}
-          >
-            Duplicate
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-        {/* Resource Monitor Dialog */}
-        {selectedFlow && (
-          <FlowResourceMonitor
-            open={resourceMonitorOpen}
-            onClose={() => {
-              setResourceMonitorOpen(false);
-              setSelectedFlow(null);
-            }}
-            flowId={selectedFlow.id}
-            flowName={selectedFlow.name}
-            resourceData={resourceData}
-            loading={resourceLoading}
-            onRefresh={refetchResources}
-          />
-        )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+            <Button 
+              onClick={confirmDeleteChart} 
+              variant="contained" 
+              color="error"
+            >
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {/* Folder Dialog */}
         <FolderDialog
@@ -701,4 +607,4 @@ const FlowBrowser = () => {
   );
 };
 
-export default FlowBrowser;
+export default ChartBrowser;

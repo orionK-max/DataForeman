@@ -112,8 +112,9 @@ export async function chartComposerRoutes(app) {
     
     if (selectedTagIds.length > 0) {
       // First check which tags exist and are not deleted
+      // Include driver_type to distinguish INTERNAL tags from actual system metrics
       const { rows: tagRows } = await app.db.query(
-        `SELECT DISTINCT tm.tag_id, c.is_system_connection 
+        `SELECT DISTINCT tm.tag_id, tm.driver_type, c.is_system_connection 
          FROM tag_metadata tm 
          JOIN connections c ON tm.connection_id = c.id 
          WHERE tm.tag_id = ANY($1::int[]) 
@@ -122,9 +123,15 @@ export async function chartComposerRoutes(app) {
       );
       
       validTagIds = tagRows.map(r => r.tag_id);
-      useSystemMetricsTable = tagRows.length > 0 && tagRows.every(r => r.is_system_connection === true);
+      // Use system_metrics table ONLY for actual system metrics, not INTERNAL tags
+      // INTERNAL tags are always stored in tag_values regardless of connection type
+      useSystemMetricsTable = tagRows.length > 0 && 
+                              tagRows.every(r => r.is_system_connection === true && 
+                                               r.driver_type !== 'INTERNAL');
     } else if (conn_id) {
       // Check if this connection is a system connection
+      // Note: This path doesn't filter by driver_type, so system connection queries
+      // might still incorrectly route to system_metrics. Consider querying driver_type here too.
       const { rows } = await app.db.query(
         `SELECT is_system_connection FROM connections WHERE id = $1`,
         [conn_id]
@@ -135,9 +142,16 @@ export async function chartComposerRoutes(app) {
     const tableName = useSystemMetricsTable ? 'system_metrics' : 'tag_values';
     
     // Connection filter (not needed for system_metrics since it's System-only)
+    // Special handling: "INTERNAL" is a pseudo-connection for filtering by driver_type
     if (!useSystemMetricsTable && conn_id !== undefined && conn_id !== '') {
-      params.push(conn_id);
-      where.push(`connection_id = $${params.length}`);
+      if (conn_id === 'INTERNAL') {
+        // Don't filter by connection_id for INTERNAL pseudo-connection
+        // The tag_ids query already filters correctly by tag_id
+        // INTERNAL tags can belong to any actual connection
+      } else {
+        params.push(conn_id);
+        where.push(`connection_id = $${params.length}`);
+      }
     }
     
     // Tag filter: single tag_id or list tag_ids (comma CSV)

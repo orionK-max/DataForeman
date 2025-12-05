@@ -22,9 +22,18 @@ export async function folderRoutes(app, options) {
     if (!req.user?.sub) return reply.code(401).send({ error: 'unauthorized' });
   });
 
-  // Permission check helper - folders are part of dashboards feature
-  async function checkPermission(userId, operation, reply) {
-    if (!userId || !(await app.permissions.can(userId, 'dashboards', operation))) {
+  // Permission check helper - folders require appropriate permissions
+  async function checkPermission(userId, operation, reply, folderType) {
+    // Map folder type to permission resource
+    const permissionMap = {
+      [folderService.FOLDER_TYPES.DASHBOARD]: 'dashboards',
+      [folderService.FOLDER_TYPES.CHART]: 'dashboards', // Charts use dashboard permission
+      [folderService.FOLDER_TYPES.FLOW]: 'flows',
+    };
+    
+    const resource = permissionMap[folderType] || 'dashboards';
+    
+    if (!userId || !(await app.permissions.can(userId, resource, operation))) {
       return reply.code(403).send({ error: 'forbidden' });
     }
   }
@@ -34,10 +43,9 @@ export async function folderRoutes(app, options) {
    * List all folders for current user
    */
   app.get('/:folderType/folders', async (req, reply) => {
-    await checkPermission(req.user.sub, 'read', reply);
-    
     try {
       const { folderType } = req.params;
+      await checkPermission(req.user.sub, 'read', reply, folderType);
       
       if (!validateFolderType(folderType)) {
         return reply.code(400).send({
@@ -58,10 +66,9 @@ export async function folderRoutes(app, options) {
    * Get folder tree structure
    */
   app.get('/:folderType/folders/tree', async (req, reply) => {
-    await checkPermission(req.user.sub, 'read', reply);
-    
     try {
       const { folderType } = req.params;
+      await checkPermission(req.user.sub, 'read', reply, folderType);
       
       if (!validateFolderType(folderType)) {
         return reply.code(400).send({
@@ -82,10 +89,9 @@ export async function folderRoutes(app, options) {
    * Get a single folder
    */
   app.get('/:folderType/folders/:folderId', async (req, reply) => {
-    await checkPermission(req.user.sub, 'read', reply);
-    
     try {
       const { folderType, folderId } = req.params;
+      await checkPermission(req.user.sub, 'read', reply, folderType);
       
       if (!validateFolderType(folderType)) {
         return reply.code(400).send({
@@ -111,10 +117,9 @@ export async function folderRoutes(app, options) {
    * Create a new folder
    */
   app.post('/:folderType/folders', async (req, reply) => {
-    await checkPermission(req.user.sub, 'create', reply);
-    
     try {
       const { folderType } = req.params;
+      await checkPermission(req.user.sub, 'create', reply, folderType);
       const { name, description, parent_folder_id, sort_order } = req.body;
       
       if (!validateFolderType(folderType)) {
@@ -149,10 +154,9 @@ export async function folderRoutes(app, options) {
    * Update a folder
    */
   app.put('/:folderType/folders/:folderId', async (req, reply) => {
-    await checkPermission(req.user.sub, 'update', reply);
-    
     try {
       const { folderType, folderId } = req.params;
+      await checkPermission(req.user.sub, 'update', reply, folderType);
       const { name, description, parent_folder_id, sort_order } = req.body;
       
       if (!validateFolderType(folderType)) {
@@ -194,10 +198,9 @@ export async function folderRoutes(app, options) {
    * Delete a folder
    */
   app.delete('/:folderType/folders/:folderId', async (req, reply) => {
-    await checkPermission(req.user.sub, 'delete', reply);
-    
     try {
       const { folderType, folderId } = req.params;
+      await checkPermission(req.user.sub, 'delete', reply, folderType);
       
       if (!validateFolderType(folderType)) {
         return reply.code(400).send({
@@ -225,10 +228,9 @@ export async function folderRoutes(app, options) {
    * Get items in a folder (or root if folderId is 'root' or 'null')
    */
   app.get('/:folderType/folders/:folderId/items', async (req, reply) => {
-    await checkPermission(req.user.sub, 'read', reply);
-    
     try {
       const { folderType, folderId } = req.params;
+      await checkPermission(req.user.sub, 'read', reply, folderType);
       
       if (!validateFolderType(folderType)) {
         return reply.code(400).send({
@@ -258,10 +260,9 @@ export async function folderRoutes(app, options) {
    * Move item to a folder
    */
   app.put('/:folderType/items/:itemId/move', async (req, reply) => {
-    await checkPermission(req.user.sub, 'update', reply);
-    
     try {
       const { folderType, itemId } = req.params;
+      await checkPermission(req.user.sub, 'update', reply, folderType);
       const { folder_id, sort_order } = req.body;
       
       if (!validateFolderType(folderType)) {

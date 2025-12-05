@@ -2,6 +2,7 @@
 // Manages long-running continuous flow execution sessions
 
 import crypto from 'crypto';
+import { ensureFlowResourceTags, writeFlowResourceMetrics } from './flow-resource-metrics.js';
 
 /**
  * FlowSession class manages a continuous flow execution session.
@@ -20,6 +21,7 @@ export class FlowSession {
     this.scanExecutor = null;
     this.isRunning = false;
     this.scanCountUpdateInterval = null;
+    this.flowResourceTagIds = null; // Tag IDs for resource metrics
     this.app = context.app;
     this.log = this.app.log.child({ flowId: flow.id });
   }
@@ -30,12 +32,12 @@ export class FlowSession {
    */
   async start() {
     try {
-      // Create session record in database
+      // Create session record in database (metadata only - no metrics)
       const scanRateMs = this.flow.scan_rate_ms || 1000;
       const { rows } = await this.app.db.query(
         `INSERT INTO flow_sessions 
-         (flow_id, status, started_at, last_scan_at, scan_count, config)
-         VALUES ($1, 'active', now(), now(), 0, $2)
+         (flow_id, status, started_at, config)
+         VALUES ($1, 'active', now(), $2)
          RETURNING *`,
         [this.flow.id, { scanRateMs }]
       );
@@ -47,6 +49,11 @@ export class FlowSession {
       this.log = this.app.log.child({ flowId: this.flow.id, sessionId: this.sessionId });
       this.log.info({ scanRateMs }, 'Flow session started');
 
+      // Ensure flow resource tags exist if save_usage_data is enabled
+      if (this.flow.save_usage_data !== false) {
+        this.flowResourceTagIds = await ensureFlowResourceTags(this.app, this.flow);
+      }
+
       // Create scan executor
       const executionContext = {
         ...this.context,
@@ -55,12 +62,16 @@ export class FlowSession {
       };
 
       this.scanExecutor = new this.ScanExecutorClass(this.flow, executionContext);
+      
+      // Set up metrics update callback to write to system_metrics (TimescaleDB)
+      this.scanExecutor.onMetricsUpdate = async (metrics) => {
+        // Write to system_metrics table if save_usage_data is enabled
+        if (this.flow.save_usage_data !== false && this.flowResourceTagIds) {
+          await writeFlowResourceMetrics(this.app, this.flowResourceTagIds, metrics);
+        }
+      };
+      
       await this.scanExecutor.start();
-
-      // Update scan count in database periodically (every 10 scans or 10 seconds)
-      this.scanCountUpdateInterval = setInterval(async () => {
-        await this.updateScanCount();
-      }, 10000);
 
       // Register this session in the static registry
       FlowSession.activeSessions.set(this.flow.id, this);
@@ -89,53 +100,31 @@ export class FlowSession {
         this.scanExecutor.stop();
       }
 
-      // Clear update interval
-      if (this.scanCountUpdateInterval) {
-        clearInterval(this.scanCountUpdateInterval);
-        this.scanCountUpdateInterval = null;
-      }
+      // Get final scan count for logging
+      const totalScans = this.scanExecutor?.scanCycle || 0;
 
-      // Final scan count update
-      await this.updateScanCount();
-
-      // Update session record
+      // Update session record with final status (no metrics - they're in TimescaleDB)
       await this.app.db.query(
         `UPDATE flow_sessions
          SET status = $1,
              stopped_at = now(),
              updated_at = now()
          WHERE id = $2`,
-        [reason === 'error' ? 'error' : 'stopped', this.sessionId]
+        [
+          reason === 'error' ? 'error' : 'stopped',
+          this.sessionId
+        ]
       );
 
-      this.log.info({ reason, totalScans: this.scanExecutor?.scanCycle || 0 }, 'Flow session stopped');
+      this.log.info({ 
+        reason, 
+        totalScans
+      }, 'Flow session stopped');
       
       // Unregister from static registry
       FlowSession.activeSessions.delete(this.flow.id);
     } catch (error) {
       this.log.error({ error }, 'Error stopping flow session');
-    }
-  }
-
-  /**
-   * Update scan count and last_scan_at in database
-   */
-  async updateScanCount() {
-    if (!this.scanExecutor || !this.sessionId) {
-      return;
-    }
-
-    try {
-      await this.app.db.query(
-        `UPDATE flow_sessions
-         SET scan_count = $1,
-             last_scan_at = now(),
-             updated_at = now()
-         WHERE id = $2`,
-        [this.scanExecutor.scanCycle, this.sessionId]
-      );
-    } catch (error) {
-      this.log.error({ error }, 'Failed to update scan count');
     }
   }
 

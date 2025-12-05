@@ -18,24 +18,14 @@ import {
 import { Close as CloseIcon, Add as AddIcon, Edit as EditIcon } from '@mui/icons-material';
 import Editor from '@monaco-editor/react';
 import { getInternalTags } from '../../services/flowsApi';
-import TagCreationDialog from './TagCreationDialog';
 import TagSelectionDialog from './TagSelectionDialog';
 import { getNodeMetadata } from '../../constants/nodeTypes';
 
 const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
-  const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [tagSelectionOpen, setTagSelectionOpen] = useState(false);
 
   const handleChange = (field, value) => {
     onDataChange({ [field]: value });
-  };
-
-  const handleTagCreated = (newTag) => {
-    // Automatically select the newly created tag
-    handleChange('tagId', newTag.tag_id);
-    handleChange('tagPath', newTag.tag_path);
-    handleChange('tagName', newTag.tag_name);
-    handleChange('source', 'internal');
   };
 
   const handleTagSelected = (tag) => {
@@ -265,21 +255,88 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
               fullWidth
               startIcon={hasTag ? <EditIcon /> : <AddIcon />}
               onClick={() => setTagSelectionOpen(true)}
-              sx={{ mb: 1 }}
+              sx={{ mb: 2 }}
             >
               {hasTag ? 'Change Tag' : 'Select Tag'}
             </Button>
             
-            {/* Create new internal tag (only for output) */}
-            {isOutput && (
-              <Button
-                variant="outlined"
-                fullWidth
-                startIcon={<AddIcon />}
-                onClick={() => setTagDialogOpen(true)}
-              >
-                Create New Internal Tag
-              </Button>
+            {/* Save Configuration (only for output with internal tags) */}
+            {isOutput && hasTag && node.data?.source === 'internal' && (
+              <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Database Saving
+                </Typography>
+                
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={node.data?.saveToDatabase ?? true}
+                      onChange={(e) => handleChange('saveToDatabase', e.target.checked)}
+                    />
+                  }
+                  label="Save to Database"
+                />
+                
+                {(node.data?.saveToDatabase ?? true) && (
+                  <>
+                    <FormControl fullWidth size="small" sx={{ mt: 2 }}>
+                      <InputLabel>Save Strategy</InputLabel>
+                      <Select
+                        value={node.data?.saveStrategy || 'on-change'}
+                        onChange={(e) => handleChange('saveStrategy', e.target.value)}
+                        label="Save Strategy"
+                      >
+                        <MenuItem value="always">Always (every execution)</MenuItem>
+                        <MenuItem value="on-change">On Change Only</MenuItem>
+                        <MenuItem value="never">Never (flow-local only)</MenuItem>
+                      </Select>
+                    </FormControl>
+                    
+                    {(node.data?.saveStrategy || 'on-change') === 'on-change' && (
+                      <Box sx={{ mt: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                          On-Change Settings
+                        </Typography>
+                        
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Deadband"
+                          type="number"
+                          value={node.data?.deadband ?? 0}
+                          onChange={(e) => handleChange('deadband', parseFloat(e.target.value) || 0)}
+                          helperText="Minimum change required (0 = any change)"
+                          sx={{ mb: 1.5 }}
+                          inputProps={{ min: 0, step: 0.1 }}
+                        />
+                        
+                        <FormControl fullWidth size="small" sx={{ mb: 1.5 }}>
+                          <InputLabel>Deadband Type</InputLabel>
+                          <Select
+                            value={node.data?.deadbandType || 'absolute'}
+                            onChange={(e) => handleChange('deadbandType', e.target.value)}
+                            label="Deadband Type"
+                          >
+                            <MenuItem value="absolute">Absolute</MenuItem>
+                            <MenuItem value="percent">Percent</MenuItem>
+                          </Select>
+                        </FormControl>
+                        
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Heartbeat Interval (ms)"
+                          type="number"
+                          value={node.data?.heartbeatMs ?? 60000}
+                          onChange={(e) => handleChange('heartbeatMs', parseInt(e.target.value) || 0)}
+                          helperText="Force save after this interval (0 = disabled)"
+                          inputProps={{ min: 0, step: 1000 }}
+                        />
+                      </Box>
+                    )}
+                  </>
+                )}
+              </Box>
             )}
             
             {/* Maximum Data Age (only for input) */}
@@ -513,20 +570,13 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
         {renderConfig()}
       </Box>
 
-      {/* Tag Selection and Creation Dialogs */}
+      {/* Tag Selection Dialog */}
       {tagSelectionOpen && (
         <TagSelectionDialog
           open={tagSelectionOpen}
           onClose={() => setTagSelectionOpen(false)}
           onSelect={handleTagSelected}
           currentTagId={node.data?.tagId}
-        />
-      )}
-      {tagDialogOpen && (
-        <TagCreationDialog
-          open={tagDialogOpen}
-          onClose={() => setTagDialogOpen(false)}
-          onTagCreated={handleTagCreated}
         />
       )}
     </Paper>

@@ -185,7 +185,7 @@ export default function FolderTree({
 
   return (
     <Box sx={{ width: '100%', bgcolor: 'background.paper' }}>
-      {/* Root/All Items Option */}
+      {/* Root/Home Option with New Folder Button */}
       {showRootOption && (
         <ListItem
           disablePadding
@@ -193,20 +193,30 @@ export default function FolderTree({
             bgcolor: selectedFolderId === null && !isSharedView ? 'action.selected' : 'transparent',
             borderBottom: 1,
             borderColor: 'divider',
+            display: 'flex',
           }}
         >
-          <ListItemButton onClick={handleSelectRoot} sx={{ py: 1 }}>
+          <ListItemButton onClick={handleSelectRoot} sx={{ py: 1, flex: 1 }}>
             <ListItemIcon sx={{ minWidth: 40 }}>
               <HomeIcon color={selectedFolderId === null && !isSharedView ? 'primary' : 'action'} />
             </ListItemIcon>
             <ListItemText 
-              primary="All Items"
+              primary="Home"
               primaryTypographyProps={{
                 variant: 'body2',
                 fontWeight: selectedFolderId === null && !isSharedView ? 600 : 400,
               }}
             />
           </ListItemButton>
+          <Tooltip title="New Folder">
+            <IconButton 
+              size="small" 
+              onClick={handleCreateRootFolder}
+              sx={{ mr: 1 }}
+            >
+              <CreateNewFolderIcon fontSize="small" color="primary" />
+            </IconButton>
+          </Tooltip>
         </ListItem>
       )}
 
@@ -258,21 +268,6 @@ export default function FolderTree({
         </Box>
       )}
 
-      {/* Create Root Folder Button */}
-      <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
-        <ListItemButton onClick={handleCreateRootFolder} sx={{ borderRadius: 1 }}>
-          <ListItemIcon sx={{ minWidth: 40 }}>
-            <CreateNewFolderIcon color="primary" />
-          </ListItemIcon>
-          <ListItemText 
-            primary="New Folder"
-            primaryTypographyProps={{
-              variant: 'body2',
-              color: 'primary',
-            }}
-          />
-        </ListItemButton>
-      </Box>
     </Box>
   );
 }

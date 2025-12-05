@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ReactFlow, {
   Background,
   Controls,
@@ -48,6 +48,7 @@ import {
   Add as AddIcon,
   Terminal as TerminalIcon,
   Visibility as LiveIcon,
+  Memory as ResourceIcon,
 } from '@mui/icons-material';
 import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder } from '../services/flowsApi';
 import { getNodeMetadata, getBackendMetadata } from '../constants/nodeTypes';
@@ -57,11 +58,16 @@ import NodeDetailsPanel from '../components/FlowEditor/NodeDetailsPanel';
 import FlowSettingsDialog from '../components/FlowEditor/FlowSettingsDialog';
 import ExecutionHistoryDialog from '../components/FlowEditor/ExecutionHistoryDialog';
 import LogPanel from '../components/FlowEditor/LogPanel';
+import FlowResourceMonitor from '../components/FlowEditor/FlowResourceMonitor';
 import { useFlowLiveData } from '../hooks/useFlowLiveData';
+import { useFlowResources } from '../hooks/useFlowResources';
+import { usePageTitle } from '../contexts/PageTitleContext';
 
 const FlowEditor = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { setPageTitle, setPageSubtitle } = usePageTitle();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [flow, setFlow] = useState(null);
@@ -90,11 +96,19 @@ const FlowEditor = () => {
   const [executionOrder, setExecutionOrder] = useState(null); // { nodeId: orderNumber } map
   const [showExecutionOrder, setShowExecutionOrder] = useState(false); // Toggle execution order display
   const [showLiveValues, setShowLiveValues] = useState(false); // Toggle live values display on nodes
+  const [resourceMonitorOpen, setResourceMonitorOpen] = useState(false); // Resource monitor dialog
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
 
   // Fetch live cached tag values when showLiveValues is enabled
   const liveData = useFlowLiveData(id, showLiveValues);
+  
+  // Fetch flow resource usage when deployed
+  const { data: resourceData, loading: resourceLoading, refetch: refetchResources } = useFlowResources(
+    id,
+    resourceMonitorOpen && flow?.deployed,
+    5000 // Poll every 5 seconds when dialog is open
+  );
 
   // Use ref to store trigger handler so it has a stable reference
   const handleExecuteTriggerRef = useRef(null);
@@ -177,6 +191,13 @@ const FlowEditor = () => {
     }
   }, [id]);
 
+  // Set page title when flow loads
+  useEffect(() => {
+    if (flow) {
+      setPageTitle('Flow Studio');
+      setPageSubtitle(flow.name || '');
+    }
+  }, [flow, setPageTitle, setPageSubtitle]);
 
   
   // Update nodes with execution handler and deployed state
@@ -401,6 +422,20 @@ const FlowEditor = () => {
   const showSnackbar = (message, severity = 'info') => {
     setSnackbar({ open: true, message, severity });
   };
+
+  // Handle node highlighting from query parameter
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const nodeIdToHighlight = params.get('highlight');
+    if (nodeIdToHighlight && nodes.length > 0 && reactFlowInstance) {
+      // Highlight the node
+      highlightNode(nodeIdToHighlight);
+      // Clear the highlight parameter from URL after a short delay
+      setTimeout(() => {
+        navigate(`/flows/${id}`, { replace: true });
+      }, 100);
+    }
+  }, [location.search, nodes.length, reactFlowInstance, id]); // Only depend on values that actually change
 
   const handleSnackbarClose = () => {
     setSnackbar({ ...snackbar, open: false });
@@ -1088,6 +1123,24 @@ const FlowEditor = () => {
             </IconButton>
           </Tooltip>
           
+          <Tooltip title={flow?.deployed ? "Resource Monitor" : "Deploy flow to monitor resources"}>
+            <span>
+              <IconButton 
+                onClick={() => setResourceMonitorOpen(true)}
+                disabled={!flow?.deployed}
+                sx={{
+                  color: resourceMonitorOpen ? '#1976d2' : 'inherit',
+                  bgcolor: resourceMonitorOpen ? '#e3f2fd' : 'transparent',
+                  '&:hover': {
+                    bgcolor: resourceMonitorOpen ? '#bbdefb' : 'rgba(0, 0, 0, 0.04)',
+                  },
+                }}
+              >
+                <ResourceIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+          
           <IconButton onClick={() => setNodeBrowserOpen(true)} title="Add Node (/)">
             <AddIcon />
           </IconButton>
@@ -1340,6 +1393,17 @@ const FlowEditor = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Resource Monitor Dialog */}
+      <FlowResourceMonitor
+        open={resourceMonitorOpen}
+        onClose={() => setResourceMonitorOpen(false)}
+        flowId={flow?.id}
+        flowName={flow?.name}
+        resourceData={resourceData}
+        loading={resourceLoading}
+        onRefresh={refetchResources}
+      />
     </Box>
   );
 };

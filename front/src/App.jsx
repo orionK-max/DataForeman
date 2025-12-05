@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard';
 import DashboardList from './pages/DashboardList';
 import Connectivity from './pages/Connectivity';
 import ChartComposer from './pages/ChartComposer';
+import ChartBrowser from './pages/ChartBrowser';
 import Diagnostic from './pages/Diagnostic';
 import Users from './pages/Users';
 import Profile from './pages/Profile';
@@ -65,8 +66,8 @@ const ProtectedApp = () => {
           <Route path="/connectivity" element={<Connectivity />} />
           <Route path="/flows" element={<FlowBrowser />} />
           <Route path="/flows/:id" element={<FlowEditor />} />
-          <Route path="/chart-composer" element={<ChartComposer />} />
-          <Route path="/chart-composer/:id" element={<ChartComposer />} />
+          <Route path="/charts" element={<ChartBrowser />} />
+          <Route path="/charts/:id" element={<ChartComposer />} />
           <Route path="/diagnostic" element={<Diagnostic />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/admin/users" element={<Users />} />

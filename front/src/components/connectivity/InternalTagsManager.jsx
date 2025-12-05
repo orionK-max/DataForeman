@@ -10,9 +10,7 @@ import {
   TableHead,
   TableRow,
   Button,
-  Checkbox,
   Chip,
-  IconButton,
   Typography,
   Dialog,
   DialogTitle,
@@ -29,111 +27,9 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Save as SaveIcon,
-  Stop as StopIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
-import { getInternalTags, createInternalTag, enableTagSaving, disableTagSaving, getTagWriters } from '../../services/flowsApi';
-
-/**
- * Save Configuration Dialog
- * Configure on-change or interval saving for selected tags
- */
-function SaveConfigDialog({ open, onClose, selectedTags, onSave }) {
-  const [saveType, setSaveType] = useState('on-change');
-  const [deadband, setDeadband] = useState(0.1);
-  const [interval, setInterval] = useState(1000);
-
-  const handleSave = () => {
-    onSave({
-      saveType,
-      deadband: saveType === 'on-change' ? parseFloat(deadband) : null,
-      interval: saveType === 'interval' ? parseInt(interval) : null,
-    });
-    onClose();
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Configure Tag Saving</DialogTitle>
-      <DialogContent>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-          <Alert severity="info">
-            {selectedTags.length} tag(s) selected. Configure when to save values to TimescaleDB.
-          </Alert>
-
-          <FormControl fullWidth>
-            <InputLabel>Save Type</InputLabel>
-            <Select
-              value={saveType}
-              onChange={(e) => setSaveType(e.target.value)}
-              label="Save Type"
-            >
-              <MenuItem value="on-change">On Change (with deadband)</MenuItem>
-              <MenuItem value="interval">Interval (periodic)</MenuItem>
-            </Select>
-          </FormControl>
-
-          {saveType === 'on-change' && (
-            <TextField
-              label="Deadband"
-              type="number"
-              value={deadband}
-              onChange={(e) => setDeadband(e.target.value)}
-              fullWidth
-              helperText="Minimum change required to trigger save (e.g., 0.1)"
-              inputProps={{ step: 0.01, min: 0 }}
-            />
-          )}
-
-          {saveType === 'interval' && (
-            <TextField
-              label="Interval (ms)"
-              type="number"
-              value={interval}
-              onChange={(e) => setInterval(e.target.value)}
-              fullWidth
-              helperText="How often to save values (milliseconds)"
-              inputProps={{ step: 100, min: 100 }}
-            />
-          )}
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained">
-          Save Configuration
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
-/**
- * Stop Saving Dialog
- * Warning dialog for stopping tag saving
- */
-function StopSavingDialog({ open, onClose, selectedTags, onConfirm }) {
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Stop Saving Tags?</DialogTitle>
-      <DialogContent>
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          <strong>Warning:</strong> Stopping saving will keep historical data but prevent new values from being saved to TimescaleDB.
-        </Alert>
-        <Typography variant="body2">
-          {selectedTags.length} tag(s) will stop saving values.
-        </Typography>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={onConfirm} variant="contained" color="warning">
-          Stop Saving
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
+import { getInternalTags, createInternalTag, getTagWriters } from '../../services/flowsApi';
 
 /**
  * Create Tag Dialog
@@ -260,10 +156,7 @@ export default function InternalTagsManager({ onSnackbar }) {
   const navigate = useNavigate();
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState([]);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
-  const [stopDialogOpen, setStopDialogOpen] = useState(false);
   const [tagWriters, setTagWriters] = useState({});
 
   useEffect(() => {
@@ -298,22 +191,6 @@ export default function InternalTagsManager({ onSnackbar }) {
     }
   };
 
-  const handleSelectAll = (event) => {
-    if (event.target.checked) {
-      setSelected(tags.map(t => t.tag_id));
-    } else {
-      setSelected([]);
-    }
-  };
-
-  const handleSelectOne = (tagId) => {
-    setSelected(prev => 
-      prev.includes(tagId)
-        ? prev.filter(id => id !== tagId)
-        : [...prev, tagId]
-    );
-  };
-
   const handleTagCreated = (newTag) => {
     loadTags();
     if (onSnackbar) {
@@ -321,57 +198,9 @@ export default function InternalTagsManager({ onSnackbar }) {
     }
   };
 
-  const handleSaveConfig = async (config) => {
-    try {
-      for (const tagId of selected) {
-        await enableTagSaving(tagId, {
-          on_change_enabled: config.saveType === 'on-change',
-          on_change_deadband: config.deadband,
-          poll_interval_ms: config.interval,
-        });
-      }
-      
-      await loadTags();
-      setSelected([]);
-      if (onSnackbar) {
-        onSnackbar(`${selected.length} tag(s) configured for saving`, 'success');
-      }
-    } catch (error) {
-      console.error('Failed to save configuration:', error);
-      if (onSnackbar) {
-        onSnackbar('Failed to save configuration', 'error');
-      }
-    }
-  };
-
-  const handleStopSaving = async () => {
-    try {
-      for (const tagId of selected) {
-        await disableTagSaving(tagId);
-      }
-      
-      await loadTags();
-      setSelected([]);
-      setStopDialogOpen(false);
-      if (onSnackbar) {
-        onSnackbar(`${selected.length} tag(s) stopped saving`, 'success');
-      }
-    } catch (error) {
-      console.error('Failed to stop saving:', error);
-      if (onSnackbar) {
-        onSnackbar('Failed to stop saving', 'error');
-      }
-    }
-  };
-
-  const getSaveTrigger = (tag) => {
-    if (!tag.is_subscribed) return '-';
-    if (tag.on_change_enabled) return `On Change (${tag.on_change_deadband || 0.1})`;
-    return `Interval (${tag.poll_interval_ms || 1000}ms)`;
-  };
-
-  const handleFlowClick = (flowId) => {
-    navigate(`/flows/${flowId}`);
+  const handleFlowClick = (flowId, nodeId) => {
+    // Navigate to flow editor with node highlight parameter
+    navigate(`/flows/${flowId}${nodeId ? `?highlight=${nodeId}` : ''}`);
   };
 
   if (loading) {
@@ -394,23 +223,6 @@ export default function InternalTagsManager({ onSnackbar }) {
           Create Tag
         </Button>
         <Button
-          startIcon={<SaveIcon />}
-          variant="outlined"
-          disabled={selected.length === 0}
-          onClick={() => setSaveDialogOpen(true)}
-        >
-          Save Selected
-        </Button>
-        <Button
-          startIcon={<StopIcon />}
-          variant="outlined"
-          color="warning"
-          disabled={selected.length === 0}
-          onClick={() => setStopDialogOpen(true)}
-        >
-          Stop Saving
-        </Button>
-        <Button
           startIcon={<RefreshIcon />}
           variant="outlined"
           onClick={loadTags}
@@ -418,6 +230,11 @@ export default function InternalTagsManager({ onSnackbar }) {
           Refresh
         </Button>
       </Box>
+
+      {/* Info Alert */}
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Internal tags are created and controlled by flows. To configure database saving, edit the tag-output node in your flow.
+      </Alert>
 
       {/* Tags Table */}
       {tags.length === 0 ? (
@@ -429,29 +246,14 @@ export default function InternalTagsManager({ onSnackbar }) {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    checked={selected.length === tags.length && tags.length > 0}
-                    indeterminate={selected.length > 0 && selected.length < tags.length}
-                    onChange={handleSelectAll}
-                  />
-                </TableCell>
                 <TableCell>Tag Name</TableCell>
                 <TableCell>Data Type</TableCell>
-                <TableCell>Saved</TableCell>
-                <TableCell>Save Trigger</TableCell>
                 <TableCell>Written By</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {tags.map((tag) => (
                 <TableRow key={tag.tag_id} hover>
-                  <TableCell padding="checkbox">
-                    <Checkbox
-                      checked={selected.includes(tag.tag_id)}
-                      onChange={() => handleSelectOne(tag.tag_id)}
-                    />
-                  </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="medium">
                       {tag.tag_path}
@@ -466,14 +268,6 @@ export default function InternalTagsManager({ onSnackbar }) {
                     <Chip label={tag.data_type || 'number'} size="small" variant="outlined" />
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      label={tag.is_subscribed ? 'Yes' : 'No'}
-                      size="small"
-                      color={tag.is_subscribed ? 'success' : 'default'}
-                    />
-                  </TableCell>
-                  <TableCell>{getSaveTrigger(tag)}</TableCell>
-                  <TableCell>
                     {tagWriters[tag.tag_id] && tagWriters[tag.tag_id].length > 0 ? (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                         {tagWriters[tag.tag_id].map((flow) => (
@@ -481,7 +275,7 @@ export default function InternalTagsManager({ onSnackbar }) {
                             key={flow.flow_id}
                             component="button"
                             variant="caption"
-                            onClick={() => handleFlowClick(flow.flow_id)}
+                            onClick={() => handleFlowClick(flow.flow_id, flow.node_id)}
                             sx={{ textDecoration: 'none' }}
                           >
                             {flow.flow_name}
@@ -506,20 +300,6 @@ export default function InternalTagsManager({ onSnackbar }) {
         open={createDialogOpen}
         onClose={() => setCreateDialogOpen(false)}
         onTagCreated={handleTagCreated}
-      />
-
-      <SaveConfigDialog
-        open={saveDialogOpen}
-        onClose={() => setSaveDialogOpen(false)}
-        selectedTags={selected}
-        onSave={handleSaveConfig}
-      />
-
-      <StopSavingDialog
-        open={stopDialogOpen}
-        onClose={() => setStopDialogOpen(false)}
-        selectedTags={selected}
-        onConfirm={handleStopSaving}
       />
     </Box>
   );

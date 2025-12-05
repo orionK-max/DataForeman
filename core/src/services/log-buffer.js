@@ -119,11 +119,12 @@ export class LogBuffer {
 
       await this.db.query(query, values);
 
-      // Publish logs to NATS for live updates
+      // Publish logs to NATS for live updates (fire-and-forget)
       if (this.nats && this.nats.healthy && this.nats.healthy()) {
         for (const log of logsToWrite) {
           try {
-            await this.nats.publish(`df.logs.${log.flow_id}`, {
+            // Don't await - fire-and-forget to prevent blocking
+            this.nats.publish(`df.logs.${log.flow_id}`, {
               execution_id: log.execution_id,
               flow_id: log.flow_id,
               node_id: log.node_id,

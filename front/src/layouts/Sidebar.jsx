@@ -26,7 +26,7 @@ const allMenuItems = [
   { text: 'Dashboards', icon: <DashboardIcon />, path: '/dashboards', feature: 'dashboards' },
   { text: 'Connectivity', icon: <CableIcon />, path: '/connectivity', feature: 'connectivity.devices' },
   { text: 'Flow Studio', icon: <AccountTreeIcon />, path: '/flows', feature: 'flows' },
-  { text: 'Chart Composer', icon: <TimelineIcon />, path: '/chart-composer', feature: 'chart_composer' },
+  { text: 'Chart Composer', icon: <TimelineIcon />, path: '/charts', feature: 'chart_composer' },
   { text: 'Diagnostic', icon: <BugReportIcon />, path: '/diagnostic', feature: 'diagnostic.system' },
 ];
 
@@ -86,7 +86,9 @@ const Sidebar = () => {
             <ListItemButton
               selected={
                 location.pathname === item.path ||
-                (item.path === '/dashboards' && location.pathname.startsWith('/dashboards'))
+                (item.path === '/dashboards' && location.pathname.startsWith('/dashboards')) ||
+                (item.path === '/charts' && location.pathname.startsWith('/charts')) ||
+                (item.path === '/flows' && location.pathname.startsWith('/flows'))
               }
               onClick={() => navigate(item.path)}
             >

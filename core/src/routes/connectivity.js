@@ -2835,11 +2835,10 @@ export async function connectivityRoutes(app) {
           unit_id,
           description,
           is_subscribed,
-          poll_group_id,
           status,
           created_at,
           updated_at
-        ) VALUES ($1, 'INTERNAL', $2, $3, $4, $5, $6, false, 5, 'active', now(), now())
+        ) VALUES ($1, 'INTERNAL', $2, $3, $4, $5, $6, false, 'active', now(), now())
         RETURNING *
       `, [systemConnectionId, tag_path, tag_name, data_type, unit_id || null, description || null]);
 
@@ -2849,109 +2848,6 @@ export async function connectivityRoutes(app) {
     } catch (e) {
       req.log.error({ err: e, tag_path, userId }, 'failed to create internal tag');
       return reply.code(500).send({ error: 'failed_to_create_tag' });
-    }
-  });
-
-  // PUT /api/connectivity/tags/:tagId/save - Enable saving for internal tag
-  app.put('/tags/:tagId/save', async (req, reply) => {
-    const userId = req.user?.sub;
-    const tagId = parseInt(req.params.tagId);
-    const body = req.body || {};
-    const { 
-      on_change_enabled = true, 
-      on_change_deadband = 0, 
-      on_change_deadband_type = 'absolute',
-      on_change_heartbeat_ms = 60000,
-      poll_group_id = 5
-    } = body;
-
-    if (!Number.isInteger(tagId) || tagId <= 0) {
-      return reply.code(400).send({ error: 'invalid_tag_id' });
-    }
-
-    try {
-      // Verify tag exists and is internal
-      const tagCheck = await app.db.query(
-        `SELECT tag_id, driver_type FROM tag_metadata WHERE tag_id = $1`,
-        [tagId]
-      );
-
-      if (tagCheck.rows.length === 0) {
-        return reply.code(404).send({ error: 'tag_not_found' });
-      }
-
-      if (tagCheck.rows[0].driver_type !== 'INTERNAL') {
-        return reply.code(400).send({ error: 'not_an_internal_tag' });
-      }
-
-      // Update tag to enable saving
-      const result = await app.db.query(`
-        UPDATE tag_metadata
-        SET 
-          is_subscribed = true,
-          on_change_enabled = $1,
-          on_change_deadband = $2,
-          on_change_deadband_type = $3,
-          on_change_heartbeat_ms = $4,
-          poll_group_id = $5,
-          updated_at = now()
-        WHERE tag_id = $6
-        RETURNING *
-      `, [on_change_enabled, on_change_deadband, on_change_deadband_type, on_change_heartbeat_ms, poll_group_id, tagId]);
-
-      req.log.info({ tag_id: tagId, userId }, 'internal tag saving enabled');
-
-      return reply.send({ tag: result.rows[0] });
-    } catch (e) {
-      req.log.error({ err: e, tag_id: tagId, userId }, 'failed to enable tag saving');
-      return reply.code(500).send({ error: 'failed_to_save_tag' });
-    }
-  });
-
-  // PUT /api/connectivity/tags/:tagId/stop-saving - Disable saving for internal tag
-  app.put('/tags/:tagId/stop-saving', async (req, reply) => {
-    const userId = req.user?.sub;
-    const tagId = parseInt(req.params.tagId);
-
-    if (!Number.isInteger(tagId) || tagId <= 0) {
-      return reply.code(400).send({ error: 'invalid_tag_id' });
-    }
-
-    try {
-      // Verify tag exists and is internal
-      const tagCheck = await app.db.query(
-        `SELECT tag_id, driver_type, connection_id FROM tag_metadata WHERE tag_id = $1`,
-        [tagId]
-      );
-
-      if (tagCheck.rows.length === 0) {
-        return reply.code(404).send({ error: 'tag_not_found' });
-      }
-
-      if (tagCheck.rows[0].driver_type !== 'INTERNAL') {
-        return reply.code(400).send({ error: 'not_an_internal_tag' });
-      }
-
-      // Update tag to disable saving
-      const result = await app.db.query(`
-        UPDATE tag_metadata
-        SET 
-          is_subscribed = false,
-          on_change_enabled = false,
-          updated_at = now()
-        WHERE tag_id = $1
-        RETURNING *
-      `, [tagId]);
-
-      req.log.info({ tag_id: tagId, userId }, 'internal tag saving disabled');
-
-      // Note: Historical data remains in TimescaleDB - we don't delete it
-      // Users can manually delete data if needed via TimescaleDB queries
-
-      return reply.send({ tag: result.rows[0] });
-    } catch (e) {
-      req.log.error({ err: e, tag_id: tagId, userId }, 'failed to stop tag saving');
-      return reply.code(500).send({ error: 'failed_to_stop_saving' });
     }
   });
 

@@ -11,6 +11,7 @@ import { apiClient } from './api';
 export const FOLDER_TYPES = {
   DASHBOARD: 'dashboard',
   CHART: 'chart',
+  FLOW: 'flow',
 };
 
 const folderService = {
@@ -120,6 +121,20 @@ const folderService = {
     delete: (folderId) => folderService.deleteFolder(FOLDER_TYPES.CHART, folderId),
     getItems: (folderId) => folderService.getFolderItems(FOLDER_TYPES.CHART, folderId),
     moveItem: (itemId, folderId, sortOrder) => folderService.moveItemToFolder(FOLDER_TYPES.CHART, itemId, folderId, sortOrder),
+  },
+
+  /**
+   * Convenience methods for flow folders
+   */
+  flow: {
+    list: () => folderService.listFolders(FOLDER_TYPES.FLOW),
+    getTree: () => folderService.getFolderTree(FOLDER_TYPES.FLOW),
+    get: (folderId) => folderService.getFolder(FOLDER_TYPES.FLOW, folderId),
+    create: (data) => folderService.createFolder(FOLDER_TYPES.FLOW, data),
+    update: (folderId, updates) => folderService.updateFolder(FOLDER_TYPES.FLOW, folderId, updates),
+    delete: (folderId) => folderService.deleteFolder(FOLDER_TYPES.FLOW, folderId),
+    getItems: (folderId) => folderService.getFolderItems(FOLDER_TYPES.FLOW, folderId),
+    moveItem: (itemId, folderId, sortOrder) => folderService.moveItemToFolder(FOLDER_TYPES.FLOW, itemId, folderId, sortOrder),
   },
 };
 

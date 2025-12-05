@@ -242,7 +242,7 @@ const DashboardList = () => {
   const filteredDashboards = viewMode === 'shared' 
     ? dashboards // In shared mode, show all shared dashboards
     : (selectedFolderId === null
-        ? dashboards
+        ? dashboards.filter(d => !d.folder_id) // Show only root-level dashboards
         : dashboards.filter(d => d.folder_id === selectedFolderId));
 
   // Flatten folders for move menu
@@ -340,7 +340,7 @@ const DashboardList = () => {
           <Typography variant="h6" color="text.secondary" gutterBottom>
             {viewMode === 'shared' 
               ? 'No dashboards shared with you yet'
-              : (selectedFolderId ? 'No dashboards in this folder' : 'No dashboards yet')
+              : (selectedFolderId ? 'No dashboards in this folder' : 'No dashboards at home level. All dashboards are in folders.')
             }
           </Typography>
           {can('dashboards', 'create') && viewMode !== 'shared' && (
@@ -357,14 +357,35 @@ const DashboardList = () => {
       ) : (
         <Grid container spacing={3}>
           {filteredDashboards.map(dashboard => (
-            <Grid item xs={12} sm={6} md={4} key={dashboard.id}>
-              <Card>
-                <CardContent>
+            <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={dashboard.id}>
+              <Card 
+                sx={{ 
+                  cursor: 'pointer',
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  '&:hover': { 
+                    boxShadow: 4,
+                    transform: 'translateY(-2px)',
+                    transition: 'all 0.2s'
+                  }
+                }}
+              >
+                <CardContent 
+                  onClick={() => navigate(`/dashboards/${dashboard.id}`)}
+                  sx={{ flexGrow: 1, pb: 1 }}
+                >
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 1 }}>
-                    <Typography variant="h6" component="div">
+                    <Typography variant="h6" component="div" sx={{ 
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      flexGrow: 1,
+                      mr: 1
+                    }}>
                       {dashboard.name}
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
                       {dashboard.is_shared && (
                         <Chip label="Shared" size="small" color="primary" />
                       )}
@@ -374,7 +395,20 @@ const DashboardList = () => {
                     </Box>
                   </Box>
                   {dashboard.description && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    <Typography 
+                      variant="body2" 
+                      color="text.secondary" 
+                      sx={{ 
+                        mb: 2,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        minHeight: '2.5em',
+                      }}
+                      title={dashboard.description}
+                    >
                       {dashboard.description}
                     </Typography>
                   )}
@@ -382,17 +416,14 @@ const DashboardList = () => {
                     {dashboard.layout?.items?.length || 0} widgets
                   </Typography>
                 </CardContent>
-                <CardActions>
-                  <Button
-                    size="small"
-                    onClick={() => navigate(`/dashboards/${dashboard.id}`)}
-                  >
-                    Open
-                  </Button>
+                <CardActions sx={{ pt: 0, justifyContent: 'flex-end' }}>
                   {can('dashboards', 'update') && dashboard.is_owner && (
                     <IconButton
                       size="small"
-                      onClick={(e) => handleOpenMoveMenu(e, dashboard)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenMoveMenu(e, dashboard);
+                      }}
                       title="Move to folder"
                     >
                       <MoveIcon fontSize="small" />
@@ -401,7 +432,10 @@ const DashboardList = () => {
                   {can('dashboards', 'create') && (
                     <IconButton
                       size="small"
-                      onClick={() => handleDuplicate(dashboard)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDuplicate(dashboard);
+                      }}
                       title="Duplicate"
                     >
                       <FileCopy fontSize="small" />
@@ -410,7 +444,10 @@ const DashboardList = () => {
                   {dashboard.is_owner && can('dashboards', 'delete') && (
                     <IconButton
                       size="small"
-                      onClick={() => handleDelete(dashboard.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(dashboard.id);
+                      }}
                       title="Delete"
                     >
                       <Delete fontSize="small" />

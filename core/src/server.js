@@ -27,6 +27,7 @@ import { unitsRoutes } from './routes/units.js';
 import { folderRoutes } from './routes/folders.js';
 import flowRoutes from './routes/flows.js';
 import flowLiveDataRoutes from './routes/flow-live-data.js';
+import flowResourceRoutes from './routes/flow-resources.js';
 import adminFlowsRoutes from './routes/admin/flows.js';
 import { jobsPlugin } from './services/jobs.js';
 import { dbPlugin } from './services/db.js';
@@ -160,6 +161,7 @@ export async function buildServer() {
   await app.register(folderRoutes, { prefix: '/api' }); // Handles /api/dashboard/folders and /api/chart/folders
   await app.register(flowRoutes); // Flow studio routes
   await app.register(flowLiveDataRoutes); // Flow live data (cached tag values) - no prefix, routes define their own paths
+  await app.register(flowResourceRoutes); // Flow resource monitoring - no prefix, routes define their own paths
   await app.register(adminFlowsRoutes, { prefix: '/api/admin/flows' }); // Admin flow configuration
   // Jobs plugin + routes (admin only) – register once then start dispatcher
   await app.register(jobsPlugin); // services.jobs

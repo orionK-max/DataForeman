@@ -663,6 +663,69 @@ export const jobsPlugin = fp(async (app) => {
 		await capacityCalculator(ctx);
 	});
 
+	// Flow metrics cleanup - deletes all time-series data for a deleted flow
+	register('flow_metrics_cleanup', async (ctx) => {
+		const { job, updateProgress, complete, fail } = ctx;
+		const { flowId } = job.params;
+		
+		try {
+			await updateProgress(job.id, { message: 'Finding flow metric tags...', pct: 10 });
+			
+			// Get System connection
+			const { rows: connRows } = await app.db.query(
+				`SELECT id FROM connections WHERE name = 'System' AND is_system_connection = true LIMIT 1`
+			);
+			
+			if (!connRows.length) {
+				return await complete(job.id, { message: 'System connection not found', tagsDeleted: 0, dataPointsDeleted: 0 });
+			}
+			
+			const systemConnId = connRows[0].id;
+			
+			// Get all tag IDs for this flow (by UUID)
+			const { rows: tags } = await app.db.query(
+				`SELECT tag_id FROM tag_metadata 
+				 WHERE connection_id = $1 
+				   AND driver_type = 'SYSTEM'
+				   AND tag_path LIKE $2`,
+				[systemConnId, `flow.${flowId}.%`]
+			);
+			
+			if (tags.length === 0) {
+				return await complete(job.id, { message: 'No tags found for flow', tagsDeleted: 0, dataPointsDeleted: 0 });
+			}
+			
+			const tagIds = tags.map(t => t.tag_id);
+			await updateProgress(job.id, { message: `Found ${tagIds.length} metric tags`, pct: 30 });
+			
+			// Delete time-series data from TimescaleDB
+			await updateProgress(job.id, { message: 'Deleting time-series data from TimescaleDB...', pct: 50 });
+			const { rowCount: dataPoints } = await app.tsdb.query(
+				`DELETE FROM system_metrics WHERE tag_id = ANY($1)`,
+				[tagIds]
+			);
+			
+			await updateProgress(job.id, { message: 'Deleting tag metadata...', pct: 80 });
+			
+			// Hard delete tags from tag_metadata
+			const { rowCount: tagsDeleted } = await app.db.query(
+				`DELETE FROM tag_metadata 
+				 WHERE connection_id = $1 
+				   AND driver_type = 'SYSTEM'
+				   AND tag_path LIKE $2`,
+				[systemConnId, `flow.${flowId}.%`]
+			);
+			
+			await complete(job.id, { 
+				message: `Cleaned up ${tagsDeleted} tags and ${dataPoints} data points`,
+				tagsDeleted,
+				dataPointsDeleted: dataPoints
+			});
+		} catch (error) {
+			await fail(job.id, error);
+		}
+	}, { maxAttempts: 3, description: 'Delete all metric data for a deleted flow' });
+
 	// Flow executor - executes deployed flows with node-by-node processing
 	register('flow_execution', async (ctx) => {
 		const { executeFlow } = await import('./flow-executor.js');

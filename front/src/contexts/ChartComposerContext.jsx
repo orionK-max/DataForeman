@@ -500,10 +500,12 @@ export const ChartComposerProvider = ({ children }) => {
         
         if (timeMode === 'rolling') {
           // Rolling: show last X time from now
+          // Add 100ms buffer to 'to' time to account for ingestion batching delays
+          // This prevents gaps on the right edge of the chart while data is in flight
           const now = Date.now();
           const duration = timeDuration || 3600000; // Default 1 hour
           from = new Date(now - duration);
-          to = new Date(now);
+          to = new Date(now + 100); // +100ms buffer for batching delay (50ms max batch age + 50ms margin)
           
           // Set originalTimeWindow for sliding window queries
           setOriginalTimeWindow(duration);
@@ -513,7 +515,7 @@ export const ChartComposerProvider = ({ children }) => {
           const duration = timeDuration || 3600000; // Default 1 hour
           const delayedNow = now - timeOffset;
           from = new Date(delayedNow - duration);
-          to = new Date(delayedNow);
+          to = new Date(delayedNow); // No buffer for shifted mode (historical data)
           
           // Set originalTimeWindow for sliding window queries
           setOriginalTimeWindow(duration);
@@ -766,7 +768,8 @@ export const ChartComposerProvider = ({ children }) => {
             effectiveFrom = new Date(shiftedTo - originalTimeWindow);
           } else {
             // Rolling or fixed mode: slide to now
-            effectiveTo = new Date(now);
+            // Add 100ms buffer to account for ingestion batching delays
+            effectiveTo = new Date(now + 100);
             effectiveFrom = new Date(now - originalTimeWindow);
           }
           

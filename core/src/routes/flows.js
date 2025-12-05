@@ -3,6 +3,8 @@
  * CRUD operations for workflow definitions
  */
 
+import { updateFlowResourceTagNames } from '../services/flow-resource-metrics.js';
+
 export default async function flowRoutes(app) {
   const db = app.db;
 
@@ -251,7 +253,7 @@ export default async function flowRoutes(app) {
 
     // Verify ownership and get current state
     const ownerCheck = await db.query(
-      'SELECT owner_user_id, test_mode FROM flows WHERE id = $1',
+      'SELECT owner_user_id, test_mode, name FROM flows WHERE id = $1',
       [id]
     );
 
@@ -264,6 +266,7 @@ export default async function flowRoutes(app) {
     }
 
     const previousTestMode = ownerCheck.rows[0].test_mode;
+    const previousName = ownerCheck.rows[0].name;
 
     // Validate log retention if provided
     if (logs_retention_days !== undefined) {
@@ -413,6 +416,16 @@ export default async function flowRoutes(app) {
       }
     }
 
+    // Handle flow name change - update resource tag names
+    if (name !== undefined && name !== previousName) {
+      try {
+        await updateFlowResourceTagNames(app, id, previousName, name);
+        req.log.info({ flowId: id, oldName: previousName, newName: name }, 'Flow resource tags updated for name change');
+      } catch (err) {
+        req.log.warn({ err, flowId: id }, 'Failed to update flow resource tag names');
+      }
+    }
+
     reply.send({ flow });
   });
 
@@ -423,14 +436,37 @@ export default async function flowRoutes(app) {
 
     const { id } = req.params;
 
-    // Verify ownership
-    const result = await db.query(
-      'DELETE FROM flows WHERE id = $1 AND owner_user_id = $2 RETURNING id',
+    // Verify flow exists and user owns it
+    const flowResult = await db.query(
+      'SELECT id, name, deployed FROM flows WHERE id = $1 AND owner_user_id = $2',
       [id, userId]
     );
 
-    if (result.rows.length === 0) {
+    if (flowResult.rows.length === 0) {
       return reply.code(404).send({ error: 'flow not found or not owner' });
+    }
+
+    const flowId = flowResult.rows[0].id;
+    const flowName = flowResult.rows[0].name;
+    const deployed = flowResult.rows[0].deployed;
+
+    // Prevent deletion of deployed flows
+    if (deployed) {
+      return reply.code(400).send({ error: 'cannot delete deployed flow', message: 'Please undeploy the flow before deleting it' });
+    }
+
+    // Delete the flow (cascade deletes sessions, logs, etc.)
+    await db.query(
+      'DELETE FROM flows WHERE id = $1 AND owner_user_id = $2',
+      [id, userId]
+    );
+
+    // Enqueue background job to clean up flow metrics (tags + time-series data)
+    try {
+      const job = await app.jobs.enqueue('flow_metrics_cleanup', { flowId });
+      req.log.info({ flowId, flowName, jobId: job.id }, 'Flow deleted, metrics cleanup job enqueued');
+    } catch (error) {
+      req.log.error({ error, flowId, flowName }, 'Failed to enqueue metrics cleanup job');
     }
 
     reply.send({ success: true });
@@ -469,6 +505,13 @@ export default async function flowRoutes(app) {
       `, [deployed, id]);
 
       const flow = result.rows[0];
+
+      // Update tag dependencies when deploying
+      if (deployed && flow.definition) {
+        const { updateFlowTagDependencies } = await import('../services/flow-executor.js');
+        await updateFlowTagDependencies(app, id, flow.definition);
+        req.log.debug({ flowId: id }, 'Tag dependencies updated');
+      }
 
       // Auto-start session if deploying
       if (deployed) {
@@ -562,6 +605,7 @@ export default async function flowRoutes(app) {
     if (!(await checkPermission(userId, 'update', reply))) return;
 
     const { id } = req.params;
+    const { name } = req.body || {};
 
     // Get the original flow (must be owned or shared)
     const original = await db.query(`
@@ -575,13 +619,16 @@ export default async function flowRoutes(app) {
 
     const flow = original.rows[0];
 
+    // Use provided name or default to "{name} (Copy)"
+    const duplicateName = name?.trim() || `${flow.name} (Copy)`;
+
     // Create duplicate
     const result = await db.query(`
       INSERT INTO flows (name, description, owner_user_id, definition, static_data, deployed, shared)
       VALUES ($1, $2, $3, $4, $5, false, false)
       RETURNING *
     `, [
-      `${flow.name} (Copy)`,
+      duplicateName,
       flow.description,
       userId,
       flow.definition,

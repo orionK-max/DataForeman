@@ -94,7 +94,10 @@ export async function deleteFlow(id) {
     method: 'DELETE',
     headers: getHeaders()
   });
-  if (!response.ok) throw new Error('Failed to delete flow');
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to delete flow' }));
+    throw new Error(error.message || error.error || 'Failed to delete flow');
+  }
   return response.json();
 }
 
@@ -117,10 +120,17 @@ export async function deployFlow(id, deployed) {
 /**
  * Duplicate flow
  */
-export async function duplicateFlow(id) {
+export async function duplicateFlow(id, name) {
+  const body = name ? JSON.stringify({ name }) : undefined;
+  const headers = getHeaders();
+  if (body) {
+    headers['Content-Type'] = 'application/json';
+  }
+  
   const response = await fetch(`${API_BASE}/flows/${id}/duplicate`, {
     method: 'POST',
-    headers: getHeaders()
+    headers,
+    body
   });
   if (!response.ok) throw new Error('Failed to duplicate flow');
   return response.json();
@@ -221,31 +231,6 @@ export async function updateTag(tagId, data) {
     body: JSON.stringify(data)
   });
   if (!response.ok) throw new Error('Failed to update tag');
-  return response.json();
-}
-
-/**
- * Enable saving for internal tag
- */
-export async function enableTagSaving(tagId, config) {
-  const response = await fetch(`${API_BASE}/connectivity/tags/${tagId}/save`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(config)
-  });
-  if (!response.ok) throw new Error('Failed to enable tag saving');
-  return response.json();
-}
-
-/**
- * Disable saving for internal tag
- */
-export async function disableTagSaving(tagId) {
-  const response = await fetch(`${API_BASE}/connectivity/tags/${tagId}/stop-saving`, {
-    method: 'PUT',
-    headers: getHeaders()
-  });
-  if (!response.ok) throw new Error('Failed to disable tag saving');
   return response.json();
 }
 

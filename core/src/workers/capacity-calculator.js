@@ -22,7 +22,13 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
     `);
     const dbSizeBytes = Number(dbSizeResult.rows[0]?.db_size_bytes || 0);
     
-    // Get ingestion rate: count rows and total size from last 24 hours
+    // Get system metrics retention policy
+    const sysMetricsRetentionResult = await app.db.query(`
+      SELECT value FROM system_settings WHERE key = $1
+    `, ['system_metrics.retention_days']);
+    const sysMetricsRetentionDays = Number(sysMetricsRetentionResult.rows[0]?.value) || null;
+    
+    // Get ingestion rate for tag_values: count rows from last 24 hours
     const ingestRateResult = await db.query(`
       SELECT 
         COUNT(*) as row_count,
@@ -34,13 +40,30 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
     const rowCount = Number(ingestRateResult.rows[0]?.row_count || 0);
     const timeSpanSeconds = Number(ingestRateResult.rows[0]?.time_span_seconds || 0);
     
-    // Calculate average bytes per row (estimate based on table structure)
-    // Each row: ts(8) + connection_id(16) + tag_id(4) + quality(2) + v_num(8) + v_text(avg ~50) + v_json(avg ~100) + overhead(~30)
-    // Conservative estimate: ~200 bytes/row average
-    const BYTES_PER_ROW = 200;
+    // Get ingestion rate for system_metrics: count rows from last 24 hours
+    const sysMetricsRateResult = await db.query(`
+      SELECT 
+        COUNT(*) as row_count,
+        EXTRACT(EPOCH FROM (MAX(ts) - MIN(ts))) as time_span_seconds
+      FROM system_metrics
+      WHERE ts >= NOW() - INTERVAL '24 hours'
+    `).catch(() => ({ rows: [{ row_count: 0, time_span_seconds: 0 }] })); // Fallback if table doesn't exist
     
-    // Calculate ingestion rate
+    const sysMetricsRowCount = Number(sysMetricsRateResult.rows[0]?.row_count || 0);
+    const sysMetricsTimeSpan = Number(sysMetricsRateResult.rows[0]?.time_span_seconds || 0);
+    
+    // Calculate average bytes per row (estimate based on table structure)
+    // tag_values: ts(8) + connection_id(16) + tag_id(4) + quality(2) + v_num(8) + v_text(avg ~50) + v_json(avg ~100) + overhead(~30)
+    // Conservative estimate: ~200 bytes/row average
+    const TAG_VALUES_BYTES_PER_ROW = 200;
+    
+    // system_metrics: tag_id(4) + ts(8) + v_num(8) + overhead(~24)
+    // Smaller table, estimate: ~44 bytes/row average
+    const SYS_METRICS_BYTES_PER_ROW = 44;
+    
+    // Calculate ingestion rate for tag_values
     let bytesPerDay = null;
+    let sysMetricsBytesPerDay = null;
     let daysRemaining = null;
     let steadyStateBytes = null;
     let daysUntilSteadyState = null;
@@ -49,12 +72,27 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
     if (rowCount > 0 && timeSpanSeconds > 0) {
       const rowsPerSecond = rowCount / timeSpanSeconds;
       const rowsPerDay = rowsPerSecond * 86400; // 86400 seconds in a day
-      bytesPerDay = rowsPerDay * BYTES_PER_ROW;
-      
+      bytesPerDay = rowsPerDay * TAG_VALUES_BYTES_PER_ROW;
+    }
+    
+    // Calculate ingestion rate for system_metrics
+    if (sysMetricsRowCount > 0 && sysMetricsTimeSpan > 0) {
+      const rowsPerSecond = sysMetricsRowCount / sysMetricsTimeSpan;
+      const rowsPerDay = rowsPerSecond * 86400;
+      sysMetricsBytesPerDay = rowsPerDay * SYS_METRICS_BYTES_PER_ROW;
+    }
+    
+    // Combine both tables for total growth rate
+    const totalBytesPerDay = (bytesPerDay || 0) + (sysMetricsBytesPerDay || 0);
+    
+    if (totalBytesPerDay > 0) {
       // If retention policy is active, data will reach steady state
       if (retentionDays && retentionDays > 0) {
-        // Steady state size = retention_days * bytes_per_day
-        steadyStateBytes = retentionDays * bytesPerDay;
+        // Steady state size = retention_days * bytes_per_day (for tag_values)
+        const tagValuesSteadyState = retentionDays * (bytesPerDay || 0);
+        // Add system_metrics steady state (uses its own retention policy)
+        const sysMetricsSteadyState = (sysMetricsRetentionDays || 30) * (sysMetricsBytesPerDay || 0);
+        steadyStateBytes = tagValuesSteadyState + sysMetricsSteadyState;
         
         if (dbSizeBytes >= steadyStateBytes * 0.95) {
           // Already at steady state (within 5% of target)
@@ -64,10 +102,10 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
           // Still growing towards steady state
           mode = 'growth';
           const bytesUntilSteadyState = steadyStateBytes - dbSizeBytes;
-          daysUntilSteadyState = Math.ceil(bytesUntilSteadyState / bytesPerDay);
+          daysUntilSteadyState = Math.ceil(bytesUntilSteadyState / totalBytesPerDay);
         }
       } else {
-        // No retention policy - will grow indefinitely
+        // No retention policy on tag_values - will grow indefinitely
         mode = 'growth';
         
         // Try to get available disk space from system settings (set by /diag/resources once)
@@ -76,8 +114,8 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
             SELECT value FROM system_settings WHERE key = $1
           `, ['capacity.disk_avail_bytes']);
           const availBytes = Number(diskResult.rows[0]?.value);
-          if (availBytes && bytesPerDay > 0) {
-            daysRemaining = Math.floor(availBytes / bytesPerDay);
+          if (availBytes && totalBytesPerDay > 0) {
+            daysRemaining = Math.floor(availBytes / totalBytesPerDay);
           }
         } catch {}
       }
@@ -86,9 +124,13 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
     const capacityEstimate = {
       db_size_bytes: dbSizeBytes,
       rows_last_24h: rowCount,
+      system_metrics_rows_last_24h: sysMetricsRowCount,
       estimated_bytes_per_day: bytesPerDay,
+      system_metrics_bytes_per_day: sysMetricsBytesPerDay,
+      total_bytes_per_day: totalBytesPerDay,
       days_remaining: daysRemaining,
       retention_days: retentionDays,
+      system_metrics_retention_days: sysMetricsRetentionDays,
       steady_state_bytes: steadyStateBytes,
       days_until_steady_state: daysUntilSteadyState,
       mode: mode,
@@ -106,7 +148,10 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
     log.info({ 
       dbSizeBytes, 
       rowCount, 
+      sysMetricsRowCount,
       bytesPerDay, 
+      sysMetricsBytesPerDay,
+      totalBytesPerDay,
       mode, 
       daysRemaining 
     }, 'Capacity calculation completed');

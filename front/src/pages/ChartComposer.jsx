@@ -1,10 +1,9 @@
 import React from 'react';
-import { useParams } from 'react-router-dom';
-import { Typography, Box, Grid, Alert, Card, IconButton, Collapse, Badge } from '@mui/material';
-import { ExpandMore, ExpandLess } from '@mui/icons-material';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button } from '@mui/material';
+import { ExpandMore, ExpandLess, ArrowBack } from '@mui/icons-material';
 import { ChartComposerProvider, useChartComposer } from '../contexts/ChartComposerContext';
 import ChartRenderer from '../components/chartComposer/ChartRenderer';
-import ChartsLibrary from '../components/chartComposer/ChartsLibrary';
 import PointsTable from '../components/chartComposer/PointsTable';
 import SaveChartButton from '../components/chartComposer/SaveChartButton';
 import chartComposerService from '../services/chartComposerService';
@@ -12,6 +11,7 @@ import useSetPageTitle from '../hooks/useSetPageTitle';
 
 const ChartComposerContent = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const {
     items, 
     loading, 
@@ -235,6 +235,17 @@ const ChartComposerContent = () => {
 
   return (
     <Box>
+      {/* Back to Charts Button */}
+      <Box sx={{ mb: 2 }}>
+        <Button
+          startIcon={<ArrowBack />}
+          onClick={() => navigate('/charts')}
+          variant="outlined"
+          size="small"
+        >
+          Back to Charts
+        </Button>
+      </Box>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -242,12 +253,10 @@ const ChartComposerContent = () => {
         </Alert>
       )}
 
-      <Grid container spacing={2} sx={{ mt: 2 }}>
-        {/* Left Column: Chart */}
-        <Grid item xs={12} md={9}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* Chart with integrated Points */}
-            <Card>
+      {/* Full-width Chart */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {/* Chart with integrated Points */}
+        <Card>
               <Box 
                 id="chart-composer-container"
                 sx={{ 
@@ -391,16 +400,6 @@ const ChartComposerContent = () => {
               </Collapse>
             </Card>
           </Box>
-        </Grid>
-
-        {/* Right Column: Saved Charts */}
-        <Grid item xs={12} md={3}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* Saved Charts Library */}
-            <ChartsLibrary />
-          </Box>
-        </Grid>
-      </Grid>
     </Box>
   );
 };

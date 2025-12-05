@@ -59,7 +59,7 @@ export const telemetryIngestPlugin = fp(async (app) => {
   const batch = [];
   let flushing = false;
   const MAX_BATCH = 500; // MVP: modest batch size
-  const MAX_AGE_MS = 100; // flush at least every 100ms
+  const MAX_AGE_MS = 50; // flush at least every 50ms (reduced for live chart responsiveness)
   let lastFlush = Date.now();
   const metrics = {
     totalRows: 0,
