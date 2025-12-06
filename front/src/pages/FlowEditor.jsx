@@ -97,6 +97,7 @@ const FlowEditor = () => {
   const [showExecutionOrder, setShowExecutionOrder] = useState(false); // Toggle execution order display
   const [showLiveValues, setShowLiveValues] = useState(false); // Toggle live values display on nodes
   const [resourceMonitorOpen, setResourceMonitorOpen] = useState(false); // Resource monitor dialog
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track unsaved changes
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
 
@@ -112,6 +113,24 @@ const FlowEditor = () => {
 
   // Use ref to store trigger handler so it has a stable reference
   const handleExecuteTriggerRef = useRef(null);
+  
+  // Wrap onNodesChange to detect position changes
+  const handleNodesChange = useCallback((changes) => {
+    onNodesChange(changes);
+    // Mark as having unsaved changes when nodes are moved
+    if (changes.some(change => change.type === 'position' && change.dragging === false)) {
+      setHasUnsavedChanges(true);
+    }
+  }, [onNodesChange]);
+
+  // Wrap onEdgesChange to detect edge removals
+  const handleEdgesChange = useCallback((changes) => {
+    onEdgesChange(changes);
+    // Mark as having unsaved changes when edges are removed
+    if (changes.some(change => change.type === 'remove')) {
+      setHasUnsavedChanges(true);
+    }
+  }, [onEdgesChange]);
   
   // Update the ref whenever dependencies change
   handleExecuteTriggerRef.current = async (triggerNodeId) => {
@@ -468,6 +487,7 @@ const FlowEditor = () => {
       }
 
       await updateFlow(id, { definition });
+      setHasUnsavedChanges(false); // Clear unsaved changes after save
       showSnackbar('Flow saved successfully', 'success');
       
       // Show warnings if any
@@ -899,6 +919,7 @@ const FlowEditor = () => {
       ...params,
       markerEnd: { type: MarkerType.ArrowClosed }
     }, eds));
+    setHasUnsavedChanges(true); // Mark as having unsaved changes
   }, [setEdges]);
 
   // Handle node deletion
@@ -908,11 +929,13 @@ const FlowEditor = () => {
     if (selectedNode && deletedIds.includes(selectedNode.id)) {
       setSelectedNode(null);
     }
+    setHasUnsavedChanges(true); // Mark as having unsaved changes
   }, [selectedNode]);
 
   // Handle edge deletion
   const onEdgesDelete = useCallback((deleted) => {
     // No additional cleanup needed for edge deletion
+    setHasUnsavedChanges(true); // Mark as having unsaved changes
   }, []);
 
   // Handle node drag from palette
@@ -945,6 +968,7 @@ const FlowEditor = () => {
       };
 
       setNodes((nds) => nds.concat(newNode));
+      setHasUnsavedChanges(true); // Mark as having unsaved changes
       setNodeBrowserOpen(false); // Close browser after adding node
     },
     [reactFlowInstance, setNodes]
@@ -1035,6 +1059,7 @@ const FlowEditor = () => {
       })
     );
     setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, ...newData } });
+    setHasUnsavedChanges(true); // Mark as having unsaved changes
   }, [selectedNode, setNodes]);
 
   if (!flow) {
@@ -1065,6 +1090,12 @@ const FlowEditor = () => {
           <Typography variant="h6" sx={{ flexGrow: 1, ml: 2 }}>
             {flow.name}
           </Typography>
+          
+          {hasUnsavedChanges && (
+            <Typography variant="caption" color="warning.main" sx={{ mr: 2 }}>
+              Unsaved changes
+            </Typography>
+          )}
           
           <Button
             startIcon={<RunIcon />}
@@ -1202,8 +1233,8 @@ const FlowEditor = () => {
             <ReactFlow
               nodes={nodes}
               edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
               onConnect={onConnect}
               isValidConnection={isValidConnection}
               onNodesDelete={onNodesDelete}

@@ -676,7 +676,7 @@ export class NodeTemplate extends BaseNode {
  * - Write tags: Publish to NATS
  * - Database queries: Use context.query()
  * - Time-series data: Use context.queryTimeseries()
- * - External APIs: Use fetch() or axios
+ * - External APIs: Use fetch()
  * - File operations: Use fs with allowed paths
  * 
  * DEBUGGING TIPS:

@@ -9,7 +9,7 @@
  * static description object. Frontend can fetch this via GET /api/flows/node-types.
  */
 
-import { SchemaValidator } from './SchemaValidator.js';
+import { FlowNodeValidator } from './flowNodeValidator.js';
 
 class NodeRegistryClass {
   constructor() {
@@ -65,9 +65,9 @@ class NodeRegistryClass {
       throw new Error(`Node class for '${nodeType}' must have a description object`);
     }
     
-    // Validate and apply defaults using SchemaValidator
+    // Validate and apply defaults using FlowNodeValidator
     if (!skipValidation) {
-      const validation = SchemaValidator.validateAndApplyDefaults(nodeType, instance.description);
+      const validation = FlowNodeValidator.validateAndApplyDefaults(nodeType, instance.description);
       
       // Log warnings
       if (validation.warnings && validation.warnings.length > 0) {

@@ -3,6 +3,9 @@
  * Handles CRUD operations for dashboard configurations
  */
 
+import { validatePayload as validateDashboard, getSchemaVersion } from '../services/dashboardValidator.js';
+import { getDashboardSchema } from '../schemas/DashboardSchema.js';
+
 export async function dashboardRoutes(app) {
   
   // Permission check helper
@@ -10,72 +13,6 @@ export async function dashboardRoutes(app) {
     if (!userId || !(await app.permissions.can(userId, 'dashboards', operation))) {
       return reply.code(403).send({ error: 'forbidden' });
     }
-  }
-  
-  // Validation helper
-  function validatePayload(body, { partial = false } = {}) {
-    const errors = [];
-    const value = {};
-    
-    // Name validation
-    if (!partial || body.name !== undefined) {
-      const name = String(body.name || '').trim();
-      if (!name && !partial) errors.push('name is required');
-      else if (name.length > 120) errors.push('name must be <= 120 characters');
-      else if (name) value.name = name;
-    }
-    
-    // Description validation (optional)
-    if (body.description !== undefined) {
-      const desc = body.description === null ? null : String(body.description || '').trim();
-      if (desc && desc.length > 5000) errors.push('description must be <= 5000 characters');
-      else value.description = desc || null;
-    }
-    
-    // is_shared validation
-    if (!partial || body.is_shared !== undefined) {
-      value.is_shared = Boolean(body.is_shared);
-    }
-    
-    // Layout validation
-    if (!partial || body.layout !== undefined) {
-      if (typeof body.layout !== 'object' || body.layout === null) {
-        errors.push('layout must be an object');
-      } else {
-        // Validate layout structure
-        const layout = body.layout;
-        
-        // Ensure items is an array
-        if (layout.items && !Array.isArray(layout.items)) {
-          errors.push('layout.items must be an array');
-        }
-        
-        // Validate grid settings
-        if (layout.grid_cols !== undefined && (!Number.isInteger(layout.grid_cols) || layout.grid_cols < 1 || layout.grid_cols > 24)) {
-          errors.push('layout.grid_cols must be an integer between 1 and 24');
-        }
-        
-        if (layout.row_height !== undefined && (!Number.isInteger(layout.row_height) || layout.row_height < 10 || layout.row_height > 500)) {
-          errors.push('layout.row_height must be an integer between 10 and 500');
-        }
-        
-        // Validate items
-        if (layout.items) {
-          layout.items.forEach((item, idx) => {
-            if (!item.i) errors.push(`layout.items[${idx}].i is required`);
-            if (!item.chart_id) errors.push(`layout.items[${idx}].chart_id is required`);
-            if (typeof item.x !== 'number') errors.push(`layout.items[${idx}].x must be a number`);
-            if (typeof item.y !== 'number') errors.push(`layout.items[${idx}].y must be a number`);
-            if (typeof item.w !== 'number' || item.w < 1) errors.push(`layout.items[${idx}].w must be >= 1`);
-            if (typeof item.h !== 'number' || item.h < 1) errors.push(`layout.items[${idx}].h must be >= 1`);
-          });
-        }
-        
-        if (errors.length === 0) value.layout = layout;
-      }
-    }
-    
-    return { errors, value };
   }
   
   // Helper to fetch dashboard if user has access
@@ -125,6 +62,14 @@ export async function dashboardRoutes(app) {
     return { items: rows, limit, offset, count: rows.length };
   });
   
+  // GET /schema - Get dashboard schema
+  app.get('/schema', async (req, reply) => {
+    const userId = req.user?.sub;
+    await checkPermission(userId, 'read', reply);
+    
+    return getDashboardSchema();
+  });
+  
   // GET /:id - Get single dashboard
   app.get('/:id', async (req, reply) => {
     const userId = req.user.sub;
@@ -147,14 +92,14 @@ export async function dashboardRoutes(app) {
     const userId = req.user.sub;
     await checkPermission(userId, 'create', reply);
     
-    const { errors, value } = validatePayload(req.body || {}, { partial: false });
+    const result = validateDashboard(req.body || {}, { isUpdate: false });
     
-    if (errors.length) {
-      logEvent('warn', 'dashboard.validation_failed', { user_id: userId, action: 'create', errors });
-      return reply.code(400).send({ error: 'validation_failed', details: errors });
+    if (!result.valid) {
+      logEvent('warn', 'dashboard.validation_failed', { user_id: userId, action: 'create', errors: result.errors });
+      return reply.code(400).send({ error: 'validation_failed', details: result.errors });
     }
     
-    const { name, description, is_shared, layout } = value;
+    const { name, description, is_shared, layout } = result.value;
     
     try {
       const q = `INSERT INTO dashboard_configs (user_id, name, description, is_shared, layout)
@@ -198,11 +143,11 @@ export async function dashboardRoutes(app) {
     await checkPermission(userId, 'update', reply);
     
     const id = req.params.id;
-    const { errors, value } = validatePayload(req.body || {}, { partial: true });
+    const result = validateDashboard(req.body || {}, { isUpdate: true });
     
-    if (errors.length) {
-      logEvent('warn', 'dashboard.validation_failed', { user_id: userId, action: 'update', dashboard_id: id, errors });
-      return reply.code(400).send({ error: 'validation_failed', details: errors });
+    if (!result.valid) {
+      logEvent('warn', 'dashboard.validation_failed', { user_id: userId, action: 'update', dashboard_id: id, errors: result.errors });
+      return reply.code(400).send({ error: 'validation_failed', details: result.errors });
     }
     
     // Check ownership
@@ -216,6 +161,7 @@ export async function dashboardRoutes(app) {
     const params = [id];
     function push(col, val) { params.push(val); sets.push(`${col}=$${params.length}`); }
     
+    const { value } = result;
     if (value.name !== undefined) push('name', value.name);
     if (value.description !== undefined) push('description', value.description);
     if (value.is_shared !== undefined) push('is_shared', value.is_shared);

@@ -2,6 +2,9 @@
 // Implements per-user ownership and shared visibility for saved chart configurations.
 // Non-owners cannot modify shared charts but may duplicate them.
 
+import { validateChartConfig, getOptionCounts } from '../services/chartValidator.js';
+import { getChartSchema } from '../schemas/ChartConfigSchema.js';
+
 export async function chartsRoutes(app) {
   // All endpoints require authenticated user
   app.addHook('preHandler', async (req, reply) => {
@@ -20,106 +23,18 @@ export async function chartsRoutes(app) {
     if (!uuidRe.test(req.params.id || '')) return reply.code(400).send({ error: 'invalid_id' });
   }
 
+  // Legacy validation function - now uses new validator
   function validatePayload(body, { partial = false } = {}) {
-    const errors = [];
-    const out = {};
-    const b = body && typeof body === 'object' ? body : {};
-    // name
-    if ('name' in b || !partial) {
-      const name = String(b.name || '').trim();
-      if (!name) errors.push('name required');
-      else if (name.length > 120) errors.push('name too long');
-      else out.name = name;
-    }
-    // time_from / time_to (optional, allow null)
-    for (const key of ['time_from', 'time_to']) {
-      if (key in b) {
-        const v = b[key];
-        if (v === null || v === '' || v === undefined) { out[key] = null; continue; }
-        const d = new Date(v);
-        if (isNaN(d.getTime())) errors.push(`${key} invalid iso timestamp`); else out[key] = d.toISOString();
-      } else if (!partial) {
-        out[key] = null; // default null when creating
-      }
-    }
-    if ('is_shared' in b) out.is_shared = !!b.is_shared; else if (!partial) out.is_shared = false;
-    if ('is_system_chart' in b) out.is_system_chart = !!b.is_system_chart; else if (!partial) out.is_system_chart = false;
-    // time_mode
-    if ('time_mode' in b) {
-      const mode = String(b.time_mode || 'fixed');
-      if (!['fixed', 'rolling', 'shifted'].includes(mode)) errors.push('time_mode must be fixed, rolling, or shifted');
-      else out.time_mode = mode;
-    } else if (!partial) {
-      out.time_mode = 'fixed';
-    }
-    // time_duration (optional bigint)
-    if ('time_duration' in b) {
-      const v = b.time_duration;
-      if (v === null || v === '' || v === undefined) { out.time_duration = null; }
-      else {
-        const n = Number(v);
-        if (!Number.isInteger(n) || n < 0) errors.push('time_duration must be non-negative integer');
-        else out.time_duration = n;
-      }
-    } else if (!partial) {
-      out.time_duration = null;
-    }
-    // time_offset (optional bigint, default 0)
-    if ('time_offset' in b) {
-      const v = b.time_offset;
-      if (v === null || v === '' || v === undefined) { out.time_offset = 0; }
-      else {
-        const n = Number(v);
-        if (!Number.isInteger(n) || n < 0) errors.push('time_offset must be non-negative integer');
-        else out.time_offset = n;
-      }
-    } else if (!partial) {
-      out.time_offset = 0;
-    }
-    // live_enabled
-    if ('live_enabled' in b) out.live_enabled = !!b.live_enabled; else if (!partial) out.live_enabled = false;
-    // show_time_badge
-    if ('show_time_badge' in b) out.show_time_badge = !!b.show_time_badge; else if (!partial) out.show_time_badge = true;
-    if ('options' in b || !partial) {
-      const opts = b.options ?? {};
-      if (typeof opts !== 'object' || Array.isArray(opts)) errors.push('options must be object');
-      else {
-        const raw = JSON.stringify(opts);
-        if (raw.length > 65536) errors.push('options too large');
-        const ver = opts.version;
-        if (!Number.isInteger(ver) || ver !== 1) errors.push('options.version must be 1');
-        // Limits enforcement (Performance / Limits)
-        const MAX_TAGS = 50;
-        const MAX_REF_LINES = 10;
-        const MAX_CRITICAL_RANGES = 10;
-        const MAX_DERIVED = 10;
-        // Helper to check array
-        function ensureArr(key, max, label) {
-          if (opts[key] === undefined) return; // optional
-            const v = opts[key];
-            if (!Array.isArray(v)) { errors.push(`options.${key} must be array`); return; }
-            if (v.length > max) errors.push(`too many ${label} (max ${max})`);
-        }
-        ensureArr('tags', MAX_TAGS, 'tags');
-        ensureArr('referenceLines', MAX_REF_LINES, 'reference_lines');
-        ensureArr('criticalRanges', MAX_CRITICAL_RANGES, 'critical_ranges');
-        ensureArr('derived', MAX_DERIVED, 'derived_series');
-        out.options = opts;
-      }
-    }
-    return { errors, value: out };
+    const result = validateChartConfig(body, { partial });
+    return {
+      errors: result.errors,
+      value: result.value
+    };
   }
 
+  // Legacy helper - now uses new validator
   function optionCounts(opts) {
-    try {
-      const o = opts || {};
-      return {
-        tag_count: Array.isArray(o.tags) ? o.tags.length : 0,
-        reference_line_count: Array.isArray(o.referenceLines) ? o.referenceLines.length : 0,
-        critical_range_count: Array.isArray(o.criticalRanges) ? o.criticalRanges.length : 0,
-        derived_series_count: Array.isArray(o.derived) ? o.derived.length : 0
-      };
-    } catch { return { tag_count: 0, reference_line_count: 0, critical_range_count: 0, derived_series_count: 0 }; }
+    return getOptionCounts(opts);
   }
 
   function logEvent(level, evt, data) {
@@ -141,6 +56,29 @@ export async function chartsRoutes(app) {
     const { rows } = await app.db.query(q, [id, userId]);
     return rows[0] || null;
   }
+
+  // GET /schema - Get chart configuration schema
+  // Requires 'dashboards:read' permission
+  // Returns the complete schema definition for chart configurations
+  // Similar to /api/flows/node-types but for chart structure
+  app.get('/schema', async (req, reply) => {
+    const userId = req.user?.sub;
+    await checkPermission(userId, 'read', reply);
+    
+    try {
+      const schema = getChartSchema();
+      reply.send({
+        schemaVersion: schema.schemaVersion,
+        config: schema.config,
+        options: schema.options,
+        limits: schema.limits,
+        description: 'Chart configuration schema definition'
+      });
+    } catch (error) {
+      app.log.error({ err: error }, 'Failed to get chart schema');
+      reply.code(500).send({ error: 'Failed to retrieve chart schema' });
+    }
+  });
 
   // POST / (create)
   app.post('/', async (req, reply) => {
@@ -224,8 +162,14 @@ export async function chartsRoutes(app) {
               tag_path: 'net_rx_bps',
               tag_name: 'Network RX (bps)',
               data_type: 'REAL',
+              name: 'RX (MB/s)',
+              alias: null,
               color: '#3b82f6',
-              yAxisId: 'default'
+              thickness: 2,
+              strokeType: 'solid',
+              yAxisId: 'default',
+              interpolation: 'linear',
+              hidden: false
             } : null,
             systemTags.get('net_tx_bps') ? {
               connection_id: systemConnectionId,
@@ -233,8 +177,14 @@ export async function chartsRoutes(app) {
               tag_path: 'net_tx_bps',
               tag_name: 'Network TX (bps)',
               data_type: 'REAL',
+              name: 'TX (MB/s)',
+              alias: null,
               color: '#10b981',
-              yAxisId: 'default'
+              thickness: 2,
+              strokeType: 'solid',
+              yAxisId: 'default',
+              interpolation: 'linear',
+              hidden: false
             } : null
           ].filter(t => t !== null),
           axes: [
@@ -264,8 +214,14 @@ export async function chartsRoutes(app) {
               tag_path: 'cpu_pct',
               tag_name: 'CPU Usage %',
               data_type: 'REAL',
+              name: 'CPU %',
+              alias: null,
               color: '#ef4444',
-              yAxisId: 'default'
+              thickness: 2,
+              strokeType: 'solid',
+              yAxisId: 'default',
+              interpolation: 'linear',
+              hidden: false
             } : null,
             systemTags.get('mem_pct') ? {
               connection_id: systemConnectionId,
@@ -273,8 +229,14 @@ export async function chartsRoutes(app) {
               tag_path: 'mem_pct',
               tag_name: 'Memory Usage %',
               data_type: 'REAL',
+              name: 'Memory %',
+              alias: null,
               color: '#3b82f6',
-              yAxisId: 'default'
+              thickness: 2,
+              strokeType: 'solid',
+              yAxisId: 'default',
+              interpolation: 'linear',
+              hidden: false
             } : null,
             systemTags.get('disk_pct') ? {
               connection_id: systemConnectionId,
@@ -282,8 +244,14 @@ export async function chartsRoutes(app) {
               tag_path: 'disk_pct',
               tag_name: 'Disk Usage %',
               data_type: 'REAL',
+              name: 'Disk %',
+              alias: null,
               color: '#10b981',
-              yAxisId: 'default'
+              thickness: 2,
+              strokeType: 'solid',
+              yAxisId: 'default',
+              interpolation: 'linear',
+              hidden: false
             } : null
           ].filter(t => t !== null),
           axes: [
@@ -314,8 +282,14 @@ export async function chartsRoutes(app) {
               tag_path: 'last_flush_count',
               tag_name: 'Last Flush Count',
               data_type: 'REAL',
+              name: 'Flush Count',
+              alias: null,
               color: '#f59e0b',
-              yAxisId: 'count'
+              thickness: 2,
+              strokeType: 'solid',
+              yAxisId: 'count',
+              interpolation: 'linear',
+              hidden: false
             } : null,
             systemTags.get('last_flush_ms') ? {
               connection_id: systemConnectionId,
@@ -323,8 +297,14 @@ export async function chartsRoutes(app) {
               tag_path: 'last_flush_ms',
               tag_name: 'Last Flush Time (ms)',
               data_type: 'REAL',
+              name: 'Flush Time (ms)',
+              alias: null,
               color: '#8b5cf6',
-              yAxisId: 'time'
+              thickness: 2,
+              strokeType: 'solid',
+              yAxisId: 'time',
+              interpolation: 'linear',
+              hidden: false
             } : null
           ].filter(t => t !== null),
           axes: [

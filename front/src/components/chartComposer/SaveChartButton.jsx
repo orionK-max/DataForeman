@@ -102,12 +102,16 @@ const SaveChartButton = () => {
           // Tags configuration
           tags: chartConfig.tagConfigs.map(tag => ({
             tag_id: tag.tag_id,
+            connection_id: tag.connection_id,
+            tag_path: tag.tag_path,
+            tag_name: tag.tag_name || tag.name,
+            data_type: tag.data_type,
             name: tag.name,
             alias: tag.alias || null,
             color: tag.color || '#3b82f6',
             thickness: tag.thickness || 2,
             strokeType: tag.strokeType || 'solid',
-            axisId: tag.axisId || 'default',
+            yAxisId: tag.yAxisId || tag.axisId || 'default',
             interpolation: tag.interpolation || 'linear',
             hidden: tag.hidden || false,
           })),

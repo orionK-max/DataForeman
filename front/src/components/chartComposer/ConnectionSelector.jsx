@@ -200,6 +200,8 @@ const ConnectionSelector = () => {
         return {
           tag_id: tag.tag_id,
           name: tag.tag_name || tag.node_id || `Tag ${tag.tag_id}`,
+          tag_name: tag.tag_name || tag.node_id || `Tag ${tag.tag_id}`, // For backend validation
+          tag_path: tag.tag_path || tag.node_id || '', // For backend validation
           alias: null,
           color: colors[colorIndex],
           thickness: 2,

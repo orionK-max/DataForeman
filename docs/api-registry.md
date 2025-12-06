@@ -8,6 +8,21 @@
 
 ---
 
+## 🏗️ Architecture
+
+DataForeman uses a **modular validator architecture** where each domain has dedicated schema and validation:
+
+- **Schemas**: `core/src/schemas/` - Data structure definitions
+- **Validators**: `core/src/services/` - Validation logic  
+- **Documentation**: `docs/validator-architecture.md` - Complete architecture guide
+
+**Current Validators:**
+- Charts: `chartValidator.js` + `ChartConfigSchema.js` → [Schema Docs](chart-configuration-schema.md)
+- Flows: `flowNodeValidator.js` + `FlowNodeSchema.js` → [Schema Docs](flow-node-schema.md)
+- Dashboards: *Coming soon* → Will follow same pattern
+
+---
+
 ## 📋 Table of Contents
 
 1. [Auth Routes](#auth-routes)
@@ -98,17 +113,46 @@ Permissions follow the pattern: `feature:operation`
 **Base Path:** `/api/charts`
 
 > All routes in this file use a preHandler hook for permission checks.
+> 
+> **New in v0.3:** Charts now use a versioned schema similar to Flow Nodes. See `docs/chart-configuration-schema.md` for details.
 
 | Method | Endpoint | Auth | Permission | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/` | Yes | *Via preHandler* | Create resource |
-| GET | `/` | Yes | *Via preHandler* | List resources |
-| GET | `/capacity-charts` | Yes | *Via preHandler* | List resources |
-| GET | `/:id` | Yes | *Via preHandler* | Get single resource |
-| PUT | `/:id` | Yes | *Via preHandler* | Update resource |
-| PATCH | `/:id` | Yes | *Via preHandler* | API endpoint |
-| DELETE | `/:id` | Yes | *Via preHandler* | Delete resource |
-| POST | `/:id/duplicate` | Yes | *Via preHandler* | API endpoint |
+| GET | `/schema` | Yes | dashboards:read | Get chart configuration schema definition (new in v0.3) |
+| POST | `/` | Yes | dashboards:create | Create chart with validated configuration |
+| GET | `/` | Yes | dashboards:read | List charts (own + shared) |
+| GET | `/capacity-charts` | Yes | dashboards:read | Get or initialize system capacity diagnostic charts |
+| GET | `/:id` | Yes | dashboards:read | Get single chart by ID |
+| PUT | `/:id` | Yes | dashboards:update | Update chart (full replacement) |
+| PATCH | `/:id` | Yes | dashboards:update | Partial update chart |
+| DELETE | `/:id` | Yes | dashboards:delete | Soft delete chart |
+| POST | `/:id/duplicate` | Yes | dashboards:create | Duplicate existing chart |
+
+### Chart Schema Endpoint
+
+**GET `/schema`** - Returns the complete chart configuration schema
+
+**Response:**
+```json
+{
+  "schemaVersion": 1,
+  "config": { /* root-level schema */ },
+  "options": { /* options schema */ },
+  "limits": {
+    "MAX_TAGS": 50,
+    "MAX_AXES": 10,
+    "MAX_REFERENCE_LINES": 10,
+    "MAX_CRITICAL_RANGES": 10,
+    "MAX_DERIVED_SERIES": 10
+  }
+}
+```
+
+**Use Cases:**
+- Frontend validation before saving
+- Dynamic form generation
+- Understanding configuration limits
+- Schema-driven UI components
 
 ## Config Routes
 
@@ -179,14 +223,53 @@ Permissions follow the pattern: `feature:operation`
 
 **Base Path:** `/api/dashboards`
 
+> **New in v0.3:** Dashboards now use a versioned schema with centralized validation. See `docs/validator-architecture.md` for details.
+
 | Method | Endpoint | Auth | Permission | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/` | Yes | *Check required* | List resources |
-| GET | `/:id` | Yes | *Check required* | Get single resource |
-| POST | `/` | Yes | *Check required* | Create resource |
-| PUT | `/:id` | Yes | *Check required* | Update resource |
-| DELETE | `/:id` | Yes | *Check required* | Delete resource |
-| POST | `/:id/duplicate` | Yes | *Check required* | API endpoint |
+| GET | `/` | Yes | dashboards:read | List dashboards (own + shared) |
+| GET | `/schema` | Yes | dashboards:read | Get dashboard configuration schema definition (new in v0.3) |
+| GET | `/:id` | Yes | dashboards:read | Get single dashboard by ID |
+| POST | `/` | Yes | dashboards:create | Create dashboard with validated configuration |
+| PUT | `/:id` | Yes | dashboards:update | Update dashboard (full replacement) |
+| DELETE | `/:id` | Yes | dashboards:delete | Soft delete dashboard |
+| POST | `/:id/duplicate` | Yes | dashboards:create | Duplicate existing dashboard |
+
+### Dashboard Schema Endpoint
+
+**GET `/schema`** - Returns the complete dashboard configuration schema
+
+**Response:**
+```json
+{
+  "schemaVersion": 1,
+  "limits": {
+    "MAX_NAME_LENGTH": 120,
+    "MAX_DESCRIPTION_LENGTH": 5000,
+    "MAX_WIDGETS": 50,
+    "MIN_GRID_COLS": 1,
+    "MAX_GRID_COLS": 24,
+    "MIN_ROW_HEIGHT": 10,
+    "MAX_ROW_HEIGHT": 500
+  },
+  "schema": {
+    "version": 1,
+    "type": "object",
+    "properties": {
+      "name": { /* name schema */ },
+      "description": { /* description schema */ },
+      "is_shared": { /* sharing schema */ },
+      "layout": { /* layout schema with items, grid_cols, row_height */ }
+    }
+  }
+}
+```
+
+**Use Cases:**
+- Frontend validation before saving
+- Understanding configuration limits
+- Schema-driven UI components
+- Documentation generation
 
 ## Diag Routes
 

@@ -57,7 +57,7 @@ const ChartComposerContent = () => {
   } = useChartComposer();
 
   React.useEffect(() => {
-    if (id) {
+    if (id && id !== 'new') {
       loadChart(id);
     }
   }, [id, loadChart]);

@@ -966,6 +966,13 @@ const ChartRenderer = ({
 
           {/* Right side controls */}
           <Stack direction="row" spacing={0.5} alignItems="center">
+            {/* Unsaved changes indicator */}
+            {hasUnsavedChanges && !showPreferences && (
+              <Typography variant="caption" color="warning.main" sx={{ mr: 1 }}>
+                Unsaved changes
+              </Typography>
+            )}
+            
             {/* Save button - Show when changes pending and not in preferences mode */}
             {hasUnsavedChanges && !showPreferences && saveButton}
             

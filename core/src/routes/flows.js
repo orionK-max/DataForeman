@@ -4,6 +4,7 @@
  */
 
 import { updateFlowResourceTagNames } from '../services/flow-resource-metrics.js';
+import { getFlowNodeSchema } from '../schemas/FlowNodeSchema.js';
 
 export default async function flowRoutes(app) {
   const db = app.db;
@@ -32,6 +33,22 @@ export default async function flowRoutes(app) {
     } catch (error) {
       req.log.error({ err: error }, 'Failed to get categories');
       reply.code(500).send({ error: 'Failed to retrieve categories' });
+    }
+  });
+
+  // GET /api/flows/schema - Get flow node schema definition
+  // Requires 'flows:read' permission
+  // Returns the schema definition for flow nodes including version, types, and structure
+  app.get('/api/flows/schema', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    try {
+      const schema = getFlowNodeSchema();
+      reply.send(schema);
+    } catch (error) {
+      req.log.error({ err: error }, 'Failed to get flow node schema');
+      reply.code(500).send({ error: 'Failed to retrieve schema' });
     }
   });
 

@@ -1,16 +1,27 @@
 /**
- * Schema Validator for Flow Node Descriptions
+ * Flow Node Validator
  * 
- * Validates node descriptions against the Flow Studio schema specification.
+ * Validates flow node descriptions against the Flow Studio schema specification.
  * Ensures all nodes follow the standardized format and have required fields.
+ * 
+ * This validator is part of the flow node infrastructure (nodes/base/) because
+ * it's tightly coupled with NodeRegistry and BaseNode. Other validators live
+ * in services/ (e.g., chartValidator.js, dashboardValidator.js).
  * 
  * Schema Version: 1
  * See: docs/flow-node-schema.md for full specification
  */
 
 import { VisualDefinitionValidator } from './VisualDefinitionValidator.mjs';
+import {
+  FLOW_NODE_SCHEMA_VERSION,
+  FLOW_NODE_CATEGORIES,
+  FLOW_NODE_SECTIONS,
+  FLOW_NODE_IO_TYPES,
+  FLOW_NODE_PROPERTY_TYPES
+} from '../../schemas/FlowNodeSchema.js';
 
-export class SchemaValidator {
+export class FlowNodeValidator {
   /**
    * Validate a node description
    * @param {string} nodeType - Node type identifier (e.g., 'tag-input')
@@ -62,14 +73,10 @@ export class SchemaValidator {
     }
 
     // Validate category
-    const validCategories = [
-      'TAG_OPERATIONS', 'LOGIC_MATH', 'TRIGGERS', 'DATA_TRANSFORM',
-      'COMMUNICATION', 'CONTROL', 'UTILITY', 'OTHER'
-    ];
     if (!description.category) {
       warnings.push('category is recommended (will default to OTHER)');
-    } else if (!validCategories.includes(description.category)) {
-      warnings.push(`category "${description.category}" is not a standard category. Valid: ${validCategories.join(', ')}`);
+    } else if (!FLOW_NODE_CATEGORIES.includes(description.category)) {
+      warnings.push(`category "${description.category}" is not a standard category. Valid: ${FLOW_NODE_CATEGORIES.join(', ')}`);
     }
 
     // Validate section
@@ -93,9 +100,9 @@ export class SchemaValidator {
 
     // Validate schemaVersion
     if (!description.schemaVersion) {
-      warnings.push('schemaVersion is recommended (will default to 1)');
-    } else if (description.schemaVersion !== 1) {
-      warnings.push(`schemaVersion ${description.schemaVersion} is not supported (only version 1 is currently supported)`);
+      warnings.push(`schemaVersion is recommended (will default to ${FLOW_NODE_SCHEMA_VERSION})`);
+    } else if (description.schemaVersion !== FLOW_NODE_SCHEMA_VERSION) {
+      warnings.push(`schemaVersion ${description.schemaVersion} is not supported (only version ${FLOW_NODE_SCHEMA_VERSION} is currently supported)`);
     }
 
     // Validate inputs
@@ -165,11 +172,10 @@ export class SchemaValidator {
     }
 
     // Validate type
-    const validTypes = ['main', 'trigger', 'number', 'string', 'boolean', 'object', 'array'];
     if (!input.type) {
       errors.push(`${prefix}: type is required`);
-    } else if (!validTypes.includes(input.type)) {
-      errors.push(`${prefix}: type "${input.type}" is not valid. Valid types: ${validTypes.join(', ')}`);
+    } else if (!FLOW_NODE_IO_TYPES.includes(input.type)) {
+      errors.push(`${prefix}: type "${input.type}" is not valid. Valid types: ${FLOW_NODE_IO_TYPES.join(', ')}`);
     }
 
     // Validate displayName
@@ -214,11 +220,10 @@ export class SchemaValidator {
     }
 
     // Validate type
-    const validTypes = ['main', 'trigger', 'number', 'string', 'boolean', 'object', 'array'];
     if (!output.type) {
       errors.push(`${prefix}: type is required`);
-    } else if (!validTypes.includes(output.type)) {
-      errors.push(`${prefix}: type "${output.type}" is not valid. Valid types: ${validTypes.join(', ')}`);
+    } else if (!FLOW_NODE_IO_TYPES.includes(output.type)) {
+      errors.push(`${prefix}: type "${output.type}" is not valid. Valid types: ${FLOW_NODE_IO_TYPES.join(', ')}`);
     }
 
     // Validate displayName
@@ -257,11 +262,10 @@ export class SchemaValidator {
     }
 
     // Validate type
-    const validTypes = ['string', 'number', 'boolean', 'options', 'tag', 'code', 'collection'];
     if (!prop.type) {
       errors.push(`${prefix}: type is required`);
-    } else if (!validTypes.includes(prop.type)) {
-      errors.push(`${prefix}: type "${prop.type}" is not valid. Valid types: ${validTypes.join(', ')}`);
+    } else if (!FLOW_NODE_PROPERTY_TYPES.includes(prop.type)) {
+      errors.push(`${prefix}: type "${prop.type}" is not valid. Valid types: ${FLOW_NODE_PROPERTY_TYPES.join(', ')}`);
     }
 
     // Validate type-specific fields
