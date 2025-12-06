@@ -44,6 +44,7 @@ import { useChartComposer } from '../../contexts/ChartComposerContext';
 import chartComposerService from '../../services/chartComposerService';
 import folderService, { FOLDER_TYPES } from '../../services/folderService';
 import FolderDialog from '../folders/FolderDialog';
+import ImportChartButton from './ImportChartButton';
 
 const ChartsLibrary = () => {
   const { loadChart, newChart } = useChartComposer();
@@ -307,6 +308,7 @@ const ChartsLibrary = () => {
               <CreateNewFolderIcon />
             </IconButton>
           </Tooltip>
+          <ImportChartButton onImportSuccess={loadCharts} />
         </Box>
 
         {error && (

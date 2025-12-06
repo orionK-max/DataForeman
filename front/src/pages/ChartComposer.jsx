@@ -6,6 +6,7 @@ import { ChartComposerProvider, useChartComposer } from '../contexts/ChartCompos
 import ChartRenderer from '../components/chartComposer/ChartRenderer';
 import PointsTable from '../components/chartComposer/PointsTable';
 import SaveChartButton from '../components/chartComposer/SaveChartButton';
+import ExportChartButton from '../components/chartComposer/ExportChartButton';
 import chartComposerService from '../services/chartComposerService';
 import useSetPageTitle from '../hooks/useSetPageTitle';
 
@@ -279,7 +280,12 @@ const ChartComposerContent = () => {
                   options={{ xAxisTickCount: chartConfig.xAxisTickCount }}
                   onZoomChange={(xDomain, yDomain) => setVisibleTimeRange(xDomain)}
                   hasUnsavedChanges={hasUnsavedChanges}
-                  saveButton={<SaveChartButton />}
+                  saveButton={
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <SaveChartButton />
+                      <ExportChartButton />
+                    </Box>
+                  }
                   tagMetadata={tagMetadata}
                   lastValuesBefore={lastValuesBefore}
                   updateAxis={updateAxis}

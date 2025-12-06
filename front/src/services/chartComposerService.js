@@ -159,6 +159,33 @@ export const chartComposerService = {
    */
   getCapacityCharts: () =>
     apiClient.get('/charts/capacity-charts'),
+
+  // ===== Import/Export =====
+
+  /**
+   * Export a chart with dependencies
+   * @param {string} chartId - Chart ID to export
+   * @returns {Promise<Object>} Export data structure
+   */
+  exportChart: (chartId) =>
+    apiClient.post(`/charts/${chartId}/export`),
+
+  /**
+   * Validate import data
+   * @param {Object} importData - Import data structure
+   * @returns {Promise<Object>} Validation result
+   */
+  validateImport: (importData) =>
+    apiClient.post('/charts/import/validate', importData),
+
+  /**
+   * Execute import after validation
+   * @param {Object} importData - Import data structure
+   * @param {Object} validation - Validation result
+   * @returns {Promise<Object>} Import result
+   */
+  executeImport: (importData, validation) =>
+    apiClient.post('/charts/import/execute', { importData, validation }),
 };
 
 export default chartComposerService;

@@ -4,6 +4,7 @@
 
 import { validateChartConfig, getOptionCounts } from '../services/chartValidator.js';
 import { getChartSchema } from '../schemas/ChartConfigSchema.js';
+import { exportChart, validateImport, importChart } from '../services/chartImportExport.js';
 
 export async function chartsRoutes(app) {
   // All endpoints require authenticated user
@@ -497,6 +498,106 @@ export async function chartsRoutes(app) {
       logEvent('error', 'chart.duplicate_failed', { user_id: userId, chart_id: req.params.id, error: e?.message });
       try { await app.audit('chart.duplicate', { outcome: 'failure', actor_user_id: userId, metadata: { source_chart_id: src.id, error: e?.message } }); } catch {}
       return reply.code(500).send({ error: 'internal_error' });
+    }
+  });
+
+  // POST /:id/export - Export chart with dependencies
+  app.post('/:id/export', async (req, reply) => {
+    ensureValidId(req, reply);
+    const userId = req.user.sub;
+    await checkPermission(userId, 'read', reply);
+
+    try {
+      const chart = await fetchVisible(req.params.id, userId);
+      if (!chart) return reply.code(404).send({ error: 'not_found' });
+
+      const exportData = await exportChart(chart, app.db);
+      
+      const filename = `${chart.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.json`;
+      
+      reply
+        .header('Content-Type', 'application/json')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(exportData);
+      
+      logEvent('info', 'chart.export', { user_id: userId, chart_id: chart.id, chart_name: chart.name });
+    } catch (e) {
+      logEvent('error', 'chart.export_failed', { user_id: userId, chart_id: req.params.id, error: e?.message });
+      return reply.code(500).send({ error: 'export_failed', message: e?.message });
+    }
+  });
+
+  // POST /import/validate - Validate import data
+  app.post('/import/validate', async (req, reply) => {
+    const userId = req.user.sub;
+    await checkPermission(userId, 'create', reply);
+
+    try {
+      const importData = req.body;
+      
+      if (!importData || typeof importData !== 'object') {
+        return reply.code(400).send({ error: 'invalid_import_data' });
+      }
+
+      const validation = await validateImport(importData, app.db);
+      
+      logEvent('info', 'chart.import_validate', { 
+        user_id: userId, 
+        valid: validation.valid,
+        total_tags: validation.summary?.total_tags,
+        valid_tags: validation.summary?.valid_tags 
+      });
+      
+      return reply.send(validation);
+    } catch (e) {
+      logEvent('error', 'chart.import_validate_failed', { user_id: userId, error: e?.message });
+      return reply.code(500).send({ error: 'validation_failed', message: e?.message });
+    }
+  });
+
+  // POST /import/execute - Execute import after validation
+  app.post('/import/execute', async (req, reply) => {
+    const userId = req.user.sub;
+    await checkPermission(userId, 'create', reply);
+
+    try {
+      const { importData, validation } = req.body;
+      
+      if (!importData || !validation) {
+        return reply.code(400).send({ error: 'missing_import_data_or_validation' });
+      }
+
+      if (!validation.valid) {
+        return reply.code(400).send({ error: 'validation_failed', details: validation.errors });
+      }
+
+      const result = await importChart(importData, userId, validation, app.db);
+      
+      logEvent('info', 'chart.import_execute', { 
+        user_id: userId, 
+        chart_id: result.chart.id,
+        chart_name: result.chart.name,
+        imported_tags: result.imported_tags,
+        skipped_tags: result.skipped_tags
+      });
+
+      try { 
+        await app.audit('chart.import', { 
+          outcome: 'success', 
+          actor_user_id: userId, 
+          metadata: { 
+            chart_id: result.chart.id, 
+            imported_tags: result.imported_tags,
+            skipped_tags: result.skipped_tags 
+          } 
+        }); 
+      } catch {}
+      
+      return reply.code(201).send(result);
+    } catch (e) {
+      logEvent('error', 'chart.import_execute_failed', { user_id: userId, error: e?.message });
+      try { await app.audit('chart.import', { outcome: 'failure', actor_user_id: userId, metadata: { error: e?.message } }); } catch {}
+      return reply.code(500).send({ error: 'import_failed', message: e?.message });
     }
   });
 }
