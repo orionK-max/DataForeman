@@ -561,7 +561,7 @@ export async function chartsRoutes(app) {
     await checkPermission(userId, 'create', reply);
 
     try {
-      const { importData, validation } = req.body;
+      const { importData, validation, newName } = req.body;
       
       if (!importData || !validation) {
         return reply.code(400).send({ error: 'missing_import_data_or_validation' });
@@ -571,7 +571,7 @@ export async function chartsRoutes(app) {
         return reply.code(400).send({ error: 'validation_failed', details: validation.errors });
       }
 
-      const result = await importChart(importData, userId, validation, app.db);
+      const result = await importChart(importData, userId, validation, app.db, newName);
       
       logEvent('info', 'chart.import_execute', { 
         user_id: userId, 

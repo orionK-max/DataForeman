@@ -17,9 +17,9 @@ import {
 } from '@mui/material';
 import { Upload, CheckCircle, Warning, Error as ErrorIcon } from '@mui/icons-material';
 import { usePermissions } from '../../contexts/PermissionsContext';
-import chartComposerService from '../../services/chartComposerService';
+import { validateFlowImport, executeFlowImport } from '../../services/flowsApi';
 
-const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: controlledOnClose }) => {
+const ImportFlowButton = ({ onImportSuccess, open: controlledOpen, onClose: controlledOnClose }) => {
   const { can } = usePermissions();
   
   const [internalOpen, setInternalOpen] = useState(false);
@@ -74,13 +74,13 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
       const data = JSON.parse(text);
       setImportData(data);
       
-      // Set default name from imported chart
-      if (data.config?.name && !newName) {
-        setNewName(data.config.name);
+      // Set default name from imported flow
+      if (data.flow?.name && !newName) {
+        setNewName(data.flow.name);
       }
 
       // Validate
-      const validationResult = await chartComposerService.validateImport(data);
+      const validationResult = await validateFlowImport(data);
       setValidation(validationResult);
 
       if (!validationResult.valid) {
@@ -88,7 +88,7 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
       }
     } catch (err) {
       console.error('Validation failed:', err);
-      setError(err.response?.data?.message || err.message || 'Invalid file format');
+      setError(err.message || 'Invalid file format');
       setValidation(null);
     } finally {
       setValidating(false);
@@ -102,34 +102,34 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
     setError('');
 
     try {
-      const result = await chartComposerService.executeImport(importData, validation, newName.trim() || null);
+      const result = await executeFlowImport(importData, validation, newName.trim() || null);
       
       // Success - close and notify parent
       if (onImportSuccess) {
-        onImportSuccess(result.chart);
+        onImportSuccess(result.flow);
       }
       handleClose();
     } catch (err) {
       console.error('Import failed:', err);
-      setError(err.response?.data?.message || err.message || 'Import failed');
+      setError(err.message || 'Import failed');
     } finally {
       setImporting(false);
     }
   };
 
-  if (!can('chart_composer', 'create')) {
+  if (!can('flows', 'update')) {
     return null;
   }
 
-  const fileInputId = isControlled ? 'chart-import-file-controlled' : 'chart-import-file';
+  const fileInputId = isControlled ? 'flow-import-file-controlled' : 'flow-import-file';
 
   const dialogContent = (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>Import Chart</DialogTitle>
+      <DialogTitle>Import Flow</DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            Import a chart configuration from a JSON file exported from another DataForeman instance.
+            Import a flow from a JSON file exported from another DataForeman instance.
           </Typography>
 
           {/* File selector */}
@@ -148,7 +148,7 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
                 startIcon={<Upload />}
                 disabled={validating || importing}
               >
-                Select Chart File
+                Select Flow File
               </Button>
             </label>
             {file && (
@@ -158,15 +158,15 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
             )}
           </Box>
 
-          {/* Chart name field - shown after file is selected */}
+          {/* Flow name field - shown after file is selected */}
           {importData && (
             <TextField
-              label="Chart Name"
+              label="Flow Name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               fullWidth
               disabled={validating || importing}
-              helperText="You can rename the chart before importing"
+              helperText="You can rename the flow before importing"
             />
           )}
 
@@ -196,6 +196,20 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
               <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                 <Chip
                   icon={<CheckCircle />}
+                  label={`${validation.summary?.valid_connections || 0} valid connections`}
+                  color="success"
+                  size="small"
+                />
+                {validation.summary?.invalid_connections > 0 && (
+                  <Chip
+                    icon={<Warning />}
+                    label={`${validation.summary.invalid_connections} invalid connections`}
+                    color="warning"
+                    size="small"
+                  />
+                )}
+                <Chip
+                  icon={<CheckCircle />}
                   label={`${validation.summary?.valid_tags || 0} valid tags`}
                   color="success"
                   size="small"
@@ -203,7 +217,7 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
                 {validation.summary?.invalid_tags > 0 && (
                   <Chip
                     icon={<Warning />}
-                    label={`${validation.summary.invalid_tags} skipped tags`}
+                    label={`${validation.summary.invalid_tags} invalid tags`}
                     color="warning"
                     size="small"
                   />
@@ -250,9 +264,28 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
                 </Alert>
               )}
 
+              {/* Invalid connections details */}
+              {validation.invalidConnections?.length > 0 && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Skipped Connections:
+                  </Typography>
+                  <List dense>
+                    {validation.invalidConnections.map((conn, idx) => (
+                      <ListItem key={idx} disablePadding>
+                        <ListItemText
+                          primary={`${conn.connection_name} (${conn.driver_type})`}
+                          secondary={conn.message}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Alert>
+              )}
+
               {/* Invalid tags details */}
               {validation.invalidTags?.length > 0 && (
-                <Alert severity="info">
+                <Alert severity="info" sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" gutterBottom>
                     Skipped Tags:
                   </Typography>
@@ -260,7 +293,7 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
                     {validation.invalidTags.map((tag, idx) => (
                       <ListItem key={idx} disablePadding>
                         <ListItemText
-                          primary={`${tag.connection_name} → ${tag.tag_path}`}
+                          primary={`${tag.tag_name || tag.tag_path} (${tag.connection_name})`}
                           secondary={tag.message}
                         />
                       </ListItem>
@@ -270,16 +303,16 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
               )}
 
               {/* Success message */}
-              {validation.valid && validation.summary?.invalid_tags === 0 && (
+              {validation.valid && validation.summary?.invalid_connections === 0 && validation.summary?.invalid_tags === 0 && (
                 <Alert severity="success">
-                  All tags validated successfully! Chart ready to import.
+                  All connections and tags validated successfully! Flow ready to import.
                 </Alert>
               )}
 
-              {validation.valid && validation.summary?.invalid_tags > 0 && (
+              {validation.valid && (validation.summary?.invalid_connections > 0 || validation.summary?.invalid_tags > 0) && (
                 <Alert severity="warning">
-                  Chart can be imported with {validation.summary.valid_tags} tag(s). 
-                  {validation.summary.invalid_tags} tag(s) will be skipped.
+                  Flow can be imported with {validation.summary.valid_connections} connection(s) and {validation.summary.valid_tags} tag(s).
+                  Some nodes may not function correctly due to missing dependencies.
                 </Alert>
               )}
             </Box>
@@ -296,7 +329,7 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
           disabled={!validation?.valid || importing || validating}
           startIcon={importing ? <CircularProgress size={16} /> : <Upload />}
         >
-          {importing ? 'Importing...' : 'Import Chart'}
+          {importing ? 'Importing...' : 'Import Flow'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -323,4 +356,4 @@ const ImportChartButton = ({ onImportSuccess, open: controlledOpen, onClose: con
   );
 };
 
-export default ImportChartButton;
+export default ImportFlowButton;

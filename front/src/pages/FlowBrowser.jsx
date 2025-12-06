@@ -47,6 +47,7 @@ import FolderTree from '../components/folders/FolderTree';
 import FolderDialog from '../components/folders/FolderDialog';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { usePageTitle } from '../contexts/PageTitleContext';
+import AddFlowButton from '../components/flowStudio/AddFlowButton';
 
 const FlowBrowser = () => {
   const { setPageTitle, setPageSubtitle } = usePageTitle();
@@ -466,13 +467,13 @@ const FlowBrowser = () => {
             )}
           </Box>
           {viewMode !== 'shared' && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              Create Flow
-            </Button>
+            <AddFlowButton
+              onNewFlow={() => setCreateDialogOpen(true)}
+              onImportSuccess={() => {
+                loadFlows();
+                showSnackbar('Flow imported successfully', 'success');
+              }}
+            />
           )}
         </Box>
 

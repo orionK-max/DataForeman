@@ -49,6 +49,7 @@ import {
   Terminal as TerminalIcon,
   Visibility as LiveIcon,
   Memory as ResourceIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder } from '../services/flowsApi';
 import { getNodeMetadata, getBackendMetadata } from '../constants/nodeTypes';
@@ -59,6 +60,7 @@ import FlowSettingsDialog from '../components/FlowEditor/FlowSettingsDialog';
 import ExecutionHistoryDialog from '../components/FlowEditor/ExecutionHistoryDialog';
 import LogPanel from '../components/FlowEditor/LogPanel';
 import FlowResourceMonitor from '../components/FlowEditor/FlowResourceMonitor';
+import ExportFlowButton from '../components/flowStudio/ExportFlowButton';
 import { useFlowLiveData } from '../hooks/useFlowLiveData';
 import { useFlowResources } from '../hooks/useFlowResources';
 import { usePageTitle } from '../contexts/PageTitleContext';
@@ -1117,12 +1119,17 @@ const FlowEditor = () => {
             Save
           </Button>
           
+          <ExportFlowButton 
+            flowId={id} 
+            flowName={flow.name}
+          />
+          
           <Button
             startIcon={flow.deployed ? <UndeployIcon /> : <DeployIcon />}
             onClick={handleDeploy}
             variant="contained"
             color={flow.deployed ? 'secondary' : 'primary'}
-            sx={{ mr: 1 }}
+            sx={{ mr: 1, ml: 1 }}
           >
             {flow.deployed ? 'Undeploy' : 'Deploy'}
           </Button>

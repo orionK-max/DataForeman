@@ -39,6 +39,7 @@ import FolderTree from '../components/folders/FolderTree';
 import FolderDialog from '../components/folders/FolderDialog';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { usePageTitle } from '../contexts/PageTitleContext';
+import AddChartButton from '../components/chartComposer/AddChartButton';
 
 const ChartBrowser = () => {
   const { setPageTitle, setPageSubtitle } = usePageTitle();
@@ -464,13 +465,13 @@ const ChartBrowser = () => {
             )}
           </Box>
           {viewMode !== 'shared' && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => navigate('/charts/new')}
-            >
-              Create Chart
-            </Button>
+            <AddChartButton 
+              onNewChart={() => navigate('/charts/new')}
+              onImportSuccess={() => {
+                loadCharts();
+                showSnackbar('Chart imported successfully', 'success');
+              }}
+            />
           )}
         </Box>
 

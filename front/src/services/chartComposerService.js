@@ -182,10 +182,11 @@ export const chartComposerService = {
    * Execute import after validation
    * @param {Object} importData - Import data structure
    * @param {Object} validation - Validation result
+   * @param {string|null} newName - Optional new name for the chart
    * @returns {Promise<Object>} Import result
    */
-  executeImport: (importData, validation) =>
-    apiClient.post('/charts/import/execute', { importData, validation }),
+  executeImport: (importData, validation, newName = null) =>
+    apiClient.post('/charts/import/execute', { importData, validation, newName }),
 };
 
 export default chartComposerService;

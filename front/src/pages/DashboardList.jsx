@@ -35,6 +35,7 @@ import {
   DriveFileMove as MoveIcon,
   Home as HomeIcon,
   People as PeopleIcon,
+  FileUpload,
 } from '@mui/icons-material';
 import dashboardService from '../services/dashboardService';
 import folderService, { FOLDER_TYPES } from '../services/folderService';
@@ -43,6 +44,7 @@ import { usePermissions } from '../contexts/PermissionsContext';
 import FolderTree from '../components/folders/FolderTree';
 import FolderDialog from '../components/folders/FolderDialog';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import ImportDashboardButton from '../components/dashboard/ImportDashboardButton';
 
 const DashboardList = () => {
   const { setPageTitle, setPageSubtitle } = usePageTitle();
@@ -314,13 +316,18 @@ const DashboardList = () => {
             )}
           </Box>
           {can('dashboards', 'create') && viewMode !== 'shared' && (
-            <Button
-              variant="contained"
-              startIcon={<Add />}
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              Create Dashboard
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <ImportDashboardButton
+                onImportSuccess={loadDashboards}
+              />
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={() => setCreateDialogOpen(true)}
+              >
+                Create Dashboard
+              </Button>
+            </Box>
           )}
         </Box>
 

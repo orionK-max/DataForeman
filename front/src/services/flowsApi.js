@@ -364,3 +364,42 @@ export async function getFlowSessionStatus(flowId) {
   }
   return response.json();
 }
+
+/**
+ * Export flow to JSON
+ */
+export async function exportFlow(flowId) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/export`, {
+    method: 'POST',
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to export flow');
+  return response.json();
+}
+
+/**
+ * Validate flow import data
+ */
+export async function validateFlowImport(importData) {
+  const response = await fetch(`${API_BASE}/flows/import/validate`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ importData })
+  });
+  if (!response.ok) throw new Error('Failed to validate flow import');
+  return response.json();
+}
+
+/**
+ * Execute flow import after validation
+ */
+export async function executeFlowImport(importData, validation, newName = null) {
+  const response = await fetch(`${API_BASE}/flows/import/execute`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ importData, validation, newName })
+  });
+  if (!response.ok) throw new Error('Failed to import flow');
+  return response.json();
+}
+

@@ -5,6 +5,7 @@
 
 import { validatePayload as validateDashboard, getSchemaVersion } from '../services/dashboardValidator.js';
 import { getDashboardSchema } from '../schemas/DashboardSchema.js';
+import { exportDashboard, validateImport, importDashboard } from '../services/dashboardImportExport.js';
 
 export async function dashboardRoutes(app) {
   
@@ -303,6 +304,127 @@ export async function dashboardRoutes(app) {
         });
       } catch {}
       return reply.code(500).send({ error: 'internal_error' });
+    }
+  });
+
+  // POST /:id/export - Export dashboard to JSON
+  app.post('/:id/export', async (req, reply) => {
+    const userId = req.user.sub;
+    await checkPermission(userId, 'read', reply);
+    
+    const id = req.params.id;
+    
+    try {
+      const exportData = await exportDashboard(app.db, id, userId);
+      
+      logEvent('info', 'dashboard.export', { user_id: userId, dashboard_id: id });
+      
+      try {
+        await app.audit('dashboard.export', {
+          outcome: 'success',
+          actor_user_id: userId,
+          metadata: { dashboard_id: id }
+        });
+      } catch {}
+      
+      return exportData;
+    } catch (err) {
+      logEvent('error', 'dashboard.export_failed', { 
+        user_id: userId, 
+        dashboard_id: id, 
+        error: err?.message 
+      });
+      
+      try {
+        await app.audit('dashboard.export', {
+          outcome: 'failure',
+          actor_user_id: userId,
+          metadata: { dashboard_id: id, error: err?.message }
+        });
+      } catch {}
+      
+      if (err.message === 'Dashboard not found or access denied') {
+        return reply.code(404).send({ error: 'dashboard_not_found' });
+      }
+      
+      return reply.code(500).send({ error: 'export_failed', message: err.message });
+    }
+  });
+
+  // POST /import/validate - Validate dashboard import data
+  app.post('/import/validate', async (req, reply) => {
+    const userId = req.user.sub;
+    await checkPermission(userId, 'create', reply);
+    
+    try {
+      const importData = req.body;
+      const validation = await validateImport(app.db, importData, userId);
+      
+      logEvent('info', 'dashboard.import_validate', { 
+        user_id: userId,
+        valid: validation.valid,
+        warnings: validation.warnings.length
+      });
+      
+      return validation;
+    } catch (err) {
+      logEvent('error', 'dashboard.import_validate_failed', { 
+        user_id: userId,
+        error: err?.message 
+      });
+      
+      return reply.code(500).send({ error: 'validation_failed', message: err.message });
+    }
+  });
+
+  // POST /import/execute - Execute dashboard import
+  app.post('/import/execute', async (req, reply) => {
+    const userId = req.user.sub;
+    await checkPermission(userId, 'create', reply);
+    
+    try {
+      const { importData, validation, newName } = req.body;
+      
+      if (!validation?.valid) {
+        return reply.code(400).send({ error: 'invalid_import_data' });
+      }
+      
+      const dashboard = await importDashboard(app.db, importData, validation, userId, newName);
+      
+      logEvent('info', 'dashboard.import', { 
+        user_id: userId,
+        dashboard_id: dashboard.id,
+        name: dashboard.name
+      });
+      
+      try {
+        await app.audit('dashboard.import', {
+          outcome: 'success',
+          actor_user_id: userId,
+          metadata: { 
+            dashboard_id: dashboard.id,
+            name: dashboard.name,
+            widgets_count: dashboard.layout?.items?.length || 0
+          }
+        });
+      } catch {}
+      
+      return reply.code(201).send({ ...dashboard, is_owner: true });
+    } catch (err) {
+      logEvent('error', 'dashboard.import_failed', { 
+        user_id: userId,
+        error: err?.message 
+      });
+      
+      try {
+        await app.audit('dashboard.import', {
+          outcome: 'failure',
+          actor_user_id: userId,
+          metadata: { error: err?.message }
+        });
+      } catch {}
+      
+      return reply.code(500).send({ error: 'import_failed', message: err.message });
     }
   });
 }

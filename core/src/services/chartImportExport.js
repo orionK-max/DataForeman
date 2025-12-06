@@ -255,9 +255,10 @@ export async function validateImport(importData, db) {
  * @param {string} userId - User ID creating the chart
  * @param {Object} validation - Validation result from validateImport
  * @param {Object} db - Database connection
+ * @param {string|null} newName - Optional new name for the imported chart
  * @returns {Promise<Object>} Import result with created chart
  */
-export async function importChart(importData, userId, validation, db) {
+export async function importChart(importData, userId, validation, db, newName = null) {
   if (!validation.valid) {
     throw new Error('Cannot import chart with validation errors');
   }
@@ -271,7 +272,7 @@ export async function importChart(importData, userId, validation, db) {
   // Prepare chart data
   const chartData = {
     user_id: userId,
-    name: config.name,
+    name: newName || config.name,
     description: config.description,
     time_mode: config.time_mode || 'fixed',
     time_duration: config.time_duration,

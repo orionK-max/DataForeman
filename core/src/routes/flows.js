@@ -1568,4 +1568,89 @@ export default async function flowRoutes(app) {
       reply.code(500).send({ error: 'Failed to calculate execution order' });
     }
   });
+
+  // POST /api/flows/:id/export - Export flow to JSON
+  app.post('/api/flows/:id/export', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+
+    try {
+      // Verify user has access to this flow
+      const accessCheck = await db.query(`
+        SELECT id FROM flows
+        WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+      `, [id, userId]);
+
+      if (accessCheck.rows.length === 0) {
+        return reply.code(404).send({ error: 'Flow not found' });
+      }
+
+      const { exportFlow } = await import('../services/flowImportExport.js');
+      const exportData = await exportFlow(id, db);
+
+      reply.send(exportData);
+    } catch (error) {
+      req.log.error({ err: error, flowId: id }, 'Failed to export flow');
+      reply.code(500).send({ error: 'Failed to export flow', message: error.message });
+    }
+  });
+
+  // POST /api/flows/import/validate - Validate flow import data
+  app.post('/api/flows/import/validate', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    try {
+      const { importData } = req.body;
+
+      if (!importData) {
+        return reply.code(400).send({ error: 'missing_import_data' });
+      }
+
+      const { validateImport } = await import('../services/flowImportExport.js');
+      const validation = await validateImport(importData, db);
+
+      reply.send(validation);
+    } catch (error) {
+      req.log.error({ err: error }, 'Failed to validate flow import');
+      reply.code(500).send({ error: 'Failed to validate import', message: error.message });
+    }
+  });
+
+  // POST /api/flows/import/execute - Execute flow import after validation
+  app.post('/api/flows/import/execute', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    try {
+      const { importData, validation, newName } = req.body;
+
+      if (!importData || !validation) {
+        return reply.code(400).send({ error: 'missing_import_data_or_validation' });
+      }
+
+      if (!validation.valid) {
+        return reply.code(400).send({ error: 'validation_failed', details: validation.errors });
+      }
+
+      const { importFlow } = await import('../services/flowImportExport.js');
+      const result = await importFlow(importData, userId, validation, db, newName);
+
+      req.log.info({ 
+        userId, 
+        flowId: result.flow.id,
+        flowName: result.flow.name,
+        importedNodes: result.imported_nodes,
+        importedConnections: result.imported_connections,
+        importedTags: result.imported_tags
+      }, 'Flow imported successfully');
+
+      reply.code(201).send(result);
+    } catch (error) {
+      req.log.error({ err: error, userId }, 'Failed to execute flow import');
+      reply.code(500).send({ error: 'Failed to import flow', message: error.message });
+    }
+  });
 }

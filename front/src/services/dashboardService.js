@@ -69,6 +69,32 @@ const dashboardService = {
     apiClient.post(`/dashboards/${dashboardId}/duplicate`, { name: newName }),
 
   /**
+   * Export dashboard to JSON
+   * @param {string} dashboardId - Dashboard ID to export
+   * @returns {Promise<Object>} - Export data with version, dashboard config, and chart metadata
+   */
+  exportDashboard: (dashboardId) =>
+    apiClient.post(`/dashboards/${dashboardId}/export`),
+
+  /**
+   * Validate dashboard import data
+   * @param {Object} importData - Import data to validate
+   * @returns {Promise<Object>} - Validation results with valid/invalid charts
+   */
+  validateDashboardImport: (importData) =>
+    apiClient.post('/dashboards/import/validate', importData),
+
+  /**
+   * Execute dashboard import
+   * @param {Object} importData - Import data
+   * @param {Object} validation - Validation results
+   * @param {string} [newName] - Optional new name for dashboard
+   * @returns {Promise<Object>} - Created dashboard
+   */
+  executeDashboardImport: (importData, validation, newName) =>
+    apiClient.post('/dashboards/import/execute', { importData, validation, newName }),
+
+  /**
    * Create a default empty dashboard layout
    * @returns {Object} - Default layout structure
    */

@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import { Download } from '@mui/icons-material';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
-import { usePermissions } from '../../contexts/PermissionContext';
+import { usePermissions } from '../../contexts/PermissionsContext';
 import chartComposerService from '../../services/chartComposerService';
 
 const ExportChartButton = () => {

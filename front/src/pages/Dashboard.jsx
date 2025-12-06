@@ -30,6 +30,7 @@ import DashboardWidget from '../components/dashboard/DashboardWidget';
 import ChartLibrary from '../components/dashboard/ChartLibrary';
 import TimeSyncDialog from '../components/dashboard/TimeSyncDialog';
 import ExportDialog from '../components/dashboard/ExportDialog';
+import ExportDashboardButton from '../components/dashboard/ExportDashboardButton';
 import DashboardSettingsDialog from '../components/dashboard/DashboardSettingsDialog';
 import TVMode from '../components/dashboard/TVMode';
 import TVModeDialog from '../components/dashboard/TVModeDialog';
@@ -323,6 +324,10 @@ const DashboardContent = () => {
                   <FileDownload />
                 </IconButton>
               </Tooltip>
+              <ExportDashboardButton 
+                dashboardId={id}
+                dashboardName={currentDashboard?.name}
+              />
               <Tooltip title="Edit Dashboard">
                 <span>
                   <IconButton onClick={toggleEditMode} disabled={!currentDashboard?.is_owner}>
