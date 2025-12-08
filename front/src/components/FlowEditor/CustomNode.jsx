@@ -137,54 +137,134 @@ const CustomNodeV2 = ({ data, type, selected, id }) => {
       )}
       
       {/* Input Handles */}
-      {handles.inputs.filter(h => h.visible).map((handle) => {
+      {handles.inputs.filter(h => h.visible).map((handle, idx) => (
+        <Tooltip
+          key={`input-${handle.index}`}
+          title={`${handle.displayName} [${handle.type}]`}
+          placement="left"
+          arrow
+        >
+          <Handle
+            type="target"
+            position={Position.Left}
+            id={`input-${handle.index}`}
+            style={{
+              width: visual?.handles?.size || 12,
+              height: visual?.handles?.size || 12,
+              background: handle.color,
+              border: `${visual?.handles?.borderWidth || 2}px solid ${visual?.handles?.borderColor || 'white'}`,
+              top: handle.position,
+              zIndex: 1
+            }}
+          />
+        </Tooltip>
+      ))}
+      
+      {/* Input Value Labels */}
+      {data?._showLiveValues && runtimeData && handles.inputs.filter(h => h.visible).map((handle, idx) => {
+        // New format: runtimeData.inputs['input-0']
+        // Fallback to old format: runtimeData.input_0 or runtimeData.input0
+        const handleId = `input-${idx}`;
+        const inputValue = runtimeData.inputs?.[handleId] || runtimeData[`input_${idx}`] || runtimeData[`input${idx}`];
+        if (inputValue === null || inputValue === undefined) return null;
+        
+        // Extract the actual value (may be nested in { value, quality } format)
+        const displayValue = typeof inputValue === 'object' && inputValue.value !== undefined 
+          ? inputValue.value 
+          : inputValue;
+        
         return (
-          <Tooltip
-            key={`input-${handle.index}`}
-            title={`${handle.displayName} [${handle.type}]`}
-            placement="left"
-            arrow
+          <Box
+            key={`input-label-${handle.index}`}
+            sx={{
+              position: 'absolute',
+              right: '100%',
+              marginRight: '16px',
+              top: handle.position,
+              transform: 'translateY(-50%)',
+              background: isDark ? 'rgba(42, 42, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              border: `1px solid ${isDark ? '#555' : '#ccc'}`,
+              borderRadius: '4px',
+              padding: '2px 6px',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              color: theme.palette.text.primary,
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              zIndex: 10,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+            }}
           >
-            <Handle
-              type="target"
-              position={Position.Left}
-              id={`input-${handle.index}`}
-              style={{
-                width: visual?.handles?.size || 12,
-                height: visual?.handles?.size || 12,
-                background: handle.color,
-                border: `${visual?.handles?.borderWidth || 2}px solid ${visual?.handles?.borderColor || 'white'}`,
-                top: handle.position,
-                zIndex: 1
-              }}
-            />
-          </Tooltip>
+            {typeof displayValue === 'object' ? JSON.stringify(displayValue) : String(displayValue)}
+          </Box>
         );
       })}
       
       {/* Output Handles */}
-      {handles.outputs.filter(h => h.visible).map((handle) => {
+      {handles.outputs.filter(h => h.visible).map((handle, idx) => (
+        <Tooltip
+          key={`output-${handle.index}`}
+          title={`${handle.displayName} [${handle.type}]`}
+          placement="right"
+          arrow
+        >
+          <Handle
+            type="source"
+            position={Position.Right}
+            id={`output-${handle.index}`}
+            style={{
+              width: visual?.handles?.size || 12,
+              height: visual?.handles?.size || 12,
+              background: handle.color,
+              border: `${visual?.handles?.borderWidth || 2}px solid ${visual?.handles?.borderColor || 'white'}`,
+              top: handle.position,
+              zIndex: 1
+            }}
+          />
+        </Tooltip>
+      ))}
+      
+      {/* Output Value Labels */}
+      {data?._showLiveValues && runtimeData && handles.outputs.filter(h => h.visible).map((handle, idx) => {
+        // New format: runtimeData.outputs['output-0']
+        // Fallback to old format: runtimeData.result, runtimeData.value, etc.
+        const handleId = `output-${idx}`;
+        const outputValue = runtimeData.outputs?.[handleId] 
+          || runtimeData.result 
+          || runtimeData.value 
+          || runtimeData[`output_${idx}`] 
+          || runtimeData[`output${idx}`];
+        if (outputValue === null || outputValue === undefined) return null;
+        
+        // Extract the actual value (may be nested in { value, quality } format)
+        const displayValue = typeof outputValue === 'object' && outputValue.value !== undefined 
+          ? outputValue.value 
+          : outputValue;
+        
         return (
-          <Tooltip
-            key={`output-${handle.index}`}
-            title={`${handle.displayName} [${handle.type}]`}
-            placement="right"
-            arrow
+          <Box
+            key={`output-label-${handle.index}`}
+            sx={{
+              position: 'absolute',
+              left: '100%',
+              marginLeft: '16px',
+              top: handle.position,
+              transform: 'translateY(-50%)',
+              background: isDark ? 'rgba(42, 42, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              border: `1px solid ${isDark ? '#555' : '#ccc'}`,
+              borderRadius: '4px',
+              padding: '2px 6px',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              color: theme.palette.text.primary,
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              zIndex: 10,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+            }}
           >
-            <Handle
-              type="source"
-              position={Position.Right}
-              id={`output-${handle.index}`}
-              style={{
-                width: visual?.handles?.size || 12,
-                height: visual?.handles?.size || 12,
-                background: handle.color,
-                border: `${visual?.handles?.borderWidth || 2}px solid ${visual?.handles?.borderColor || 'white'}`,
-                top: handle.position,
-                zIndex: 1
-              }}
-            />
-          </Tooltip>
+            {typeof displayValue === 'object' ? JSON.stringify(displayValue) : String(displayValue)}
+          </Box>
         );
       })}
       

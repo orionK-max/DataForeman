@@ -50,7 +50,8 @@ This document defines the standard schema for Flow Studio nodes. All nodes must 
   name: 'node-type-identifier',
   version: 1,
   description: 'What this node does',
-  category: 'TAG_OPERATIONS' | 'LOGIC_MATH' | 'COMMUNICATION' | 'CUSTOM',
+  category: 'TAG_OPERATIONS' | 'LOGIC_MATH' | 'COMMUNICATION' | 'ROBOTICS' | ...,
+  section: 'BASIC' | 'ADVANCED' | 'CUSTOM_SECTION' | ...,
   
   // Visual properties (used in UI)
   icon: '📊',  // Emoji or icon identifier
@@ -1374,14 +1375,32 @@ visual: {
 - **Example**: `"Read value from a tag"`, `"Perform mathematical operations on multiple inputs"`
 
 #### `category` (string, required)
-- **Purpose**: Organize nodes in UI
-- **Allowed Values**:
+- **Purpose**: Organize nodes in the Flow Studio palette
+- **Core Categories**:
   - `"TAG_OPERATIONS"` - Reading/writing tags
   - `"LOGIC_MATH"` - Calculations, comparisons, logic
   - `"COMMUNICATION"` - External integrations
-  - `"TRIGGERS"` - Flow initiation
-  - `"CUSTOM"` - User-defined category
-- **Example**: `"TAG_OPERATIONS"`
+  - `"DATA_TRANSFORM"` - Data manipulation
+  - `"UTILITY"` - Helper nodes
+  - `"OTHER"` - Miscellaneous
+- **Custom Categories**: Library nodes can specify any category key
+  - Categories are created dynamically when the library is installed
+  - Custom categories appear only while the library is active
+  - Examples: `"ROBOTICS"`, `"VISION"`, `"SAFETY"`, `"PACKAGING"`
+- **Example**: `"TAG_OPERATIONS"` or `"ROBOTICS"`
+
+#### `section` (string, required)
+- **Purpose**: Sub-group within a category for better organization
+- **Core Sections** (examples):
+  - TAG_OPERATIONS: `"BASIC"`, `"ADVANCED"`
+  - LOGIC_MATH: `"MATH"`, `"COMPARISON"`, `"CONTROL"`, `"ADVANCED"`
+  - COMMUNICATION: `"BASIC"`, `"DATABASE"`
+- **Custom Sections**: Library nodes can specify any section key
+  - Sections are created dynamically when the library is installed
+  - Custom sections appear only while the library is active
+  - Examples: `"MOTION_CONTROL"`, `"VISION_ANALYSIS"`, `"TEST_SECTION"`
+- **Example**: `"BASIC"` or `"MOTION_CONTROL"`
+- **Note**: See CategoryDefinitions.js for core categories/sections. Libraries extend dynamically.
 
 #### `icon` (string, required)
 - **Purpose**: Visual identifier in UI

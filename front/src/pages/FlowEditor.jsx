@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ReactFlow, {
   Background,
@@ -10,7 +10,8 @@ import ReactFlow, {
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { nodeTypes } from '../components/FlowEditor/CustomNodes';
+import { nodeTypes as coreNodeTypes, buildNodeTypes } from '../components/FlowEditor/CustomNodes';
+import { getAllNodeTypes } from '../constants/nodeTypes';
 import { validateForSave, validateForDeploy } from '../utils/flowValidation';
 import {
   Box,
@@ -52,7 +53,7 @@ import {
   Download as DownloadIcon,
 } from '@mui/icons-material';
 import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder } from '../services/flowsApi';
-import { getNodeMetadata, getBackendMetadata } from '../constants/nodeTypes';
+import { getNodeMetadata, getBackendMetadata, fetchBackendNodeMetadata } from '../constants/nodeTypes';
 import NodeBrowser from '../components/FlowEditor/NodeBrowser';
 import NodeConfigPanel from '../components/FlowEditor/NodeConfigPanel';
 import NodeDetailsPanel from '../components/FlowEditor/NodeDetailsPanel';
@@ -102,6 +103,13 @@ const FlowEditor = () => {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track unsaved changes
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
+
+  // Build dynamic nodeTypes from backend metadata (already loaded by App.jsx)
+  // This creates React components for all node types (core + library nodes)
+  const dynamicNodeTypes = useMemo(() => {
+    const allNodeTypes = getAllNodeTypes();
+    return buildNodeTypes(allNodeTypes);
+  }, []); // Empty deps because metadata is loaded once by App.jsx before this component mounts
 
   // Fetch live cached tag values when showLiveValues is enabled
   const liveData = useFlowLiveData(id, showLiveValues);
@@ -388,19 +396,6 @@ const FlowEditor = () => {
     }
   }, [showExecutionOrder, executionOrder, setNodes]);
 
-  // Update nodes with showLiveValues flag when it changes
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((node) => ({
-        ...node,
-        data: {
-          ...node.data,
-          _showLiveValues: showLiveValues,
-        },
-      }))
-    );
-  }, [showLiveValues, setNodes]);
-
   const loadFlow = async () => {
     try {
       const data = await getFlow(id);
@@ -422,11 +417,18 @@ const FlowEditor = () => {
                 onExecute: handleExecuteTrigger,
                 deployed: data.flow.deployed || false,
                 canExecute: data.flow.deployed && !executingTriggers.has(node.id),
-                isExecuting: executingTriggers.has(node.id)
+                isExecuting: executingTriggers.has(node.id),
+                _showLiveValues: false  // Initialize with live values hidden
               }
             };
           }
-          return node;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              _showLiveValues: false  // Initialize with live values hidden
+            }
+          };
         });
         setNodes(loadedNodes);
         setEdges(data.flow.definition.edges || []);
@@ -466,12 +468,16 @@ const FlowEditor = () => {
   const handleSave = async () => {
     try {
       const definition = {
-        nodes: nodes.map(node => ({
-          id: node.id,
-          type: node.type,
-          position: node.position,
-          data: node.data || {}
-        })),
+        nodes: nodes.map(node => {
+          // Remove UI-only properties that shouldn't be persisted
+          const { _showLiveValues, ...persistentData } = node.data || {};
+          return {
+            id: node.id,
+            type: node.type,
+            position: node.position,
+            data: persistentData
+          };
+        }),
         edges: edges.map(edge => ({
           id: edge.id,
           source: edge.source,
@@ -809,11 +815,13 @@ const FlowEditor = () => {
             ...node.data,
             hasPinnedData: !!pinnedData[node.id],
             runtime: runtimeData,
+            // Always sync with global showLiveValues state
+            _showLiveValues: showLiveValues,
           },
         };
       })
     );
-  }, [pinnedData, liveData, setNodes]);
+  }, [pinnedData, liveData, showLiveValues, setNodes]);
 
   // Update flow settings
   const handleSaveSettings = async (settings) => {
@@ -962,11 +970,30 @@ const FlowEditor = () => {
         y: event.clientY - reactFlowBounds.top,
       });
 
+      // Get metadata for the node type to initialize with defaults
+      const metadata = getNodeMetadata(type);
+      const inputCount = metadata?.inputs?.length || 0;
+      
+      // Initialize node data with default values from properties
+      const initialData = {
+        // Initialize with default input count from node type metadata
+        inputCount: inputCount > 0 ? inputCount : undefined,
+      };
+      
+      // Add default values for all properties that have them
+      if (metadata?.properties) {
+        metadata.properties.forEach(prop => {
+          if (prop.default !== undefined && prop.name) {
+            initialData[prop.name] = prop.default;
+          }
+        });
+      }
+
       const newNode = {
-        id: `${type}-${Date.now()}`,
+        id: `${type}-${crypto.randomUUID()}`,
         type,
         position,
-        data: {} // Config panel will manage node data
+        data: initialData
       };
 
       setNodes((nds) => nds.concat(newNode));
@@ -1024,7 +1051,7 @@ const FlowEditor = () => {
     }
     
     const newNode = {
-      id: `${nodeType}-${Date.now()}`,
+      id: `${nodeType}-${crypto.randomUUID()}`,
       type: nodeType,
       position: finalPosition,
       data: initialData
@@ -1252,7 +1279,7 @@ const FlowEditor = () => {
               onNodeClick={onNodeClick}
               onNodeDoubleClick={onNodeDoubleClick}
               onPaneClick={onPaneClick}
-              nodeTypes={nodeTypes}
+              nodeTypes={dynamicNodeTypes}
               fitView
             >
               <Background />

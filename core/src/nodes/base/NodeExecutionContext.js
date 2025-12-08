@@ -104,6 +104,49 @@ export class NodeExecutionContext {
   }
 
   /**
+   * Get input data in N8n-style format: array of arrays of items
+   * Each input handle returns an array of items (usually 1 item with { json: data })
+   * 
+   * Compatible with library nodes that expect N8n-style input format.
+   * 
+   * @returns {Array<Array<Object>>} Array where each element is an array of items for that input
+   * @example
+   * // For a node with 2 inputs, each with one value:
+   * // Returns: [ [{ json: { value: 5 } }], [{ json: { value: 10 } }] ]
+   */
+  getInputData() {
+    if (this.inputStateManager) {
+      const edges = this._getIncomingEdges();
+      
+      return edges.map(edge => {
+        const portName = edge.targetHandle || 'input';
+        const inputData = this.inputStateManager.getInput(this.node.id, portName);
+        
+        if (!inputData) {
+          return [{ json: { value: null, quality: 0 } }];
+        }
+        
+        // Wrap in N8n format: array of items with json property
+        return [{ json: inputData }];
+      });
+    }
+    
+    // Fallback to manual execution format
+    const edges = this._getIncomingEdges();
+    
+    return edges.map(edge => {
+      const output = this.nodeOutputs.get(edge.source);
+      
+      if (!output) {
+        return [{ json: { value: null, quality: 0 } }];
+      }
+      
+      // Wrap in N8n format
+      return [{ json: output }];
+    });
+  }
+
+  /**
    * Get number of inputs connected to this node
    * 
    * @returns {number} Input count

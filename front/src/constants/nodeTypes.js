@@ -75,6 +75,17 @@ export async function fetchBackendNodeMetadata() {
 }
 
 /**
+ * Get all node types from backend metadata
+ * @returns {Array<Object>} Array of all backend metadata objects
+ */
+export function getAllNodeTypes() {
+  if (!backendNodeMetadata) {
+    return [];
+  }
+  return Object.values(backendNodeMetadata);
+}
+
+/**
  * Get backend metadata for a node type
  * @param {string} nodeType - Node type identifier
  * @returns {Object|null} Backend metadata or null
@@ -131,15 +142,6 @@ export function getNodeMetadata(nodeType) {
 }
 
 // Utility functions
-
-/**
- * Get all node types as a flat array
- * @returns {string[]} Array of node type strings
- */
-export function getAllNodeTypes() {
-  if (!backendNodeMetadata) return [];
-  return Object.keys(backendNodeMetadata);
-}
 
 /**
  * Get category information for a given node type

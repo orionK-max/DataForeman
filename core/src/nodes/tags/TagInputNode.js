@@ -43,14 +43,6 @@ export class TagInputNode extends BaseNode {
           type: 'subtitle',
           text: '{{connectionName}}: {{tagName}}',
           visible: '{{tagName}}'
-        },
-        {
-          type: 'values',
-          items: [
-            { label: 'Value', value: '{{runtime.value}}' },
-            { label: 'Quality', value: '{{runtime.quality}}' }
-          ],
-          visible: '{{_showLiveValues}}'
         }
       ],
       handles: {

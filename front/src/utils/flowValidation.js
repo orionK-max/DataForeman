@@ -3,6 +3,8 @@
  * Validates flow definitions before deploy/save to prevent errors
  */
 
+import { getNodeMetadata } from '../constants/nodeTypes';
+
 /**
  * Check if flow has cycles (circular dependencies)
  * Uses depth-first search to detect back edges
@@ -61,6 +63,14 @@ const hasCycles = (nodes, edges) => {
 const validateNodeConfig = (node) => {
   const errors = [];
 
+  // Check if node type is registered in backend metadata
+  const nodeMetadata = getNodeMetadata(node.type);
+  if (!nodeMetadata) {
+    errors.push({ nodeId: node.id, message: `Unknown node type: ${node.type}` });
+    return errors;
+  }
+
+  // Type-specific validation for built-in nodes
   switch (node.type) {
     case 'tag-input':
       if (!node.data?.tagId) {
@@ -107,7 +117,9 @@ const validateNodeConfig = (node) => {
       break;
 
     default:
-      errors.push({ nodeId: node.id, message: `Unknown node type: ${node.type}` });
+      // For library nodes and other dynamic node types, no specific validation
+      // They are considered valid if they exist in the metadata
+      break;
   }
 
   return errors;

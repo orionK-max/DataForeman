@@ -13,7 +13,7 @@
  */
 export class RuntimeStateStore {
   constructor() {
-    // Flow runtime state: flowId -> { triggers: Map<nodeId, boolean>, tags: Map<tagId, any> }
+    // Flow runtime state: flowId -> { triggers: Map<nodeId, boolean>, tags: Map<tagId, any>, outputs: Map<nodeId, any> }
     this.flows = new Map();
     
     // Tag value cache: tagId -> { value, quality, timestamp, connectionId }
@@ -29,7 +29,8 @@ export class RuntimeStateStore {
     if (!this.flows.has(flowId)) {
       this.flows.set(flowId, {
         triggers: new Map(),
-        tags: new Map() // For Phase 2
+        tags: new Map(), // For Phase 2
+        outputs: new Map() // Node execution outputs
       });
     }
   }
@@ -163,6 +164,7 @@ export class RuntimeStateStore {
       flowCount: this.flows.size,
       totalTriggers: 0,
       totalTags: 0,
+      totalOutputs: 0,
       cachedTagValues: this.tagCache.size,
       flows: []
     };
@@ -170,13 +172,68 @@ export class RuntimeStateStore {
     for (const [flowId, state] of this.flows.entries()) {
       stats.totalTriggers += state.triggers.size;
       stats.totalTags += state.tags.size;
+      stats.totalOutputs += state.outputs?.size || 0;
       stats.flows.push({
         flowId,
         triggerCount: state.triggers.size,
-        tagCount: state.tags.size
+        tagCount: state.tags.size,
+        outputCount: state.outputs?.size || 0
       });
     }
 
     return stats;
+  }
+
+  // ============================================================
+  // NODE OUTPUTS (Phase 3 - Active)
+  // ============================================================
+
+  /**
+   * Set node execution output (runtime data)
+   * @param {string} flowId - Flow UUID
+   * @param {string} nodeId - Node ID
+   * @param {object} runtimeData - Runtime data from node execute() return
+   */
+  setNodeOutput(flowId, nodeId, runtimeData) {
+    this.initFlow(flowId);
+    const flowState = this.flows.get(flowId);
+    flowState.outputs.set(nodeId, {
+      ...runtimeData,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Get node execution output
+   * @param {string} flowId - Flow UUID
+   * @param {string} nodeId - Node ID
+   * @returns {object|undefined} - Runtime data or undefined
+   */
+  getNodeOutput(flowId, nodeId) {
+    const flowState = this.flows.get(flowId);
+    if (!flowState) return undefined;
+    return flowState.outputs.get(nodeId);
+  }
+
+  /**
+   * Get all node outputs for a flow
+   * @param {string} flowId - Flow UUID
+   * @returns {Map<string, object>} - Map of nodeId -> runtime data
+   */
+  getNodeOutputs(flowId) {
+    const flowState = this.flows.get(flowId);
+    return flowState ? flowState.outputs : new Map();
+  }
+
+  /**
+   * Clear node output (when node is removed or flow is cleared)
+   * @param {string} flowId - Flow UUID
+   * @param {string} nodeId - Node ID
+   */
+  clearNodeOutput(flowId, nodeId) {
+    const flowState = this.flows.get(flowId);
+    if (flowState) {
+      flowState.outputs.delete(nodeId);
+    }
   }
 }

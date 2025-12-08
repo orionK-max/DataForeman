@@ -688,5 +688,87 @@ BEGIN
 END$$;
 
 -- =====================================================
+-- Node Libraries (Flow Studio Phase 2)
+-- =====================================================
+
+-- Installed node libraries (imported/uploaded packages)
+CREATE TABLE IF NOT EXISTS node_libraries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  library_id text UNIQUE NOT NULL,
+  name text NOT NULL,
+  version text NOT NULL,
+  manifest jsonb NOT NULL,
+  enabled boolean DEFAULT true,
+  installed_at timestamptz NOT NULL DEFAULT now(),
+  installed_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  last_loaded_at timestamptz,
+  load_errors text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE node_libraries IS 'Tracks installed node libraries for Flow Studio';
+COMMENT ON COLUMN node_libraries.library_id IS 'Unique identifier from manifest (e.g., "plc", "custom-nodes")';
+COMMENT ON COLUMN node_libraries.name IS 'Human-readable library name';
+COMMENT ON COLUMN node_libraries.version IS 'Semantic version string';
+COMMENT ON COLUMN node_libraries.manifest IS 'Complete manifest.json content including nodeTypes, requirements, etc.';
+COMMENT ON COLUMN node_libraries.enabled IS 'Whether library is active (disabled libraries do not load)';
+COMMENT ON COLUMN node_libraries.installed_by IS 'User who uploaded/installed the library';
+COMMENT ON COLUMN node_libraries.last_loaded_at IS 'Last successful load time';
+COMMENT ON COLUMN node_libraries.load_errors IS 'Error messages from most recent load attempt';
+
+CREATE INDEX IF NOT EXISTS idx_node_libraries_enabled ON node_libraries(enabled) WHERE enabled = true;
+CREATE INDEX IF NOT EXISTS idx_node_libraries_installed_at ON node_libraries(installed_at DESC);
+
+-- Flow library dependencies - track which flows use nodes from which libraries
+CREATE TABLE IF NOT EXISTS flow_library_dependencies (
+  flow_id uuid REFERENCES flows(id) ON DELETE CASCADE,
+  library_id text NOT NULL,
+  node_id text NOT NULL,
+  node_type text NOT NULL,
+  PRIMARY KEY (flow_id, library_id, node_id)
+);
+
+-- Dynamic category/section registration
+-- Tracks categories and sections that should appear in the node palette
+-- Built from core nodes + library nodes at runtime
+CREATE TABLE IF NOT EXISTS node_categories (
+  category_key text PRIMARY KEY,
+  display_name text NOT NULL,
+  icon text NOT NULL DEFAULT '📦',
+  description text,
+  display_order integer NOT NULL DEFAULT 99,
+  is_core boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS node_sections (
+  category_key text NOT NULL,
+  section_key text NOT NULL,
+  display_name text NOT NULL,
+  description text,
+  display_order integer NOT NULL DEFAULT 99,
+  is_core boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (category_key, section_key),
+  FOREIGN KEY (category_key) REFERENCES node_categories(category_key) ON DELETE CASCADE
+);
+
+COMMENT ON TABLE node_categories IS 'Dynamic node palette categories - built from core + libraries';
+COMMENT ON TABLE node_sections IS 'Dynamic node palette sections within categories';
+COMMENT ON COLUMN node_categories.is_core IS 'True for built-in categories, false for library-added';
+COMMENT ON COLUMN node_sections.is_core IS 'True for built-in sections, false for library-added';
+
+CREATE INDEX IF NOT EXISTS idx_node_categories_order ON node_categories(display_order);
+CREATE INDEX IF NOT EXISTS idx_node_sections_order ON node_sections(category_key, display_order);
+
+COMMENT ON TABLE flow_library_dependencies IS 'Tracks which flows use nodes from external libraries';
+COMMENT ON COLUMN flow_library_dependencies.library_id IS 'Library identifier (e.g., "test-library")';
+COMMENT ON COLUMN flow_library_dependencies.node_id IS 'Node instance ID in the flow';
+COMMENT ON COLUMN flow_library_dependencies.node_type IS 'Full node type (e.g., "test-library:hello-world")';
+
+CREATE INDEX IF NOT EXISTS idx_flow_library_deps_library ON flow_library_dependencies(library_id);
+CREATE INDEX IF NOT EXISTS idx_flow_library_deps_flow ON flow_library_dependencies(flow_id);
+
+-- =====================================================
 -- End of Schema Migration
 -- =====================================================

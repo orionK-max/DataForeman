@@ -218,6 +218,19 @@ export async function executeNode(node, nodeOutputs, context) {
     const nodeInstance = NodeRegistry.getInstance(node.type);
     const execContext = new NodeExecutionContext(node, nodeOutputs, context);
     
+    // Capture input values before execution (for automatic live values)
+    const capturedInputs = {};
+    if (inputStateManager) {
+      const inputHandles = execContext._getIncomingEdges();
+      inputHandles.forEach((edge, idx) => {
+        const portName = edge.targetHandle || `input-${idx}`;
+        const inputData = inputStateManager.getInput(node.id, portName);
+        if (inputData !== undefined) {
+          capturedInputs[portName] = inputData;
+        }
+      });
+    }
+    
     // Wrap execution in timeout protection
     const executionPromise = nodeInstance.execute(execContext);
     const timeoutPromise = new Promise((_, reject) => {
@@ -225,6 +238,26 @@ export async function executeNode(node, nodeOutputs, context) {
     });
     
     const result = await Promise.race([executionPromise, timeoutPromise]);
+    
+    // Capture output values after execution (for automatic live values)
+    const capturedOutputs = {};
+    if (result.outputs) {
+      // Extract values from N8n-style outputs format
+      result.outputs.forEach((outputArray, idx) => {
+        if (outputArray && outputArray[0] && outputArray[0].json) {
+          capturedOutputs[`output-${idx}`] = outputArray[0].json;
+        }
+      });
+    } else if (result.value !== undefined) {
+      // Simple value/quality format
+      capturedOutputs['output-0'] = { value: result.value, quality: result.quality || 192 };
+    }
+    
+    // Store captured I/O in the result for RuntimeStateStore
+    result.capturedIO = {
+      inputs: capturedInputs,
+      outputs: capturedOutputs
+    };
     
     // Automatic logging based on node's declarative log messages
     // Uses node's getLogMessages() to generate appropriate log entries
@@ -283,6 +316,40 @@ export async function updateFlowTagDependencies(app, flowId, definition) {
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (flow_id, tag_id, node_id, dependency_type) DO NOTHING`,
       [flowId, tagId, node.id, dependencyType]
+    );
+  }
+}
+
+/**
+ * Update flow library dependencies in database
+ * Tracks which flows use nodes from external libraries
+ * @param {Object} app - Fastify app instance
+ * @param {String} flowId - Flow UUID
+ * @param {Object} definition - Flow definition
+ */
+export async function updateFlowLibraryDependencies(app, flowId, definition) {
+  const { nodes = [] } = definition;
+  
+  // Delete existing dependencies
+  await app.db.query('DELETE FROM flow_library_dependencies WHERE flow_id = $1', [flowId]);
+  
+  // Add new dependencies for library nodes
+  for (const node of nodes) {
+    // Check if node type is from a library (format: libraryId:nodeType)
+    if (!node.type || !node.type.includes(':')) continue;
+    
+    const [libraryId, ...nodeTypeParts] = node.type.split(':');
+    const nodeType = nodeTypeParts.join(':'); // Handle edge case of multiple colons
+    
+    // Skip if it's a built-in node (shouldn't have colon, but be safe)
+    if (!libraryId || !nodeType) continue;
+    
+    await app.db.query(
+      `INSERT INTO flow_library_dependencies (flow_id, library_id, node_id, node_type)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (flow_id, library_id, node_id) DO UPDATE
+       SET node_type = EXCLUDED.node_type`,
+      [flowId, libraryId, node.id, node.type]
     );
   }
 }
@@ -392,6 +459,9 @@ export async function executeFlow(context) {
     // Update tag dependencies
     await updateFlowTagDependencies(app, flowId, flow.definition);
     
+    // Update library dependencies
+    await updateFlowLibraryDependencies(app, flowId, flow.definition);
+    
     // Get execution order
     const { nodes = [], edges = [], pinData = {} } = flow.definition;
     
@@ -453,6 +523,14 @@ export async function executeFlow(context) {
       output.completedAt = new Date(endTime).toISOString();
       
       nodeOutputs.set(nodeId, output);
+      
+      // Store captured I/O in RuntimeStateStore for live value display
+      if (output.capturedIO && app.runtimeState) {
+        app.runtimeState.setNodeOutput(flow.id, nodeId, output.capturedIO);
+      } else if (output.runtime && app.runtimeState) {
+        // Fallback for nodes that still use manual runtime (backward compatibility)
+        app.runtimeState.setNodeOutput(flow.id, nodeId, output.runtime);
+      }
       
       log.info({ nodeId, nodeType: node.type, output, executionTime: output.executionTime }, 'Node executed');
     }
@@ -793,6 +871,14 @@ class ScanExecutor {
         try {
           const output = await executeNode(node, this.nodeOutputs, scanContext);
           this.nodeOutputs.set(nodeId, output);
+          
+          // Store captured I/O in RuntimeStateStore for live value display
+          if (output.capturedIO && scanContext.app && scanContext.app.runtimeState) {
+            scanContext.app.runtimeState.setNodeOutput(this.flow.id, nodeId, output.capturedIO);
+          } else if (output.runtime && scanContext.app && scanContext.app.runtimeState) {
+            // Fallback for nodes that still use manual runtime (backward compatibility)
+            scanContext.app.runtimeState.setNodeOutput(this.flow.id, nodeId, output.runtime);
+          }
           
           // Performance check
           const nodeDuration = performance.now() - nodeStart;

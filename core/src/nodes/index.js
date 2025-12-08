@@ -6,6 +6,7 @@
  */
 
 import { NodeRegistry } from './base/NodeRegistry.js';
+import { LibraryManager } from './base/LibraryManager.js';
 
 // Tag nodes
 import { TagInputNode } from './tags/TagInputNode.js';
@@ -30,8 +31,26 @@ import { CommentNode } from './utility/CommentNode.js';
 /**
  * Register all node types
  * Called during application startup
+ * 
+ * @param {Object} options - Registration options
+ * @param {boolean} options.loadLibraries - Whether to load external libraries (default: true)
+ * @param {Object} options.db - Database connection (required for library loading)
+ * @returns {Promise<void>}
  */
-export function registerAllNodes() {
+export async function registerAllNodes(options = {}) {
+  const { loadLibraries = true, db } = options;
+  
+  // Initialize category service with core categories
+  if (db) {
+    try {
+      const { CategoryService } = await import('../services/CategoryService.js');
+      await CategoryService.initializeCoreCategories(db);
+    } catch (error) {
+      console.error('[registerAllNodes] Failed to initialize categories:', error);
+    }
+  }
+  
+  // Register built-in nodes
   // Tag operations
   NodeRegistry.register('tag-input', TagInputNode);
   NodeRegistry.register('tag-output', TagOutputNode);
@@ -52,11 +71,26 @@ export function registerAllNodes() {
   NodeRegistry.register('constant', ConstantNode);
   NodeRegistry.register('comment', CommentNode);
   
-  // More nodes will be registered here as we implement them
+  console.log(`[NodeRegistry] Registered ${NodeRegistry.count()} built-in node types`);
   
-  console.log(`[NodeRegistry] Registered ${NodeRegistry.count()} node types`);
+  // Load external node libraries
+  if (loadLibraries) {
+    try {
+      await LibraryManager.loadAllLibraries(NodeRegistry, { db });
+      
+      const libraryCount = LibraryManager.getAllLibraries().length;
+      const totalNodes = NodeRegistry.count();
+      
+      if (libraryCount > 0) {
+        console.log(`[NodeRegistry] Loaded ${libraryCount} libraries, total ${totalNodes} node types`);
+      }
+    } catch (error) {
+      console.error('[NodeRegistry] Error loading libraries:', error);
+      // Don't throw - libraries are optional, continue with built-in nodes
+    }
+  }
 }
 
-// Export registry for use in other modules
-export { NodeRegistry };
+// Export registry and library manager for use in other modules
+export { NodeRegistry, LibraryManager };
 

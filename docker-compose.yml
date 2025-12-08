@@ -98,6 +98,7 @@ services:
       - "${CORE_PORT:-3000}:3000"
     volumes:
       - ./logs/core:/var/log/core
+      - core-libraries:/app/src/nodes/libraries
       - ./logs/nats:/var/log/nats
       - ./logs/postgres:/var/log/postgresql
       - ./logs/ops:/var/log/ops
@@ -183,3 +184,4 @@ services:
 volumes:
   db-data:
   tsdb-data:
+  core-libraries:

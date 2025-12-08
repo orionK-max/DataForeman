@@ -406,6 +406,27 @@ export async function importFlow(importData, userId, validation, db, newName = n
   const flowData = importData.flow;
   const definition = flowData.definition;
   const nodes = definition.nodes || [];
+  const edges = definition.edges || [];
+
+  // Regenerate all node IDs to prevent collisions
+  const idMap = new Map();
+  nodes.forEach(node => {
+    const newId = `${node.type}-${crypto.randomUUID()}`;
+    idMap.set(node.id, newId);
+    node.id = newId;
+  });
+
+  // Update edge references with new node IDs
+  edges.forEach(edge => {
+    if (idMap.has(edge.source)) {
+      edge.source = idMap.get(edge.source);
+    }
+    if (idMap.has(edge.target)) {
+      edge.target = idMap.get(edge.target);
+    }
+    // Regenerate edge ID as well
+    edge.id = crypto.randomUUID();
+  });
 
   // Create sets of valid IDs for filtering
   const validConnectionIds = new Set(validation.validConnections.map(c => c.connection_id));
@@ -468,7 +489,8 @@ export async function importFlow(importData, userId, validation, db, newName = n
     save_usage_data: flowData.save_usage_data !== false,
     definition: {
       ...definition,
-      nodes: filteredNodes
+      nodes: filteredNodes,
+      edges: edges
     },
     static_data: flowData.static_data || {}
   };

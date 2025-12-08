@@ -28,6 +28,7 @@ import { folderRoutes } from './routes/folders.js';
 import flowRoutes from './routes/flows.js';
 import flowLiveDataRoutes from './routes/flow-live-data.js';
 import flowResourceRoutes from './routes/flow-resources.js';
+import libraryRoutes from './routes/libraries.js';
 import adminFlowsRoutes from './routes/admin/flows.js';
 import { jobsPlugin } from './services/jobs.js';
 import { dbPlugin } from './services/db.js';
@@ -107,9 +108,6 @@ export async function buildServer() {
   // Start log retention cleaner (hourly)
   startRetentionScheduler(app.log);
   
-  // Register all flow node types
-  registerAllNodes();
-  
   await app.register(cors, { origin: true, credentials: true });
   await app.register(helmet, { global: true });
   await app.register(multipart, { 
@@ -132,6 +130,10 @@ export async function buildServer() {
   await app.register(dbPlugin);
   await app.register(tsdbPlugin);
   await app.register(permissionsPlugin);
+  
+  // Register all flow node types (including external libraries)
+  // Must be after dbPlugin so we can query enabled libraries
+  await registerAllNodes({ db: app.db });
   
   // Start flow log cleanup scheduler after db is available (daily at 2 AM)
   startFlowLogCleanupScheduler(app.log, app.db);
@@ -162,6 +164,7 @@ export async function buildServer() {
   await app.register(flowRoutes); // Flow studio routes
   await app.register(flowLiveDataRoutes); // Flow live data (cached tag values) - no prefix, routes define their own paths
   await app.register(flowResourceRoutes); // Flow resource monitoring - no prefix, routes define their own paths
+  await app.register(libraryRoutes); // Node library management - no prefix, routes define their own paths
   await app.register(adminFlowsRoutes, { prefix: '/api/admin/flows' }); // Admin flow configuration
   // Jobs plugin + routes (admin only) – register once then start dispatcher
   await app.register(jobsPlugin); // services.jobs

@@ -1,0 +1,20 @@
+# Node Libraries Directory
+
+This directory contains installed node libraries for Flow Studio.
+
+Each library is a directory with:
+- library.manifest.json - Library metadata
+- index.js - Entry point that exports registerNodes()
+- nodes/ - Node implementation files
+
+Example structure:
+```
+libraries/
+  my-library/
+    library.manifest.json
+    index.js
+    nodes/
+      MyNode.js
+```
+
+See docs/INTERNAL-library-import-spec.md for complete specification.

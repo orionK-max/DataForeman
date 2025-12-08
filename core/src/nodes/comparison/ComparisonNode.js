@@ -47,16 +47,6 @@ export class ComparisonNode extends BaseNode {
         displayName: 'Result',
         type: 'boolean',
         description: 'Comparison result (true/false)'
-      },
-      {
-        displayName: 'Quality',
-        type: 'number',
-        description: 'OPC UA quality code (minimum of input qualities)'
-      },
-      {
-        displayName: 'Operator',
-        type: 'string',
-        description: 'The comparison operator used'
       }
     ],
     
@@ -87,9 +77,7 @@ export class ComparisonNode extends BaseNode {
           { index: 1, position: '66.67%', color: 'auto', label: null, visible: true }
         ],
         outputs: [
-          { index: 0, position: 'auto', color: 'auto', label: null, visible: true },
-          { index: 1, position: 'auto', color: 'auto', label: null, visible: true },
-          { index: 2, position: 'auto', color: 'auto', label: null, visible: true }
+          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
         ],
         size: 12,
         borderWidth: 2,

@@ -17,6 +17,7 @@ import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import PeopleIcon from '@mui/icons-material/People';
+import ExtensionIcon from '@mui/icons-material/Extension';
 import PersonIcon from '@mui/icons-material/Person';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useTheme } from '../theme/ThemeProvider';
@@ -44,6 +45,11 @@ const TopBar = () => {
 
   const handleNavigateUsers = () => {
     navigate('/admin/users');
+    handleClose();
+  };
+
+  const handleNavigateLibraries = () => {
+    navigate('/admin/libraries');
     handleClose();
   };
 
@@ -126,6 +132,12 @@ const TopBar = () => {
                     <PeopleIcon fontSize="small" />
                   </ListItemIcon>
                   <ListItemText>Users</ListItemText>
+                </MenuItem>
+                <MenuItem onClick={handleNavigateLibraries}>
+                  <ListItemIcon>
+                    <ExtensionIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>Libraries</ListItemText>
                 </MenuItem>
               </>
             )}

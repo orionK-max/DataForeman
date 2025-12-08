@@ -112,7 +112,8 @@ export const generateHandles = (visualHandles, inputs = [], outputs = [], data =
     type: inputs[handleDef.index]?.type || 'main',
     displayName: handleDef.label || inputs[handleDef.index]?.displayName || `Input ${handleDef.index + 1}`,
     color: getHandleColor(handleDef, inputs[handleDef.index]?.type || 'main'),
-    position: calculateHandlePosition(handleDef, handleDef.index, inputHandles.length)
+    position: calculateHandlePosition(handleDef, handleDef.index, inputHandles.length),
+    visible: handleDef.visible !== undefined ? handleDef.visible : true // Default to true if not specified
   }));
 
   const outputHandles = visualHandles.outputs || [];
@@ -121,7 +122,8 @@ export const generateHandles = (visualHandles, inputs = [], outputs = [], data =
     type: outputs[handleDef.index]?.type || 'main',
     displayName: handleDef.label || outputs[handleDef.index]?.displayName || `Output ${handleDef.index + 1}`,
     color: getHandleColor(handleDef, outputs[handleDef.index]?.type || 'main'),
-    position: calculateHandlePosition(handleDef, handleDef.index, outputHandles.length)
+    position: calculateHandlePosition(handleDef, handleDef.index, outputHandles.length),
+    visible: handleDef.visible !== undefined ? handleDef.visible : true // Default to true if not specified
   }));
 
   return {

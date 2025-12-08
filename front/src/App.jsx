@@ -18,6 +18,7 @@ import Users from './pages/Users';
 import Profile from './pages/Profile';
 import FlowBrowser from './pages/FlowBrowser';
 import FlowEditor from './pages/FlowEditor';
+import LibraryManager from './pages/LibraryManager';
 
 // Protected wrapper that redirects to login if not authenticated
 const ProtectedApp = () => {
@@ -71,6 +72,7 @@ const ProtectedApp = () => {
           <Route path="/diagnostic" element={<Diagnostic />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/admin/users" element={<Users />} />
+          <Route path="/admin/libraries" element={<LibraryManager />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </MainLayout>

@@ -1,12 +1,23 @@
 /**
  * Node Category Definitions
  * 
- * Defines the hierarchical structure of node categories and sections
+ * Defines the hierarchical structure of CORE node categories and sections
  * for the Flow Studio node palette. This provides the organizational
  * structure for how nodes are displayed in the UI.
  * 
  * Categories group related functionality (e.g., Tag Operations, Logic & Math)
  * Sections subdivide categories into logical groupings (e.g., Basic, Advanced)
+ * 
+ * IMPORTANT - Dynamic Category System:
+ * - This file defines ONLY core categories/sections (stored with is_core=true)
+ * - Library-installed nodes can dynamically add their own categories/sections (is_core=false)
+ * - CategoryService manages dynamic registration and cleanup of library categories
+ * - Library categories/sections appear only when the library is installed
+ * - When a library is uninstalled, its empty categories/sections are automatically removed
+ * - The /api/flows/categories endpoint serves merged core + library categories from database
+ * 
+ * See: CategoryService.js for dynamic category management
+ * See: docs/library-system.md for library development guidelines
  */
 
 export const CATEGORIES = {

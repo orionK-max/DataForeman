@@ -24,6 +24,13 @@ class NodeRegistryClass {
      * @private
      */
     this._instances = new Map();
+    
+    /**
+     * Map of node type -> library metadata
+     * Tracks which library each node came from
+     * @private
+     */
+    this._libraryMetadata = new Map();
   }
 
   /**
@@ -34,12 +41,16 @@ class NodeRegistryClass {
    * @param {Class} NodeClass - Node class that extends BaseNode
    * @param {Object} options - Registration options
    * @param {boolean} options.skipValidation - Skip schema validation (for legacy nodes)
+   * @param {Object} options.library - Library metadata (for library nodes)
+   * @param {string} options.library.libraryId - Library identifier
+   * @param {string} options.library.name - Library name
+   * @param {string} options.library.version - Library version
    * @throws {Error} If node type already registered
    * @throws {Error} If NodeClass is invalid
    * @throws {Error} If description fails schema validation
    */
   register(nodeType, NodeClass, options = {}) {
-    const { skipValidation = false } = options;
+    const { skipValidation = false, library = null } = options;
     
     // Validation
     if (!nodeType || typeof nodeType !== 'string') {
@@ -89,8 +100,18 @@ class NodeRegistryClass {
     // Register
     this._registry.set(nodeType, NodeClass);
     
+    // Store library metadata if provided
+    if (library) {
+      this._libraryMetadata.set(nodeType, {
+        libraryId: library.libraryId,
+        name: library.name,
+        version: library.version
+      });
+    }
+    
     const schemaVersion = instance.description.schemaVersion || 'unknown';
-    console.log(`[NodeRegistry] Registered node type: ${nodeType} (schema v${schemaVersion})`);
+    const source = library ? `from library ${library.libraryId}` : 'built-in';
+    console.log(`[NodeRegistry] Registered node type: ${nodeType} (schema v${schemaVersion}, ${source})`);
   }
 
   /**
@@ -146,7 +167,45 @@ class NodeRegistryClass {
    */
   getDescription(nodeType) {
     const instance = this.getInstance(nodeType);
-    return instance ? instance.description : undefined;
+    if (!instance) {
+      return undefined;
+    }
+    
+    const description = { ...instance.description };
+    
+    // Add library metadata if available
+    const libraryMetadata = this._libraryMetadata.get(nodeType);
+    if (libraryMetadata) {
+      description.library = libraryMetadata;
+    }
+    
+    return description;
+  }
+
+  /**
+   * Get library metadata for a node type
+   * 
+   * @param {string} nodeType - Node type identifier
+   * @returns {Object|undefined} Library metadata or undefined if node is built-in
+   */
+  getLibraryMetadata(nodeType) {
+    return this._libraryMetadata.get(nodeType);
+  }
+
+  /**
+   * Get all node types from a specific library
+   * 
+   * @param {string} libraryId - Library identifier
+   * @returns {Array<string>} Array of node type identifiers
+   */
+  getNodeTypesFromLibrary(libraryId) {
+    const nodeTypes = [];
+    for (const [nodeType, metadata] of this._libraryMetadata.entries()) {
+      if (metadata.libraryId === libraryId) {
+        nodeTypes.push(nodeType);
+      }
+    }
+    return nodeTypes;
   }
 
   /**
@@ -187,6 +246,33 @@ class NodeRegistryClass {
   }
   
   /**
+   * Get all nodes from a specific library
+   * 
+   * @param {string} libraryId - Library identifier
+   * @returns {Array<Object>} Array of node info objects {type, libraryId, name, version}
+   */
+  getNodesByLibrary(libraryId) {
+    const nodes = [];
+    
+    for (const [nodeType, metadata] of this._libraryMetadata.entries()) {
+      if (metadata.libraryId === libraryId) {
+        const description = this.getDescription(nodeType);
+        nodes.push({
+          type: nodeType,
+          libraryId: metadata.libraryId,
+          libraryName: metadata.name,
+          libraryVersion: metadata.version,
+          displayName: description?.displayName,
+          category: description?.category,
+          section: description?.section
+        });
+      }
+    }
+    
+    return nodes;
+  }
+  
+  /**
    * Check if a schema version is supported
    * 
    * @param {number} version - Schema version to check
@@ -214,7 +300,30 @@ class NodeRegistryClass {
    */
   unregister(nodeType) {
     this._instances.delete(nodeType);
+    this._libraryMetadata.delete(nodeType);
     return this._registry.delete(nodeType);
+  }
+
+  /**
+   * Unregister all nodes from a specific library
+   * Used for hot-reload when library is updated or deleted
+   * 
+   * @param {string} libraryId - Library identifier
+   * @returns {Array<string>} Array of unregistered node types
+   */
+  unregisterLibraryNodes(libraryId) {
+    const unregisteredNodes = [];
+    
+    // Find all nodes from this library
+    for (const [nodeType, metadata] of this._libraryMetadata.entries()) {
+      if (metadata.libraryId === libraryId) {
+        this.unregister(nodeType);
+        unregisteredNodes.push(nodeType);
+      }
+    }
+    
+    console.log(`[NodeRegistry] Unregistered ${unregisteredNodes.length} nodes from library: ${libraryId}`);
+    return unregisteredNodes;
   }
 
   /**
@@ -223,6 +332,7 @@ class NodeRegistryClass {
   clear() {
     this._registry.clear();
     this._instances.clear();
+    this._libraryMetadata.clear();
   }
 
   /**

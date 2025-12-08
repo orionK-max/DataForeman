@@ -26,8 +26,8 @@ export default async function flowRoutes(app) {
     if (!(await checkPermission(userId, 'read', reply))) return;
 
     try {
-      const { getAllCategories } = await import('../nodes/base/CategoryDefinitions.js');
-      const categories = getAllCategories();
+      const { CategoryService } = await import('../services/CategoryService.js');
+      const categories = await CategoryService.getAllCategories(db);
       
       reply.send({ categories });
     } catch (error) {
@@ -82,7 +82,8 @@ export default async function flowRoutes(app) {
         inputConfiguration: desc.inputConfiguration || null,
         properties: desc.properties || [],
         visual: desc.visual || null,
-        extensions: desc.extensions || {}
+        extensions: desc.extensions || {},
+        library: desc.library // Include library metadata if node is from a library
       }));
       
       reply.send({ 
@@ -525,9 +526,10 @@ export default async function flowRoutes(app) {
 
       // Update tag dependencies when deploying
       if (deployed && flow.definition) {
-        const { updateFlowTagDependencies } = await import('../services/flow-executor.js');
+        const { updateFlowTagDependencies, updateFlowLibraryDependencies } = await import('../services/flow-executor.js');
         await updateFlowTagDependencies(app, id, flow.definition);
-        req.log.debug({ flowId: id }, 'Tag dependencies updated');
+        await updateFlowLibraryDependencies(app, id, flow.definition);
+        req.log.debug({ flowId: id }, 'Tag and library dependencies updated');
       }
 
       // Auto-start session if deploying
