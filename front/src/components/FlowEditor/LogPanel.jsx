@@ -91,17 +91,9 @@ export default function LogPanel({
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [grouping, setGrouping] = useState('flat');
-  const [levelFilters, setLevelFilters] = useState({
-    debug: true,
-    info: true,
-    warn: true,
-    error: true,
-  });
-  const [nodeFilter, setNodeFilter] = useState('');
   const [searchText, setSearchText] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [paused, setPaused] = useState(false);
-  const [anchorEl, setAnchorEl] = useState(null);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   
   // Resize state
@@ -292,12 +284,6 @@ export default function LogPanel({
   // Filter logs
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
-      // Level filter
-      if (!levelFilters[log.log_level]) return false;
-      
-      // Node filter
-      if (nodeFilter && log.node_id !== nodeFilter) return false;
-      
       // Search text
       if (searchText && !log.message.toLowerCase().includes(searchText.toLowerCase())) {
         return false;
@@ -305,7 +291,7 @@ export default function LogPanel({
       
       return true;
     });
-  }, [logs, levelFilters, nodeFilter, searchText]);
+  }, [logs, searchText]);
 
   // Group logs
   const groupedLogs = useMemo(() => {
@@ -337,15 +323,6 @@ export default function LogPanel({
     
     return groups;
   }, [filteredLogs, grouping]);
-
-  // Get unique nodes for filter
-  const availableNodes = useMemo(() => {
-    const nodes = new Set();
-    logs.forEach(log => {
-      if (log.node_id) nodes.add(log.node_id);
-    });
-    return Array.from(nodes).sort();
-  }, [logs]);
 
   // Clear logs
   const handleClear = async () => {
@@ -404,11 +381,6 @@ export default function LogPanel({
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  // Toggle level filter
-  const toggleLevelFilter = (level) => {
-    setLevelFilters(prev => ({ ...prev, [level]: !prev[level] }));
   };
 
   // Format timestamp
@@ -571,93 +543,79 @@ export default function LogPanel({
         }}
       >
         <Typography variant="subtitle2" sx={{ flex: 1, fontWeight: 600, color: 'primary.main', fontSize: '0.95rem' }}>
-          📋 Execution Logs
+          📋 Log
         </Typography>
 
-        {/* Grouping Mode */}
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <Select
-            value={grouping}
-            onChange={(e) => setGrouping(e.target.value)}
-            sx={{ fontSize: '0.875rem' }}
-          >
-            {Object.entries(GROUPING_MODES).map(([key, label]) => (
-              <MenuItem key={key} value={key}>{label}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <Box sx={{ display: 'flex', gap: 0.5 }}>
+          {/* Refresh */}
+          <Tooltip title="Refresh logs">
+            <Button 
+              size="small" 
+              variant="outlined"
+              onClick={loadLogs}
+              startIcon={<RefreshIcon />}
+              sx={{ minWidth: 90 }}
+            >
+              Refresh
+            </Button>
+          </Tooltip>
 
-        {/* Level Filters */}
-        <Tooltip title="Filter by level">
-          <IconButton size="small" onClick={(e) => setAnchorEl(e.currentTarget)}>
-            <FilterIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+          {/* Pause/Resume auto-refresh */}
+          <Tooltip title={paused ? "Resume auto-refresh" : "Pause auto-refresh"}>
+            <Button 
+              size="small" 
+              variant={paused ? 'contained' : 'outlined'}
+              color={paused ? 'warning' : 'inherit'}
+              onClick={() => setPaused(!paused)}
+              startIcon={paused ? <PlayIcon /> : <PauseIcon />}
+              sx={{ minWidth: 90 }}
+            >
+              {paused ? 'Resume' : 'Pause'}
+            </Button>
+          </Tooltip>
 
-        {/* Refresh */}
-        <Tooltip title="Refresh logs">
-          <IconButton size="small" onClick={loadLogs}>
-            <RefreshIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+          {/* Clear */}
+          <Tooltip title="Clear logs">
+            <Button 
+              size="small" 
+              variant="outlined"
+              onClick={() => setClearDialogOpen(true)}
+              startIcon={<ClearIcon />}
+              sx={{ minWidth: 90 }}
+            >
+              Clear
+            </Button>
+          </Tooltip>
 
-        {/* Pause/Resume auto-refresh */}
-        <Tooltip title={paused ? "Resume auto-refresh" : "Pause auto-refresh"}>
-          <IconButton size="small" onClick={() => setPaused(!paused)} color={paused ? "warning" : "default"}>
-            {paused ? <PlayIcon fontSize="small" /> : <PauseIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
+          {/* Position Toggle */}
+          <Tooltip title="Toggle position">
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onPositionChange?.(position === 'bottom' ? 'right' : 'bottom')}
+              startIcon={<SwapVertIcon />}
+              sx={{ minWidth: 90 }}
+            >
+              Position
+            </Button>
+          </Tooltip>
 
-        {/* Clear */}
-        <Tooltip title="Clear logs">
-          <IconButton size="small" onClick={() => setClearDialogOpen(true)}>
-            <ClearIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        {/* Position Toggle */}
-        <Tooltip title="Toggle position">
-          <IconButton
-            size="small"
-            onClick={() => onPositionChange?.(position === 'bottom' ? 'right' : 'bottom')}
-          >
-            <SwapVertIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        {/* Close */}
-        <IconButton size="small" onClick={onClose}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
-
-        {/* Filter Menu */}
-        <Menu
-          anchorEl={anchorEl}
-          open={Boolean(anchorEl)}
-          onClose={() => setAnchorEl(null)}
-        >
-          <Box sx={{ p: 2, minWidth: 200 }}>
-            <Typography variant="subtitle2" gutterBottom>Log Levels</Typography>
-            <FormGroup>
-              {Object.entries(LOG_LEVELS).map(([level, info]) => (
-                <FormControlLabel
-                  key={level}
-                  control={
-                    <Checkbox
-                      checked={levelFilters[level]}
-                      onChange={() => toggleLevelFilter(level)}
-                      size="small"
-                    />
-                  }
-                  label={info.label}
-                />
-              ))}
-            </FormGroup>
-          </Box>
-        </Menu>
+          {/* Close */}
+          <Tooltip title="Close">
+            <Button 
+              size="small" 
+              variant="outlined"
+              onClick={onClose}
+              startIcon={<CloseIcon />}
+              sx={{ minWidth: 90 }}
+            >
+              Close
+            </Button>
+          </Tooltip>
+        </Box>
       </Box>
 
-      {/* Filters Bar */}
+      {/* Search Bar */}
       <Box sx={{ 
         display: 'flex', 
         gap: 1, 
@@ -673,21 +631,6 @@ export default function LogPanel({
           onChange={(e) => setSearchText(e.target.value)}
           sx={{ flex: 1 }}
         />
-        {availableNodes.length > 0 && (
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Node Filter</InputLabel>
-            <Select
-              value={nodeFilter}
-              label="Node Filter"
-              onChange={(e) => setNodeFilter(e.target.value)}
-            >
-              <MenuItem value="">All Nodes</MenuItem>
-              {availableNodes.map(node => (
-                <MenuItem key={node} value={node}>{node}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
       </Box>
 
       {/* Log Display */}

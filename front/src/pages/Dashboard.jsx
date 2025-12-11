@@ -12,16 +12,19 @@ import {
   CircularProgress,
   TextField,
   Chip,
+  Divider,
+  Paper,
 } from '@mui/material';
 import {
-  Edit,
-  Save,
-  Cancel,
-  Add,
-  Fullscreen,
-  AccessTime,
-  FileDownload,
-  Settings,
+  Edit as EditIcon,
+  Save as SaveIcon,
+  Cancel as CancelIcon,
+  Add as AddIcon,
+  Fullscreen as FullscreenIcon,
+  AccessTime as AccessTimeIcon,
+  FileDownload as FileDownloadIcon,
+  Settings as SettingsIcon,
+  ArrowBack as BackIcon,
 } from '@mui/icons-material';
 import { Responsive, WidthProvider } from 'react-grid-layout';
 import { DashboardProvider, useDashboard } from '../contexts/DashboardContext';
@@ -168,9 +171,9 @@ const DashboardContent = () => {
   // TV Mode handlers 
   const handleStartTVMode = async (config) => {
     try {
-      // Load all selected dashboards
+      // Load all selected dashboards directly from the service
       const dashboardPromises = config.dashboards.map(dashboardId => 
-        loadDashboard(dashboardId)
+        dashboardService.getDashboard(dashboardId)
       );
       const loadedDashboards = await Promise.all(dashboardPromises);
       
@@ -193,10 +196,9 @@ const DashboardContent = () => {
     }
   };
 
-  const handleTVDashboardChange = (index) => {
-    setTvDashboardIndex(index);
-    const dashboardId = tvConfig.dashboards[index];
-    navigate(`/dashboards/${dashboardId}`);
+  const handleTVDashboardChange = (indexOrUpdater) => {
+    setTvDashboardIndex(indexOrUpdater);
+    // Don't navigate during TV mode - TVMode component manages its own state
   };
 
   // Get sync group index for a widget
@@ -233,8 +235,13 @@ const DashboardContent = () => {
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Toolbar */}
-      <AppBar className="export-hide" position="static" color="default" elevation={1}>
-        <Toolbar>
+      <Paper className="export-hide" elevation={2} sx={{ mb: 2 }}>
+        <Toolbar sx={{ gap: 2, py: 1 }}>
+          {/* Navigation */}
+          <IconButton onClick={() => navigate('/dashboards')} edge="start" size="small">
+            <BackIcon />
+          </IconButton>
+          
           {editMode ? (
             <TextField
               value={editedName}
@@ -243,6 +250,7 @@ const DashboardContent = () => {
               placeholder="Dashboard Name"
               sx={{ 
                 flexGrow: 1,
+                ml: 2,
                 '& .MuiInput-root': {
                   fontSize: '1.25rem',
                   fontWeight: 500,
@@ -250,7 +258,7 @@ const DashboardContent = () => {
               }}
             />
           ) : (
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+            <Typography variant="h6" sx={{ ml: 2, flexGrow: 1 }}>
               {currentDashboard?.name || 'Dashboard'}
               {currentDashboard?.is_shared && (
                 <Chip
@@ -264,98 +272,196 @@ const DashboardContent = () => {
             </Typography>
           )}
 
-          {hasUnsavedChanges && !editMode && (
-            <Typography variant="caption" color="warning.main" sx={{ mr: 2 }}>
-              Unsaved changes
-            </Typography>
+          {hasUnsavedChanges && (
+            <Chip label="Unsaved" color="warning" size="small" sx={{ mr: 2 }} />
           )}
 
           {editMode ? (
             <>
-              <Button
-                startIcon={<Add />}
-                onClick={() => setShowAddChart(true)}
-                sx={{ mr: 1 }}
-              >
-                Add Chart
-              </Button>
-              {selectedWidgets.size > 1 && (
-                <Button
-                  startIcon={<AccessTime />}
-                  onClick={() => setShowSyncTimeDialog(true)}
-                  variant="outlined"
-                  color="primary"
-                  sx={{ mr: 1 }}
-                >
-                  Sync Time ({selectedWidgets.size} selected)
-                </Button>
-              )}
-              <Button
-                startIcon={<Save />}
-                onClick={handleSave}
-                variant="contained"
-                color="primary"
-                sx={{ mr: 1 }}
-                disabled={!hasUnsavedChanges}
-              >
-                Save
-              </Button>
-              <Button
-                startIcon={<Cancel />}
-                onClick={handleCancel}
-              >
-                Cancel
-              </Button>
+              <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+              
+              {/* Primary Group */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+                  PRIMARY
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <Tooltip 
+                    title="Save dashboard changes"
+                    PopperProps={{
+                      modifiers: [
+                        {
+                          name: 'preventOverflow',
+                          options: {
+                            boundary: 'window',
+                          },
+                        },
+                      ],
+                    }}
+                  >
+                    <span>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        startIcon={<SaveIcon />}
+                        onClick={handleSave}
+                        disabled={!hasUnsavedChanges}
+                        sx={{ minWidth: 90 }}
+                      >
+                        Save
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Cancel editing">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<CancelIcon />}
+                      onClick={handleCancel}
+                      sx={{ minWidth: 90 }}
+                    >
+                      Cancel
+                    </Button>
+                  </Tooltip>
+                </Box>
+              </Box>
+              
+              <Divider orientation="vertical" flexItem />
+              
+              {/* Edit Tools Group */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+                  EDIT
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <Tooltip title="Add chart widget">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={() => setShowAddChart(true)}
+                      sx={{ minWidth: 100 }}
+                    >
+                      Add Chart
+                    </Button>
+                  </Tooltip>
+                  {selectedWidgets.size > 1 && (
+                    <Tooltip title="Synchronize time range for selected widgets">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        startIcon={<AccessTimeIcon />}
+                        onClick={() => setShowSyncTimeDialog(true)}
+                        sx={{ minWidth: 90 }}
+                      >
+                        Sync ({selectedWidgets.size})
+                      </Button>
+                    </Tooltip>
+                  )}
+                </Box>
+              </Box>
             </>
           ) : (
             <>
-              <Tooltip title="Settings">
-                <span>
-                  <IconButton 
-                    onClick={() => setShowSettingsDialog(true)}
-                    disabled={!currentDashboard?.is_owner}
-                  >
-                    <Settings />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Export Dashboard">
-                <IconButton onClick={() => setShowExportDialog(true)}>
-                  <FileDownload />
-                </IconButton>
-              </Tooltip>
-              <ExportDashboardButton 
-                dashboardId={id}
-                dashboardName={currentDashboard?.name}
-              />
-              <Tooltip title="Edit Dashboard">
-                <span>
-                  <IconButton onClick={toggleEditMode} disabled={!currentDashboard?.is_owner}>
-                    <Edit />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="TV Mode">
-                <IconButton onClick={() => setShowTVModeDialog(true)}>
-                  <Fullscreen />
-                </IconButton>
-              </Tooltip>
+              <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+              
+              {/* View Group */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+                  VIEW
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <Tooltip title="TV Mode - Fullscreen presentation">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<FullscreenIcon />}
+                      onClick={() => setShowTVModeDialog(true)}
+                      sx={{ minWidth: 100 }}
+                    >
+                      TV Mode
+                    </Button>
+                  </Tooltip>
+                </Box>
+              </Box>
+              
+              <Divider orientation="vertical" flexItem />
+              
+              {/* Tools Group */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+                  TOOLS
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <Tooltip title="Edit dashboard layout">
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<EditIcon />}
+                        onClick={toggleEditMode}
+                        disabled={!currentDashboard?.is_owner}
+                        sx={{ minWidth: 90 }}
+                      >
+                        Edit
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Dashboard settings">
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<SettingsIcon />}
+                        onClick={() => setShowSettingsDialog(true)}
+                        disabled={!currentDashboard?.is_owner}
+                        sx={{ minWidth: 100 }}
+                      >
+                        Settings
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Export dashboard configuration">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<FileDownloadIcon />}
+                      onClick={() => setShowExportDialog(true)}
+                      sx={{ minWidth: 90 }}
+                    >
+                      Export
+                    </Button>
+                  </Tooltip>
+                </Box>
+              </Box>
             </>
           )}
         </Toolbar>
-      </AppBar>
+      </Paper>
 
       {/* Dashboard Grid */}
       <Box className="dashboard-grid-container" sx={{ flex: 1, overflow: 'auto', p: 2, bgcolor: 'background.default' }}>
         {layout.items.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 8 }}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              No widgets in this dashboard
+          <Box sx={{ 
+            textAlign: 'center', 
+            py: 8,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 1
+          }}>
+            <Typography variant="body1" color="text.secondary">
+              No widgets in this dashboard.
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Click <strong>Add Chart</strong> button above to add widgets.
             </Typography>
             {currentDashboard?.is_owner && (
               <Button
                 variant="contained"
-                startIcon={<Add />}
+                startIcon={<AddIcon />}
                 onClick={() => setShowAddChart(true)}
                 sx={{ mt: 2 }}
               >
@@ -439,8 +545,6 @@ const DashboardContent = () => {
           rotationInterval={tvConfig.rotationInterval}
           autoRotate={true}
           onExit={handleExitTVMode}
-          currentDashboard={currentDashboard}
-          layout={layout}
         />
       )}
     </Box>

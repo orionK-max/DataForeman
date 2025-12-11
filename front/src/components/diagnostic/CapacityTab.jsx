@@ -519,6 +519,7 @@ export default function CapacityTab() {
                       showPreferencesButton={true}
                       autoRefreshEnabled={true}
                       refreshInterval={1}
+                      contextType="diagnostic"
                     />
                   ) : (
                     <Paper sx={{ p: 2, height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -537,6 +538,7 @@ export default function CapacityTab() {
                       showPreferencesButton={true}
                       autoRefreshEnabled={true}
                       refreshInterval={1}
+                      contextType="diagnostic"
                     />
                   ) : (
                     <Paper sx={{ p: 2, height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -555,6 +557,7 @@ export default function CapacityTab() {
                       showPreferencesButton={true}
                       autoRefreshEnabled={true}
                       refreshInterval={1}
+                      contextType="diagnostic"
                     />
                   ) : (
                     <Paper sx={{ p: 2, height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

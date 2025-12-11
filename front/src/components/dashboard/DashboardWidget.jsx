@@ -179,6 +179,7 @@ const DashboardWidget = ({ widgetConfig, syncGroupIndex = null }) => {
           overrideTimeRange={syncGroupIndex !== null ? globalTimeRange : null}
           onChartLoaded={handleChartLoaded}
           onDataUpdated={handleDataUpdated}
+          contextType="dashboard"
         />
       </Box>
     </Card>

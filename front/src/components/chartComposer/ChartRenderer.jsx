@@ -5,7 +5,7 @@ import ReactECharts from 'echarts-for-react';
 import ChartConfigPanel from './ChartConfigPanel';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
 
-const ChartRenderer = ({ 
+const ChartRenderer = React.forwardRef(({ 
   data = [], 
   tagConfigs = [], 
   axes = [],
@@ -18,6 +18,7 @@ const ChartRenderer = ({
   compactMode = false,
   requestedTimeRange = null, // { from, to } - the requested time range to show on x-axis
   options = {}, // Chart options including xAxisTickCount
+  contextType = 'composer', // 'composer', 'dashboard', 'diagnostic', 'flow-monitor'
   // Props for write-on-change support (can be passed or use context)
   tagMetadata: tagMetadataProp = null,
   lastValuesBefore: lastValuesBeforeProp = null,
@@ -47,7 +48,13 @@ const ChartRenderer = ({
   onPreferencesClose = null,
   onResetZoom = null,
   onToggleCompactMode = null,
-}) => {
+  // New props for external control
+  externalShowPreferences = null,
+  externalSetShowPreferences = null,
+  externalCrosshairEnabled = null,
+  externalSetCrosshairEnabled = null,
+  hideInternalControls = false,
+}, ref) => {
   // Get MUI theme for background color
   const theme = useTheme();
   
@@ -65,16 +72,25 @@ const ChartRenderer = ({
   const tagMetadata = tagMetadataProp || tagMetadataContext;
   const lastValuesBefore = lastValuesBeforeProp || lastValuesBeforeContext;
   
-  // Preferences overlay state
-  const [showPreferences, setShowPreferences] = React.useState(false);
+  // Preferences overlay state - use external if provided
+  const [internalShowPreferences, setInternalShowPreferences] = React.useState(false);
+  const showPreferences = externalShowPreferences !== null ? externalShowPreferences : internalShowPreferences;
+  const setShowPreferences = externalSetShowPreferences !== null ? externalSetShowPreferences : setInternalShowPreferences;
   const previousShowPreferences = React.useRef(showPreferences);
   
-  // Crosshair state
-  const [crosshairEnabled, setCrosshairEnabled] = React.useState(false);
+  // Crosshair state - use external if provided
+  const [internalCrosshairEnabled, setInternalCrosshairEnabled] = React.useState(false);
+  const crosshairEnabled = externalCrosshairEnabled !== null ? externalCrosshairEnabled : internalCrosshairEnabled;
+  const setCrosshairEnabled = externalSetCrosshairEnabled !== null ? externalSetCrosshairEnabled : setInternalCrosshairEnabled;
   const [crosshairPosition, setCrosshairPosition] = React.useState(null); // { x, y, time, values }
   
   // ECharts instance reference
   const chartRef = React.useRef(null);
+  
+  // Expose methods via ref for parent
+  React.useImperativeHandle(ref, () => ({
+    getEchartsInstance: () => chartRef.current?.getEchartsInstance(),
+  }));
   
   // Persistent storage for last heartbeat values for write-on-change tags
   // Structure: { tagId: { value, originalTime, heartbeatInterval } }
@@ -874,8 +890,8 @@ const ChartRenderer = ({
       )}
       
       <CardContent sx={{ flex: 1, p: compactMode ? 0 : 2, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {/* Controls Bar - Always visible (unless in compact mode) */}
-        {!compactMode && (
+        {/* Controls Bar - Hidden when external controls are used */}
+        {!compactMode && !hideInternalControls && (
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, alignItems: 'center' }}>
           {/* Left side - Settings button + Live controls */}
           <Stack direction="row" spacing={1} alignItems="center">
@@ -1044,11 +1060,28 @@ const ChartRenderer = ({
                     height: '100%', 
                     display: 'flex', 
                     alignItems: 'center', 
-                    justifyContent: 'center' 
+                    justifyContent: 'center',
+                    flexDirection: 'column',
+                    gap: 1
                   }}>
                     <Typography variant="body1" color="text.secondary">
-                      No data to display. Query data to see the chart.
+                      No data to display.
                     </Typography>
+                    {contextType === 'composer' && (
+                      <Typography variant="body1" color="text.secondary">
+                        Click <strong>Settings</strong> to add tags and configure your chart.
+                      </Typography>
+                    )}
+                    {contextType === 'dashboard' && (
+                      <Typography variant="body1" color="text.secondary">
+                        This chart has no data. Open it in Chart Composer to configure.
+                      </Typography>
+                    )}
+                    {(contextType === 'diagnostic' || contextType === 'flow-monitor') && (
+                      <Typography variant="body1" color="text.secondary">
+                        Waiting for data...
+                      </Typography>
+                    )}
                   </Box>
                 ) : (
                   /* Chart */
@@ -1151,6 +1184,8 @@ const ChartRenderer = ({
       </CardContent>
     </Card>
   );
-};
+});
+
+ChartRenderer.displayName = 'ChartRenderer';
 
 export default ChartRenderer;

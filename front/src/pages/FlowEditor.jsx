@@ -37,6 +37,9 @@ import {
   InputLabel,
   Tooltip,
   Badge,
+  Chip,
+  ButtonGroup,
+  Divider,
 } from '@mui/material';
 import {
   PlayArrow as RunIcon,
@@ -51,6 +54,7 @@ import {
   Visibility as LiveIcon,
   Memory as ResourceIcon,
   Download as DownloadIcon,
+  Stop as StopIcon,
 } from '@mui/icons-material';
 import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder } from '../services/flowsApi';
 import { getNodeMetadata, getBackendMetadata, fetchBackendNodeMetadata } from '../constants/nodeTypes';
@@ -114,10 +118,10 @@ const FlowEditor = () => {
   // Fetch live cached tag values when showLiveValues is enabled
   const liveData = useFlowLiveData(id, showLiveValues);
   
-  // Fetch flow resource usage when deployed
+  // Fetch flow resource usage when deployed or in test mode
   const { data: resourceData, loading: resourceLoading, refetch: refetchResources } = useFlowResources(
     id,
-    resourceMonitorOpen && flow?.deployed,
+    resourceMonitorOpen && (flow?.deployed || isTestMode),
     5000 // Poll every 5 seconds when dialog is open
   );
 
@@ -559,6 +563,9 @@ const FlowEditor = () => {
       
       await deployFlow(id, newDeployed);
       setFlow({ ...flow, deployed: newDeployed });
+      if (!newDeployed) {
+        setShowLiveValues(false);
+      }
       showSnackbar(`Flow ${newDeployed ? 'deployed' : 'undeployed'} successfully`, 'success');
     } catch (error) {
       console.error('Deploy failed:', error);
@@ -594,6 +601,7 @@ const FlowEditor = () => {
         setTestModeAutoExitMinutes(5);
         setTestModeAutoExitSeconds(0);
         setTestModeTimeRemaining(null);
+        setShowLiveValues(false);
         setFlow({ ...flow, test_mode: false, test_disable_writes: false, test_auto_exit: false, test_auto_exit_minutes: 5 });
         showSnackbar('Test mode disabled', 'info');
       } catch (error) {
@@ -680,6 +688,7 @@ const FlowEditor = () => {
             setTestModeAutoExitSeconds(0);
             setTestModeTimer(null);
             setTestModeTimeRemaining(null);
+            setShowLiveValues(false);
             setFlow({ ...flow, test_mode: false, test_disable_writes: false, test_auto_exit: false, test_auto_exit_minutes: 5 });
             const timeStr = autoExitMinutes > 0 ? `${autoExitMinutes} minute${autoExitMinutes > 1 ? 's' : ''}` : '';
             const secStr = autoExitSeconds > 0 ? `${autoExitSeconds} second${autoExitSeconds > 1 ? 's' : ''}` : '';
@@ -1112,132 +1121,183 @@ const FlowEditor = () => {
     }}>
       {/* Toolbar */}
       <Paper elevation={2}>
-        <Toolbar>
-          <IconButton onClick={() => navigate('/flows')} edge="start">
+        <Toolbar sx={{ gap: 2, py: 1 }}>
+          {/* Navigation */}
+          <IconButton onClick={() => navigate('/flows')} edge="start" size="small">
             <BackIcon />
           </IconButton>
-          <Typography variant="h6" sx={{ flexGrow: 1, ml: 2 }}>
+          
+          <Typography variant="h6" sx={{ ml: 2, flexGrow: 1 }}>
             {flow.name}
           </Typography>
           
           {hasUnsavedChanges && (
-            <Typography variant="caption" color="warning.main" sx={{ mr: 2 }}>
-              Unsaved changes
-            </Typography>
+            <Chip label="Unsaved" color="warning" size="small" sx={{ mr: 2 }} />
           )}
           
-          <Button
-            startIcon={<RunIcon />}
-            onClick={handleRun}
-            disabled={!isTestMode && flow.deployed}
-            variant={isTestMode ? 'contained' : 'outlined'}
-            color={isTestMode ? 'warning' : 'primary'}
-            sx={{ mr: 1 }}
-          >
-            {isTestMode ? (testModeTimeRemaining !== null ? `Stop Test (${Math.floor(testModeTimeRemaining / 60)}:${String(testModeTimeRemaining % 60).padStart(2, '0')})` : 'Stop Test') : 'Test Run'}
-          </Button>
+          {isTestMode && testModeTimeRemaining !== null && (
+            <Chip 
+              label={`Test: ${Math.floor(testModeTimeRemaining / 60)}:${String(testModeTimeRemaining % 60).padStart(2, '0')}`} 
+              color="warning" 
+              size="small" 
+              sx={{ mr: 2 }} 
+            />
+          )}
           
-          <Button
-            startIcon={<SaveIcon />}
-            onClick={handleSave}
-            variant="outlined"
-            sx={{ mr: 1 }}
-          >
-            Save
-          </Button>
+          <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
           
-          <ExportFlowButton 
-            flowId={id} 
-            flowName={flow.name}
-          />
-          
-          <Button
-            startIcon={flow.deployed ? <UndeployIcon /> : <DeployIcon />}
-            onClick={handleDeploy}
-            variant="contained"
-            color={flow.deployed ? 'secondary' : 'primary'}
-            sx={{ mr: 1, ml: 1 }}
-          >
-            {flow.deployed ? 'Undeploy' : 'Deploy'}
-          </Button>
-
-          <Tooltip title={showExecutionOrder ? 'Hide Execution Order' : 'Show Execution Order'}>
-            <Button
-              onClick={handleShowExecutionOrder}
-              variant={showExecutionOrder ? 'contained' : 'outlined'}
-              color={showExecutionOrder ? 'info' : 'inherit'}
-              sx={{ mr: 1, minWidth: '40px', px: 1 }}
-            >
-              {showExecutionOrder ? '123' : '123'}
-            </Button>
-          </Tooltip>
-          
-          <Tooltip title={showLiveValues ? 'Hide Live Values' : 'Show Live Values'}>
-            <IconButton
-              onClick={() => setShowLiveValues(!showLiveValues)}
-              sx={{
-                mr: 1,
-                color: showLiveValues ? '#1976d2' : 'inherit',
-                bgcolor: showLiveValues ? '#e3f2fd' : 'transparent',
-                '&:hover': {
-                  bgcolor: showLiveValues ? '#bbdefb' : 'rgba(0, 0, 0, 0.04)',
-                },
-              }}
-            >
-              <LiveIcon />
-            </IconButton>
-          </Tooltip>
-          
-          <Tooltip title={flow?.deployed ? "Resource Monitor" : "Deploy flow to monitor resources"}>
-            <span>
-              <IconButton 
-                onClick={() => setResourceMonitorOpen(true)}
-                disabled={!flow?.deployed}
-                sx={{
-                  color: resourceMonitorOpen ? '#1976d2' : 'inherit',
-                  bgcolor: resourceMonitorOpen ? '#e3f2fd' : 'transparent',
-                  '&:hover': {
-                    bgcolor: resourceMonitorOpen ? '#bbdefb' : 'rgba(0, 0, 0, 0.04)',
-                  },
-                }}
+          {/* Primary Actions Group */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+              PRIMARY
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              <Button
+                startIcon={isTestMode ? <StopIcon /> : <RunIcon />}
+                onClick={handleRun}
+                disabled={flow.deployed}
+                variant={isTestMode ? 'contained' : 'outlined'}
+                color={isTestMode ? 'warning' : 'primary'}
+                size="small"
               >
-                <ResourceIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-          
-          <IconButton onClick={() => setNodeBrowserOpen(true)} title="Add Node (/)">
-            <AddIcon />
-          </IconButton>
-          
-          <IconButton onClick={() => setHistoryOpen(true)} title="Execution History">
-            <HistoryIcon />
-          </IconButton>
-          
-          <Tooltip title={`${logPanelOpen ? 'Hide' : 'Show'} Logs (Ctrl+L)`}>
-            <IconButton 
-              onClick={() => setLogPanelOpen(!logPanelOpen)} 
-              sx={{
-                color: logPanelOpen ? '#1976d2' : 'inherit',
-                bgcolor: logPanelOpen ? '#e3f2fd' : 'transparent',
-                '&:hover': {
-                  bgcolor: logPanelOpen ? '#bbdefb' : 'rgba(0, 0, 0, 0.04)',
-                },
-              }}
-            >
-              <Badge 
-                color="error" 
-                variant="dot" 
-                invisible={!currentExecutionId || logPanelOpen}
+                {isTestMode ? 'Stop' : 'Test'}
+              </Button>
+              <Button
+                startIcon={<SaveIcon />}
+                onClick={handleSave}
+                variant="outlined"
+                size="small"
               >
-                <TerminalIcon />
-              </Badge>
-            </IconButton>
-          </Tooltip>
+                Save
+              </Button>
+              <Button
+                startIcon={flow.deployed ? <UndeployIcon /> : <DeployIcon />}
+                onClick={handleDeploy}
+                disabled={isTestMode}
+                variant="contained"
+                color={flow.deployed ? 'secondary' : 'success'}
+                size="small"
+              >
+                {flow.deployed ? 'Undeploy' : 'Deploy'}
+              </Button>
+            </Box>
+          </Box>
           
-          <IconButton onClick={() => setSettingsOpen(true)} title="Flow Settings">
-            <SettingsIcon />
-          </IconButton>
+          <Divider orientation="vertical" flexItem />
+          
+          {/* Debug Tools Group */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+              DEBUG
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              <Tooltip title="Live Values">
+                <Button
+                  size="small"
+                  variant={showLiveValues ? 'contained' : 'outlined'}
+                  color={showLiveValues ? 'primary' : 'inherit'}
+                  startIcon={<LiveIcon />}
+                  onClick={() => setShowLiveValues(!showLiveValues)}
+                  sx={{ minWidth: 100 }}
+                >
+                  Live
+                </Button>
+              </Tooltip>
+              <Tooltip title="Execution Order">
+                <Button
+                  size="small"
+                  variant={showExecutionOrder ? 'contained' : 'outlined'}
+                  color={showExecutionOrder ? 'info' : 'inherit'}
+                  onClick={handleShowExecutionOrder}
+                  sx={{ minWidth: 100 }}
+                >
+                  Exec Order
+                </Button>
+              </Tooltip>
+              <Tooltip title={flow?.deployed || isTestMode ? "Resource Monitor" : "Deploy or test flow to monitor resources"}>
+                <span>
+                  <Button
+                    size="small"
+                    variant={resourceMonitorOpen ? 'contained' : 'outlined'}
+                    color={resourceMonitorOpen ? 'primary' : 'inherit'}
+                    disabled={!flow?.deployed && !isTestMode}
+                    startIcon={<ResourceIcon />}
+                    onClick={() => setResourceMonitorOpen(true)}
+                    sx={{ minWidth: 100 }}
+                  >
+                    Monitor
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={`${logPanelOpen ? 'Hide' : 'Show'} Logs (Ctrl+L)`}>
+                <Button
+                  size="small"
+                  variant={logPanelOpen ? 'contained' : 'outlined'}
+                  color={logPanelOpen ? 'primary' : 'inherit'}
+                  onClick={() => setLogPanelOpen(!logPanelOpen)}
+                  startIcon={
+                    <Badge 
+                      color="error" 
+                      variant="dot" 
+                      invisible={!currentExecutionId || logPanelOpen}
+                    >
+                      <TerminalIcon />
+                    </Badge>
+                  }
+                  sx={{ minWidth: 90 }}
+                >
+                  Logs
+                </Button>
+              </Tooltip>
+            </Box>
+          </Box>
+          
+          <Divider orientation="vertical" flexItem />
+          
+          {/* Tools Group */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+              TOOLS
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              <Tooltip title="Add Node (/)">
+                <Button 
+                  startIcon={<AddIcon />}
+                  onClick={() => setNodeBrowserOpen(true)}
+                  variant="outlined"
+                  size="small"
+                >
+                  Add Node
+                </Button>
+              </Tooltip>
+              <Tooltip title="Export Flow">
+                <ExportFlowButton 
+                  flowId={id} 
+                  flowName={flow.name}
+                />
+              </Tooltip>
+              <Tooltip title="Execution History">
+                <Button 
+                  startIcon={<HistoryIcon />}
+                  onClick={() => setHistoryOpen(true)}
+                  variant="outlined"
+                  size="small"
+                >
+                  History
+                </Button>
+              </Tooltip>
+              <Tooltip title="Flow Settings">
+                <Button 
+                  startIcon={<SettingsIcon />}
+                  onClick={() => setSettingsOpen(true)}
+                  variant="outlined"
+                  size="small"
+                >
+                  Settings
+                </Button>
+              </Tooltip>
+            </Box>
+          </Box>
         </Toolbar>
       </Paper>
 

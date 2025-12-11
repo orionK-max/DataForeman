@@ -38,6 +38,7 @@ import {
   Home as HomeIcon,
   FolderOpen as FolderOpenIcon,
   People as PeopleIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
 import { listFlows, listSharedFlows, createFlow, deleteFlow, duplicateFlow } from '../services/flowsApi';
 import FlowResourceMonitor from '../components/FlowEditor/FlowResourceMonitor';
@@ -57,7 +58,7 @@ const FlowBrowser = () => {
   const [sharedFlows, setSharedFlows] = useState([]);
   const [folders, setFolders] = useState([]);
   const [selectedFolderId, setSelectedFolderId] = useState(null);
-  const [viewMode, setViewMode] = useState('all'); // 'all' | 'shared'
+  const [viewMode, setViewMode] = useState('all'); // 'all' | 'mine' | 'shared'
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
@@ -198,6 +199,11 @@ const FlowBrowser = () => {
     setViewMode('shared');
   };
 
+  const handleSelectMine = () => {
+    setSelectedFolderId(null);
+    setViewMode('mine');
+  };
+
   const handleCreateFolder = (parentId = null) => {
     setParentFolderId(parentId);
     setEditingFolder(null);
@@ -281,12 +287,20 @@ const FlowBrowser = () => {
     }
   };
 
-  // Filter flows by selected folder
-  const filteredFlows = viewMode === 'shared' 
-    ? sharedFlows
-    : (selectedFolderId === null
-        ? myFlows.filter(f => f.folder_id === null || f.folder_id === undefined) // Show only root-level flows
-        : myFlows.filter(f => f.folder_id === selectedFolderId));
+  // Filter flows by selected folder and view mode
+  const filteredFlows = (() => {
+    if (viewMode === 'shared') {
+      return sharedFlows;
+    }
+    if (viewMode === 'mine') {
+      return myFlows; // Show all my flows regardless of folder
+    }
+    // viewMode === 'all'
+    if (selectedFolderId === null) {
+      return myFlows.filter(f => f.folder_id === null || f.folder_id === undefined); // Show only root-level flows
+    }
+    return myFlows.filter(f => f.folder_id === selectedFolderId);
+  })();
 
   // Flatten folders for move menu
   const flattenFolders = (folders, level = 0) => {
@@ -434,10 +448,45 @@ const FlowBrowser = () => {
           onCreateFolder={handleCreateFolder}
           onEditFolder={handleEditFolder}
           onDeleteFolder={handleDeleteFolder}
-          showSharedOption={true}
-          onSelectShared={handleSelectShared}
-          isSharedView={viewMode === 'shared'}
+          showSharedOption={false}
+          isSharedView={false}
         />
+        
+        {/* Additional filters below folder tree */}
+        <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
+          <MenuItem 
+            onClick={handleSelectMine}
+            selected={viewMode === 'mine'}
+            sx={{ borderRadius: 1 }}
+          >
+            <ListItemIcon>
+              <PersonIcon fontSize="small" color={viewMode === 'mine' ? 'primary' : 'action'} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="My Flows"
+              primaryTypographyProps={{
+                variant: 'body2',
+                fontWeight: viewMode === 'mine' ? 600 : 400,
+              }}
+            />
+          </MenuItem>
+          <MenuItem 
+            onClick={handleSelectShared}
+            selected={viewMode === 'shared'}
+            sx={{ borderRadius: 1 }}
+          >
+            <ListItemIcon>
+              <PeopleIcon fontSize="small" color={viewMode === 'shared' ? 'primary' : 'action'} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Shared with Me"
+              primaryTypographyProps={{
+                variant: 'body2',
+                fontWeight: viewMode === 'shared' ? 600 : 400,
+              }}
+            />
+          </MenuItem>
+        </Box>
       </Box>
 
       {/* Main Content */}
@@ -452,7 +501,15 @@ const FlowBrowser = () => {
                 </Typography>
               </>
             )}
-            {selectedFolderId && viewMode !== 'shared' && (
+            {viewMode === 'mine' && (
+              <>
+                <PersonIcon color="primary" />
+                <Typography variant="h6" color="primary">
+                  My Flows
+                </Typography>
+              </>
+            )}
+            {selectedFolderId && viewMode === 'all' && (
               <>
                 <FolderOpenIcon color="primary" />
                 <Typography variant="h6" color="primary">
@@ -460,7 +517,7 @@ const FlowBrowser = () => {
                 </Typography>
               </>
             )}
-            {!selectedFolderId && viewMode !== 'shared' && (
+            {!selectedFolderId && viewMode === 'all' && (
               <Typography variant="h4">
                 Flows
               </Typography>
@@ -489,9 +546,11 @@ const FlowBrowser = () => {
               <Typography color="text.secondary" align="center">
                 {viewMode === 'shared' 
                   ? 'No shared flows' 
-                  : (selectedFolderId === null 
-                      ? 'No flows at home level. All flows are in folders.' 
-                      : 'No flows in this folder')}
+                  : viewMode === 'mine'
+                    ? 'No flows created yet'
+                    : (selectedFolderId === null 
+                        ? 'No flows at home level. All flows are in folders.' 
+                        : 'No flows in this folder')}
               </Typography>
             </Grid>
           )}

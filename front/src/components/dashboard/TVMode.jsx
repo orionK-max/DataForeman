@@ -28,12 +28,14 @@ const TVMode = ({
   rotationInterval = 10,
   autoRotate = true,
   onExit,
-  currentDashboard,
-  layout,
 }) => {
   const [paused, setPaused] = useState(!autoRotate);
   const [showControls, setShowControls] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(rotationInterval);
+  
+  // Get current dashboard from the dashboards array
+  const currentDashboard = dashboards[currentIndex];
+  const layout = currentDashboard?.layout || { items: [], row_height: 80 };
 
   // Auto-hide controls after 3 seconds of no mouse movement
   useEffect(() => {
@@ -51,6 +53,19 @@ const TVMode = ({
     };
   }, []);
 
+  // Navigation handlers - must be defined before keyboard controls
+  const handleNext = useCallback(() => {
+    const nextIndex = (currentIndex + 1) % dashboards.length;
+    onIndexChange(nextIndex);
+    setTimeRemaining(rotationInterval);
+  }, [currentIndex, dashboards.length, onIndexChange, rotationInterval]);
+
+  const handlePrevious = useCallback(() => {
+    const prevIndex = (currentIndex - 1 + dashboards.length) % dashboards.length;
+    onIndexChange(prevIndex);
+    setTimeRemaining(rotationInterval);
+  }, [currentIndex, dashboards.length, onIndexChange, rotationInterval]);
+
   // Auto-rotation timer
   useEffect(() => {
     if (paused || dashboards.length <= 1) return;
@@ -58,7 +73,11 @@ const TVMode = ({
     const interval = setInterval(() => {
       setTimeRemaining(prev => {
         if (prev <= 1) {
-          handleNext();
+          // Move to next dashboard - use functional update to get latest state
+          onIndexChange(prevIndex => {
+            const nextIndex = (prevIndex + 1) % dashboards.length;
+            return nextIndex;
+          });
           return rotationInterval;
         }
         return prev - 1;
@@ -66,7 +85,7 @@ const TVMode = ({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [paused, dashboards.length, rotationInterval]);
+  }, [paused, dashboards.length, rotationInterval, onIndexChange]);
 
   // Keyboard controls
   useEffect(() => {
@@ -91,19 +110,7 @@ const TVMode = ({
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [onExit]);
-
-  const handleNext = useCallback(() => {
-    const nextIndex = (currentIndex + 1) % dashboards.length;
-    onIndexChange(nextIndex);
-    setTimeRemaining(rotationInterval);
-  }, [currentIndex, dashboards.length, onIndexChange, rotationInterval]);
-
-  const handlePrevious = useCallback(() => {
-    const prevIndex = (currentIndex - 1 + dashboards.length) % dashboards.length;
-    onIndexChange(prevIndex);
-    setTimeRemaining(rotationInterval);
-  }, [currentIndex, dashboards.length, onIndexChange, rotationInterval]);
+  }, [onExit, handleNext, handlePrevious]);
 
   const handleTogglePause = () => {
     setPaused(prev => !prev);

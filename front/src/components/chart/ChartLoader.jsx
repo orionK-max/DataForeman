@@ -38,6 +38,7 @@ const ChartLoader = ({
   hasUnsavedChanges = false,
   onPreferencesClose = null,
   onResetZoom = null,
+  contextType = 'dashboard', // 'composer', 'dashboard', 'diagnostic', 'flow-monitor'
 }) => {
   // Chart metadata
   const [chart, setChart] = useState(null);
@@ -415,6 +416,7 @@ const ChartLoader = ({
       loading={loading}
       showPreferencesButton={showPreferencesButton}
       compactMode={compactMode}
+      contextType={contextType}
       hasUnsavedChanges={hasUnsavedChanges}
       saveButton={saveButton}
       requestedTimeRange={calculateTimeRange()}

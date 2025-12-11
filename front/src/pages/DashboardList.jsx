@@ -35,6 +35,7 @@ import {
   DriveFileMove as MoveIcon,
   Home as HomeIcon,
   People as PeopleIcon,
+  Person as PersonIcon,
   FileUpload,
 } from '@mui/icons-material';
 import dashboardService from '../services/dashboardService';
@@ -53,7 +54,7 @@ const DashboardList = () => {
   const [dashboards, setDashboards] = useState([]);
   const [folders, setFolders] = useState([]);
   const [selectedFolderId, setSelectedFolderId] = useState(null);
-  const [viewMode, setViewMode] = useState('all'); // 'all' | 'shared'
+  const [viewMode, setViewMode] = useState('all'); // 'all' | 'mine' | 'shared'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -157,6 +158,11 @@ const DashboardList = () => {
     setViewMode('shared');
   };
 
+  const handleSelectMine = () => {
+    setSelectedFolderId(null);
+    setViewMode('mine');
+  };
+
   const handleCreateFolder = (parentId = null) => {
     setParentFolderId(parentId);
     setEditingFolder(null);
@@ -240,12 +246,20 @@ const DashboardList = () => {
     }
   };
 
-  // Filter dashboards by selected folder
-  const filteredDashboards = viewMode === 'shared' 
-    ? dashboards // In shared mode, show all shared dashboards
-    : (selectedFolderId === null
-        ? dashboards.filter(d => !d.folder_id) // Show only root-level dashboards
-        : dashboards.filter(d => d.folder_id === selectedFolderId));
+  // Filter dashboards by selected folder and view mode
+  const filteredDashboards = (() => {
+    if (viewMode === 'shared') {
+      return dashboards.filter(d => d.is_shared && !d.is_owner); // Show only dashboards shared with me
+    }
+    if (viewMode === 'mine') {
+      return dashboards.filter(d => d.is_owner); // Show all my dashboards regardless of folder
+    }
+    // viewMode === 'all'
+    if (selectedFolderId === null) {
+      return dashboards.filter(d => !d.folder_id); // Show only root-level dashboards
+    }
+    return dashboards.filter(d => d.folder_id === selectedFolderId);
+  })();
 
   // Flatten folders for move menu
   const flattenFolders = (folders, level = 0) => {
@@ -288,10 +302,45 @@ const DashboardList = () => {
           onCreateFolder={handleCreateFolder}
           onEditFolder={handleEditFolder}
           onDeleteFolder={handleDeleteFolder}
-          showSharedOption={true}
-          onSelectShared={handleSelectShared}
-          isSharedView={viewMode === 'shared'}
+          showSharedOption={false}
+          isSharedView={false}
         />
+        
+        {/* Additional filters below folder tree */}
+        <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
+          <MenuItem 
+            onClick={handleSelectMine}
+            selected={viewMode === 'mine'}
+            sx={{ borderRadius: 1 }}
+          >
+            <ListItemIcon>
+              <PersonIcon fontSize="small" color={viewMode === 'mine' ? 'primary' : 'action'} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="My Dashboards"
+              primaryTypographyProps={{
+                variant: 'body2',
+                fontWeight: viewMode === 'mine' ? 600 : 400,
+              }}
+            />
+          </MenuItem>
+          <MenuItem 
+            onClick={handleSelectShared}
+            selected={viewMode === 'shared'}
+            sx={{ borderRadius: 1 }}
+          >
+            <ListItemIcon>
+              <PeopleIcon fontSize="small" color={viewMode === 'shared' ? 'primary' : 'action'} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Shared with Me"
+              primaryTypographyProps={{
+                variant: 'body2',
+                fontWeight: viewMode === 'shared' ? 600 : 400,
+              }}
+            />
+          </MenuItem>
+        </Box>
       </Box>
 
       {/* Main Content */}
@@ -306,13 +355,26 @@ const DashboardList = () => {
                 </Typography>
               </>
             )}
-            {selectedFolderId && viewMode !== 'shared' && (
+            {viewMode === 'mine' && (
+              <>
+                <PersonIcon color="primary" />
+                <Typography variant="h6" color="primary">
+                  My Dashboards
+                </Typography>
+              </>
+            )}
+            {selectedFolderId && viewMode === 'all' && (
               <>
                 <FolderOpenIcon color="primary" />
                 <Typography variant="h6" color="primary">
                   {/* Show folder name */}
                 </Typography>
               </>
+            )}
+            {!selectedFolderId && viewMode === 'all' && (
+              <Typography variant="h4">
+                Dashboards
+              </Typography>
             )}
           </Box>
           {can('dashboards', 'create') && viewMode !== 'shared' && (
@@ -347,7 +409,9 @@ const DashboardList = () => {
           <Typography variant="h6" color="text.secondary" gutterBottom>
             {viewMode === 'shared' 
               ? 'No dashboards shared with you yet'
-              : (selectedFolderId ? 'No dashboards in this folder' : 'No dashboards at home level. All dashboards are in folders.')
+              : viewMode === 'mine'
+                ? 'No dashboards created yet'
+                : (selectedFolderId ? 'No dashboards in this folder' : 'No dashboards at home level. All dashboards are in folders.')}
             }
           </Typography>
           {can('dashboards', 'create') && viewMode !== 'shared' && (

@@ -273,7 +273,7 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
       <DialogContent>
         {!resourceData && !loading && (
           <Alert severity="info">
-            Flow is not currently running. Deploy the flow to see resource usage.
+            Flow is not currently running. Deploy or test the flow to see resource usage.
           </Alert>
         )}
 
@@ -403,6 +403,7 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
                 showPreferencesButton={false}
                 autoRefreshEnabled={true}
                 refreshInterval={0.5}
+                contextType="flow-monitor"
               />
             ) : (
               <Alert severity="info">

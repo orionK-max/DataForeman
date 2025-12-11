@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button } from '@mui/material';
-import { ExpandMore, ExpandLess, ArrowBack } from '@mui/icons-material';
+import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button, Paper, Toolbar, Divider, Chip, Tooltip, Switch, FormControlLabel, TextField, MenuItem } from '@mui/material';
+import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize } from '@mui/icons-material';
 import { ChartComposerProvider, useChartComposer } from '../contexts/ChartComposerContext';
 import ChartRenderer from '../components/chartComposer/ChartRenderer';
 import PointsTable from '../components/chartComposer/PointsTable';
@@ -74,6 +74,9 @@ const ChartComposerContent = () => {
   const [visibleTimeRange, setVisibleTimeRange] = React.useState(null); // [min, max] timestamps from chart zoom
   const [pointsExpanded, setPointsExpanded] = React.useState(false); // Points table expansion state
   const [compactMode, setCompactMode] = React.useState(false); // Preview compact dashboard view
+  const [showPreferences, setShowPreferences] = React.useState(false); // Chart preferences panel
+  const [crosshairEnabled, setCrosshairEnabled] = React.useState(false); // Crosshair toggle
+  const chartRef = React.useRef(null); // Reference to chart for zoom controls
 
   // Chart resize handlers
   const handleResizeStart = React.useCallback((e) => {
@@ -234,19 +237,222 @@ const ChartComposerContent = () => {
     // User can manually re-query using Query button or Reset Zoom
   }, []);
 
+  // Zoom handlers
+  const handleZoomIn = React.useCallback(() => {
+    if (chartRef.current) {
+      const chart = chartRef.current.getEchartsInstance();
+      chart?.dispatchAction({ type: 'dataZoom', start: 10, end: 90 });
+    }
+  }, []);
+
+  const handleZoomOut = React.useCallback(() => {
+    if (chartRef.current) {
+      const chart = chartRef.current.getEchartsInstance();
+      chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    }
+  }, []);
+
+  const handleResetZoom = React.useCallback(() => {
+    if (chartRef.current) {
+      const chart = chartRef.current.getEchartsInstance();
+      chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    }
+    // Also re-query data
+    queryData();
+  }, [queryData]);
+
   return (
     <Box>
-      {/* Back to Charts Button */}
-      <Box sx={{ mb: 2 }}>
-        <Button
-          startIcon={<ArrowBack />}
-          onClick={() => navigate('/charts')}
-          variant="outlined"
-          size="small"
-        >
-          Back to Charts
-        </Button>
-      </Box>
+      {/* Toolbar */}
+      <Paper elevation={2} sx={{ mb: 2 }}>
+        <Toolbar sx={{ gap: 2, py: 1 }}>
+          {/* Navigation */}
+          <IconButton onClick={() => navigate('/charts')} edge="start" size="small">
+            <ArrowBack />
+          </IconButton>
+          
+          <Typography variant="h6" sx={{ ml: 2, flexGrow: 1 }}>
+            {loadedChart?.name || 'New Chart'}
+          </Typography>
+          
+          {hasUnsavedChanges && (
+            <Chip label="Unsaved" color="warning" size="small" sx={{ mr: 2 }} />
+          )}
+          
+          <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+          
+          {/* Primary Group */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+              PRIMARY
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              <SaveChartButton />
+            </Box>
+          </Box>
+          
+          <Divider orientation="vertical" flexItem />
+          
+          {/* View Group */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+              VIEW
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              <Tooltip title="Toggle crosshair">
+                <Button
+                  size="small"
+                  variant={crosshairEnabled ? 'contained' : 'outlined'}
+                  color={crosshairEnabled ? 'primary' : 'inherit'}
+                  startIcon={<Visibility />}
+                  onClick={() => setCrosshairEnabled(!crosshairEnabled)}
+                  sx={{ minWidth: 100 }}
+                >
+                  Crosshair
+                </Button>
+              </Tooltip>
+              <Tooltip title="Preview compact dashboard mode">
+                <Button
+                  size="small"
+                  variant={compactMode ? 'contained' : 'outlined'}
+                  color={compactMode ? 'primary' : 'inherit'}
+                  startIcon={<DashboardCustomize />}
+                  onClick={() => setCompactMode(!compactMode)}
+                  sx={{ minWidth: 100 }}
+                >
+                  Compact
+                </Button>
+              </Tooltip>
+            </Box>
+          </Box>
+          
+          <Divider orientation="vertical" flexItem />
+          
+          {/* Data Group */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+              DATA
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+              <Tooltip title="Live auto-refresh">
+                <Button
+                  size="small"
+                  variant={autoRefresh ? 'contained' : 'outlined'}
+                  color={autoRefresh ? 'primary' : 'inherit'}
+                  startIcon={<LiveIcon />}
+                  onClick={() => setAutoRefresh(!autoRefresh)}
+                  sx={{ minWidth: 100 }}
+                >
+                  Live
+                </Button>
+              </Tooltip>
+              <Box sx={{ display: 'flex', gap: 0.5, visibility: autoRefresh ? 'visible' : 'hidden', minWidth: 84 }}>
+                <TextField
+                  select
+                  value={refreshIntervalValue}
+                  onChange={(e) => setRefreshIntervalValue(e.target.value)}
+                  size="small"
+                  sx={{ 
+                    minWidth: 80,
+                    '& .MuiInputBase-root': { fontSize: '0.8125rem' },
+                    '& .MuiInputBase-input': { py: 0.5 }
+                  }}
+                >
+                  <MenuItem value={'auto'} sx={{ fontSize: '0.8125rem' }}>Auto</MenuItem>
+                  <MenuItem value={0.5} sx={{ fontSize: '0.8125rem' }}>0.5s</MenuItem>
+                  <MenuItem value={1} sx={{ fontSize: '0.8125rem' }}>1s</MenuItem>
+                  <MenuItem value={5} sx={{ fontSize: '0.8125rem' }}>5s</MenuItem>
+                  <MenuItem value={'custom'} sx={{ fontSize: '0.8125rem' }}>Custom</MenuItem>
+                </TextField>
+                {refreshIntervalValue === 'custom' && (
+                  <TextField
+                    label="Seconds"
+                    type="number"
+                    value={customRefreshInterval}
+                    onChange={(e) => setCustomRefreshInterval(parseFloat(e.target.value))}
+                    size="small"
+                    inputProps={{ min: 0.1, step: 0.1 }}
+                    sx={{ 
+                      width: 80,
+                      '& .MuiInputBase-root': { fontSize: '0.8125rem' },
+                      '& .MuiInputBase-input': { py: 0.5 },
+                      '& .MuiInputLabel-root': { fontSize: '0.75rem' }
+                    }}
+                  />
+                )}
+              </Box>
+            </Box>
+          </Box>
+          
+          <Divider orientation="vertical" flexItem />
+          
+          {/* Zoom Group */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+              ZOOM
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              <Tooltip title="Zoom In">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ZoomIn />}
+                  onClick={handleZoomIn}
+                  sx={{ minWidth: 90 }}
+                >
+                  In
+                </Button>
+              </Tooltip>
+              <Tooltip title="Zoom Out">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ZoomOut />}
+                  onClick={handleZoomOut}
+                  sx={{ minWidth: 90 }}
+                >
+                  Out
+                </Button>
+              </Tooltip>
+              <Tooltip title="Reset Zoom & Re-query">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<RestartAlt />}
+                  onClick={handleResetZoom}
+                  sx={{ minWidth: 90 }}
+                >
+                  Reset
+                </Button>
+              </Tooltip>
+            </Box>
+          </Box>
+          
+          <Divider orientation="vertical" flexItem />
+          
+          {/* Tools Group */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+              TOOLS
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              <Tooltip title="Chart preferences and configuration">
+                <Button
+                  size="small"
+                  variant={showPreferences ? 'contained' : 'outlined'}
+                  color={showPreferences ? 'primary' : 'inherit'}
+                  startIcon={<Settings />}
+                  onClick={() => setShowPreferences(!showPreferences)}
+                  sx={{ minWidth: 100 }}
+                >
+                  Settings
+                </Button>
+              </Tooltip>
+              <ExportChartButton />
+            </Box>
+          </Box>
+        </Toolbar>
+      </Paper>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -266,6 +472,7 @@ const ChartComposerContent = () => {
                 }}
               >
                 <ChartRenderer
+                  ref={chartRef}
                   data={items}
                   tagConfigs={chartConfig.tagConfigs}
                   axes={chartConfig.axes}
@@ -279,13 +486,6 @@ const ChartComposerContent = () => {
                   requestedTimeRange={timeRange}
                   options={{ xAxisTickCount: chartConfig.xAxisTickCount }}
                   onZoomChange={(xDomain, yDomain) => setVisibleTimeRange(xDomain)}
-                  hasUnsavedChanges={hasUnsavedChanges}
-                  saveButton={
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <SaveChartButton />
-                      <ExportChartButton />
-                    </Box>
-                  }
                   tagMetadata={tagMetadata}
                   lastValuesBefore={lastValuesBefore}
                   updateAxis={updateAxis}
@@ -298,21 +498,19 @@ const ChartComposerContent = () => {
                   updateBackgroundConfig={updateBackgroundConfig}
                   updateDisplayConfig={updateDisplayConfig}
                   updateChartConfig={updateChartConfig}
-                  autoRefreshEnabled={autoRefresh}
-                  onToggleAutoRefresh={setAutoRefresh}
-                  refreshIntervalValue={refreshIntervalValue}
-                  onRefreshIntervalChange={setRefreshIntervalValue}
-                  customRefreshInterval={customRefreshInterval}
-                  onCustomRefreshIntervalChange={setCustomRefreshInterval}
                   onPreferencesClose={handlePreferencesClose}
-                  onResetZoom={executeQuery}
-                  onToggleCompactMode={() => setCompactMode(!compactMode)}
                   timeModeBadge={{
                     mode: timeMode || 'fixed',
                     duration: timeDuration,
                     offset: timeOffset || 0,
                     show: showTimeBadge
                   }}
+                  showPreferencesButton={false}
+                  externalShowPreferences={showPreferences}
+                  externalSetShowPreferences={setShowPreferences}
+                  externalCrosshairEnabled={crosshairEnabled}
+                  externalSetCrosshairEnabled={setCrosshairEnabled}
+                  hideInternalControls={true}
                 />
                 
                 {/* Resize handle */}
