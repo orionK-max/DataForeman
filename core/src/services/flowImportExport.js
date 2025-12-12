@@ -3,6 +3,8 @@
  * Handles exporting flows to JSON and importing from other DataForeman instances
  */
 
+import crypto from 'crypto';
+
 const EXPORT_VERSION = 1;
 
 /**
@@ -170,13 +172,15 @@ export async function exportFlow(flowId, db) {
  * Validate import data and check dependencies
  * @param {Object} importData - Import data structure
  * @param {Object} db - Database connection
+ * @param {Object} connectionMappings - Optional mapping of old connection IDs to new ones {oldId: newId}
  * @returns {Promise<Object>} Validation result
  */
-export async function validateImport(importData, db) {
+export async function validateImport(importData, db, connectionMappings = {}) {
   const errors = [];
   const warnings = [];
   const validConnections = [];
   const invalidConnections = [];
+  const availableConnections = []; // List of all available connections for remapping
   const validTags = [];
   const invalidTags = [];
 
@@ -218,6 +222,20 @@ export async function validateImport(importData, db) {
     }
   });
 
+  // Fetch all available connections for remapping options
+  const allConnectionsResult = await db.query(`
+    SELECT id, name, type as driver_type
+    FROM connections
+    ORDER BY name
+  `);
+  allConnectionsResult.rows.forEach(conn => {
+    availableConnections.push({
+      id: conn.id,
+      name: conn.name,
+      driver_type: conn.driver_type
+    });
+  });
+
   // Validate connections
   for (const connectionId of connectionIds) {
     // Find node with this connection
@@ -230,31 +248,90 @@ export async function validateImport(importData, db) {
       driver_type: nodeWithConnection.data.driver_type
     };
 
-    // Check if connection exists with matching composite key
-    const connResult = await db.query(`
-      SELECT id, name, type as driver_type
-      FROM connections
-      WHERE id = $1
-    `, [connectionId]);
+    // Check if this connection has a mapping
+    const targetConnectionId = connectionMappings[connectionId] || connectionId;
+    const isMapped = connectionMappings[connectionId] !== undefined;
+
+    // Special handling for "System" connection - match by name only
+    const isSystemConnection = connInfo.connection_name === 'System';
+    
+    let connResult;
+    if (isSystemConnection) {
+      // System connection: find by name only
+      connResult = await db.query(`
+        SELECT id, name, type as driver_type
+        FROM connections
+        WHERE name = $1
+      `, ['System']);
+    } else {
+      // Regular connection: check by ID (original or mapped)
+      connResult = await db.query(`
+        SELECT id, name, type as driver_type
+        FROM connections
+        WHERE id = $1
+      `, [targetConnectionId]);
+    }
 
     if (connResult.rows.length === 0) {
       invalidConnections.push({
         ...connInfo,
         reason: 'not_found',
-        message: `Connection not found: ${connInfo.connection_name} (ID: ${connectionId})`
+        message: isSystemConnection 
+          ? `System connection not found. Create a connection named "System" first.`
+          : `Connection not found: ${connInfo.connection_name} (ID: ${targetConnectionId})`,
+        can_remap: !isSystemConnection, // System connection can't be remapped
+        available_connections: !isSystemConnection ? availableConnections.filter(c => c.driver_type === connInfo.driver_type) : []
       });
       continue;
     }
 
     const found = connResult.rows[0];
 
-    // Validate connection name matches
+    // For System connection, just verify it exists (already matched by name)
+    if (isSystemConnection) {
+      validConnections.push({
+        ...connInfo,
+        connection_id: found.id, // Use the actual System connection ID
+        mapped_from: connectionId !== found.id ? connectionId : null,
+        validated: true
+      });
+      continue;
+    }
+
+    // For mapped connections, allow name mismatch (user is explicitly remapping)
+    if (isMapped) {
+      // Validate driver type still matches
+      if (found.driver_type !== nodeWithConnection.data.driver_type) {
+        invalidConnections.push({
+          ...connInfo,
+          reason: 'driver_type_mismatch',
+          message: `Driver type mismatch: expected '${nodeWithConnection.data.driver_type}', found '${found.driver_type}' in mapped connection`,
+          found_driver_type: found.driver_type,
+          can_remap: true,
+          available_connections: availableConnections.filter(c => c.driver_type === connInfo.driver_type)
+        });
+        continue;
+      }
+
+      validConnections.push({
+        ...connInfo,
+        connection_id: found.id,
+        connection_name: found.name, // Update to actual connection name
+        mapped_from: connectionId,
+        validated: true
+      });
+      continue;
+    }
+
+    // For unmapped connections, validate name matches
     if (found.name !== nodeWithConnection.data.connection_name) {
       invalidConnections.push({
         ...connInfo,
         reason: 'name_mismatch',
         message: `Connection name mismatch: expected '${nodeWithConnection.data.connection_name}', found '${found.name}'`,
-        found_connection_name: found.name
+        found_connection_name: found.name,
+        can_remap: true,
+        available_connections: availableConnections.filter(c => c.driver_type === connInfo.driver_type)
       });
       continue;
     }
@@ -265,7 +342,9 @@ export async function validateImport(importData, db) {
         ...connInfo,
         reason: 'driver_type_mismatch',
         message: `Driver type mismatch: expected '${nodeWithConnection.data.driver_type}', found '${found.driver_type}'`,
-        found_driver_type: found.driver_type
+        found_driver_type: found.driver_type,
+        can_remap: true,
+        available_connections: availableConnections.filter(c => c.driver_type === connInfo.driver_type)
       });
       continue;
     }
@@ -308,26 +387,62 @@ export async function validateImport(importData, db) {
 
     if (!tagInfo) continue;
 
-    // Check if tag exists using composite key (connection_id + tag_path)
-    // This is the correct validation approach - we validate by what identifies
-    // a tag in the system, not by the potentially stale tag_id from export
-    const tagResult = await db.query(`
-      SELECT 
-        tm.tag_id,
-        tm.connection_id,
-        c.name as connection_name,
-        tm.tag_path,
-        tm.tag_name
-      FROM tag_metadata tm
-      LEFT JOIN connections c ON tm.connection_id = c.id
-      WHERE tm.connection_id = $1 AND tm.tag_path = $2
-    `, [tagInfo.connection_id, tagInfo.tag_path]);
+    // Special handling for INTERNAL tags - match by tag_path only
+    const isInternalTag = tagInfo.tag_path?.startsWith('internal.');
+    
+    let tagResult;
+    let isConnectionRemapped = false;
+    let originalConnectionId = null;
+    
+    if (isInternalTag) {
+      // Internal tags: match by tag_path only, ignore connection_id
+      // Internal tags always belong to the System connection, but the UUID differs between systems
+      tagResult = await db.query(`
+        SELECT 
+          tm.tag_id,
+          tm.connection_id,
+          c.name as connection_name,
+          tm.tag_path,
+          tm.tag_name,
+          tm.driver_type
+        FROM tag_metadata tm
+        LEFT JOIN connections c ON tm.connection_id = c.id
+        WHERE tm.tag_path = $1 AND tm.driver_type = 'INTERNAL'
+      `, [tagInfo.tag_path]);
+    } else {
+      // Regular tags: match by connection_id + tag_path
+      // Check if the tag's connection has been remapped
+      originalConnectionId = tagInfo.connection_id;
+      const targetConnectionId = connectionMappings[originalConnectionId] || originalConnectionId;
+      isConnectionRemapped = connectionMappings[originalConnectionId] !== undefined;
+
+      // Check if tag exists using composite key (connection_id + tag_path)
+      // This is the correct validation approach - we validate by what identifies
+      // a tag in the system, not by the potentially stale tag_id from export
+      // When connection is remapped, look for tag by path in the new connection
+      tagResult = await db.query(`
+        SELECT 
+          tm.tag_id,
+          tm.connection_id,
+          c.name as connection_name,
+          tm.tag_path,
+          tm.tag_name
+        FROM tag_metadata tm
+        LEFT JOIN connections c ON tm.connection_id = c.id
+        WHERE tm.connection_id = $1 AND tm.tag_path = $2
+      `, [targetConnectionId, tagInfo.tag_path]);
+    }
 
     if (tagResult.rows.length === 0) {
+      const displayName = isInternalTag 
+        ? 'System (INTERNAL)' 
+        : (isConnectionRemapped ? 'remapped connection' : tagInfo.connection_name);
+      
       invalidTags.push({
         ...tagInfo,
         reason: 'not_found',
-        message: `Tag not found: ${tagInfo.tag_name || tagInfo.tag_path} (${tagInfo.connection_name})`
+        message: `Tag not found: ${tagInfo.tag_name || tagInfo.tag_path} (${displayName})`,
+        remapped_connection: isConnectionRemapped
       });
       continue;
     }
@@ -335,7 +450,8 @@ export async function validateImport(importData, db) {
     const found = tagResult.rows[0];
 
     // Validate connection name matches (in case connection was renamed)
-    if (found.connection_name !== tagInfo.connection_name) {
+    // Skip validation for internal tags - they're always in System connection
+    if (!isInternalTag && found.connection_name !== tagInfo.connection_name) {
       invalidTags.push({
         ...tagInfo,
         reason: 'connection_name_mismatch',
@@ -347,8 +463,11 @@ export async function validateImport(importData, db) {
 
     validTags.push({
       ...tagInfo,
-      // Update with the actual tag_id from the database
+      // Update with the actual tag_id and connection_id from the database
       tag_id: found.tag_id,
+      connection_id: found.connection_id,
+      connection_name: found.connection_name,
+      mapped_from: isConnectionRemapped ? originalConnectionId : null,
       validated: true
     });
   }
@@ -378,6 +497,7 @@ export async function validateImport(importData, db) {
     invalidConnections,
     validTags,
     invalidTags,
+    availableConnections, // All connections available for remapping
     summary: {
       total_connections: connectionIds.size,
       valid_connections: validConnections.length,
@@ -396,9 +516,10 @@ export async function validateImport(importData, db) {
  * @param {Object} validation - Validation result from validateImport
  * @param {Object} db - Database connection
  * @param {string|null} newName - Optional new name for the imported flow
+ * @param {Object} connectionMappings - Connection ID mappings {oldId: newId}
  * @returns {Promise<Object>} Import result with created flow
  */
-export async function importFlow(importData, userId, validation, db, newName = null) {
+export async function importFlow(importData, userId, validation, db, newName = null, connectionMappings = {}) {
   if (!validation.valid) {
     throw new Error('Cannot import flow with validation errors');
   }
@@ -428,49 +549,138 @@ export async function importFlow(importData, userId, validation, db, newName = n
     edge.id = crypto.randomUUID();
   });
 
+  // Create mapping tables from validation results
+  // For connections: map old IDs to new IDs (handles remapping)
+  const connectionIdMap = new Map();
+  validation.validConnections.forEach(conn => {
+    const oldId = conn.mapped_from || conn.connection_id;
+    const newId = conn.connection_id;
+    connectionIdMap.set(oldId, newId);
+  });
+
+  // For tags: map old tag IDs to new tag IDs (handles connection remapping)
+  const tagIdMap = new Map();
+  validation.validTags.forEach(tag => {
+    // The validation already resolved the correct tag_id in the target system
+    tagIdMap.set(tag.tag_id, tag.tag_id); // Map from imported tag_id to actual tag_id
+  });
+
   // Create sets of valid IDs for filtering
   const validConnectionIds = new Set(validation.validConnections.map(c => c.connection_id));
   const validTagIds = new Set(validation.validTags.map(t => t.tag_id));
 
-  // Filter nodes - remove nodes that depend on invalid connections/tags
+  // Filter and remap nodes - apply connection and tag mappings
   const filteredNodes = nodes.map(node => {
     const newNode = { ...node };
 
-    // Remove invalid connection data
-    if (node.data?.connection_id && !validConnectionIds.has(node.data.connection_id)) {
-      // Remove connection-related data but keep the node
-      const { connection_id, connection_name, driver_type, ...restData } = node.data;
-      newNode.data = restData;
+    // Remap or remove connection data
+    if (node.data?.connection_id) {
+      const oldConnectionId = node.data.connection_id;
+      const newConnectionId = connectionIdMap.get(oldConnectionId);
       
-      // If this was a connection-dependent node with no other data, mark it
-      if (node.type === 'tagInput' || node.type === 'tagOutput') {
-        newNode.data._import_warning = 'Connection removed - node may not function';
+      if (newConnectionId) {
+        // Valid connection - remap to new ID
+        newNode.data = {
+          ...newNode.data,
+          connection_id: newConnectionId,
+          connectionId: newConnectionId // Update both variants
+        };
+        
+        // Update connection name if it was remapped
+        const validConn = validation.validConnections.find(c => 
+          (c.mapped_from === oldConnectionId || c.connection_id === oldConnectionId) && 
+          c.connection_id === newConnectionId
+        );
+        if (validConn && validConn.mapped_from) {
+          newNode.data.connection_name = validConn.connection_name;
+          newNode.data.connectionName = validConn.connection_name;
+        }
+      } else {
+        // Invalid connection - remove
+        const { connection_id, connection_name, driver_type, connectionId, connectionName, driverType, ...restData } = node.data;
+        newNode.data = restData;
+        
+        if (node.type === 'tag-input' || node.type === 'tag-output') {
+          newNode.data._import_warning = 'Connection removed - node may not function';
+        }
       }
     }
 
-    // Remove invalid single tag
-    if (node.data?.tag_id && !validTagIds.has(node.data.tag_id)) {
-      const { tag_id, tag_path, ...restData } = node.data;
-      newNode.data = restData;
+    // Remap or remove single tag
+    if (node.data?.tag_id) {
+      const oldTagId = node.data.tag_id;
+      const isInternalTag = node.data.tag_path?.startsWith('internal.');
       
-      if (node.type === 'tagInput' || node.type === 'tagOutput') {
-        newNode.data._import_warning = 'Tag removed - node may not function';
+      // Find the validated tag to get the correct new tag_id
+      const validTag = validation.validTags.find(t => {
+        // For internal tags, match by tag_path only (connection ID differs between systems)
+        if (isInternalTag) {
+          return t.tag_path === node.data.tag_path;
+        }
+        // For regular tags, match by tag_path and connection (the composite key)
+        return t.tag_path === node.data.tag_path && 
+               connectionIdMap.get(node.data.connection_id) === t.connection_id;
+      });
+      
+      if (validTag) {
+        // Valid tag - remap to actual tag_id in this system
+        newNode.data = {
+          ...newNode.data,
+          tag_id: validTag.tag_id,
+          tagId: validTag.tag_id,
+          // For internal tags, also update connection_id to match the target system's System connection
+          ...(isInternalTag && { 
+            connection_id: validTag.connection_id,
+            connectionId: validTag.connection_id
+          })
+        };
+      } else {
+        // Invalid tag - remove
+        const { tag_id, tag_path, tag_name, tagId, tagPath, tagName, ...restData } = node.data;
+        newNode.data = restData;
+        
+        if (node.type === 'tag-input' || node.type === 'tag-output') {
+          newNode.data._import_warning = 'Tag removed - node may not function';
+        }
       }
     }
 
-    // Filter tags array
+    // Filter and remap tags array
     if (node.data?.tags && Array.isArray(node.data.tags)) {
-      const filteredTags = node.data.tags.filter(tag => 
-        !tag.tag_id || validTagIds.has(tag.tag_id)
-      );
+      const remappedTags = node.data.tags.map(tag => {
+        if (!tag.tag_id) return tag;
+        
+        const isInternalTag = tag.tag_path?.startsWith('internal.');
+        
+        // Find validated tag by tag_path and connection
+        const validTag = validation.validTags.find(t => {
+          // For internal tags, match by tag_path only
+          if (isInternalTag) {
+            return t.tag_path === tag.tag_path;
+          }
+          // For regular tags, match by tag_path and connection
+          return t.tag_path === tag.tag_path && 
+                 connectionIdMap.get(tag.connection_id) === t.connection_id;
+        });
+        
+        if (validTag) {
+          return {
+            ...tag,
+            tag_id: validTag.tag_id,
+            connection_id: validTag.connection_id,
+            id: validTag.tag_id // Some nodes use 'id' field
+          };
+        }
+        return null; // Will be filtered out
+      }).filter(tag => tag !== null);
       
       newNode.data = {
         ...newNode.data,
-        tags: filteredTags
+        tags: remappedTags
       };
 
-      if (filteredTags.length < node.data.tags.length) {
-        newNode.data._import_warning = `${node.data.tags.length - filteredTags.length} tag(s) removed`;
+      if (remappedTags.length < node.data.tags.length) {
+        newNode.data._import_warning = `${node.data.tags.length - remappedTags.length} tag(s) removed`;
       }
     }
 

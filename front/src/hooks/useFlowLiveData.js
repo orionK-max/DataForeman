@@ -9,10 +9,10 @@ import { apiClient } from '../services/api';
  * 
  * @param {string} flowId - Flow ID to fetch live data for
  * @param {boolean} enabled - Whether to poll for live data
- * @param {number} pollInterval - Polling interval in milliseconds (default: 2000)
+ * @param {number} pollInterval - Polling interval in milliseconds (default: 1000)
  * @returns {Object} liveData - Map of nodeId -> { value, quality, timestamp, tagPath }
  */
-export function useFlowLiveData(flowId, enabled = false, pollInterval = 2000) {
+export function useFlowLiveData(flowId, enabled = false, pollInterval = 1000) {
   const [liveData, setLiveData] = useState({});
   const intervalRef = useRef(null);
   const mountedRef = useRef(true);

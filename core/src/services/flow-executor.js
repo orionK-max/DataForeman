@@ -31,11 +31,10 @@ export function validateFlowGraph(definition) {
     return { valid: false, errors };
   }
   
-  // Check for trigger node
-  const triggers = nodes.filter(n => n.type === 'trigger-manual');
-  if (triggers.length === 0) {
-    errors.push('Flow must have at least one manual trigger node');
-  }
+  // Note: Manual trigger nodes are optional
+  // - For continuous/test mode: All nodes execute in topological order
+  // - For manual execution with trigger: Only nodes downstream from trigger execute
+  // This allows flows to be tested without requiring a manual trigger node
   
   // Validate node structure
   nodes.forEach((node, idx) => {
@@ -65,6 +64,7 @@ export function validateFlowGraph(definition) {
  * Find all trigger nodes in flow definition
  * @param {Object} definition - Flow definition
  * @returns {Array} Array of trigger node objects
+ * @deprecated Currently unused - kept for future trigger type implementations
  */
 export function findTriggerNodes(definition) {
   const { nodes = [] } = definition;
@@ -384,15 +384,19 @@ export async function executeFlow(context) {
     
     flow = flowResult.rows[0];
     
-    // Check if flow is deployed or in test mode
-    if (!flow.deployed && !flow.test_mode) {
-      throw new Error(`Flow ${flowId} is not deployed or in test mode`);
+    // Check execution mode and deployment requirements
+    // Manual flows can execute without deployment (on-demand only)
+    // Continuous flows require deployment or test mode for session-based execution
+    if (flow.execution_mode === 'continuous' && !flow.deployed && !flow.test_mode) {
+      throw new Error(`Continuous flows must be deployed or in test mode`);
     }
     
-    // Check execution mode
-    // NOTE: Manual execution mode is deprecated and left temporarily for migration.
-    // All flows should use 'continuous' mode. Do not use 'manual' mode for new flows.
-    if (flow.execution_mode === 'continuous') {
+    // Determine if this should be a continuous session or single execution
+    // Continuous mode: Use FlowSession for looping execution
+    // Manual mode: Always single execution, even in test mode
+    const useContinuousSession = flow.execution_mode === 'continuous' && (flow.deployed || flow.test_mode);
+    
+    if (useContinuousSession) {
       log.info('Starting continuous execution mode with session management');
       
       // Create FlowSession for continuous execution
@@ -419,6 +423,9 @@ export async function executeFlow(context) {
       return; // Don't proceed to manual execution
     }
     
+    // Manual execution mode - single run (includes manual flows in test mode)
+    log.info({ executionMode: flow.execution_mode, testMode: flow.test_mode }, 'Starting single execution (manual mode)');
+    
     // Manual execution mode (existing logic)
     // Validate flow graph
     const validation = validateFlowGraph(flow.definition);
@@ -427,6 +434,7 @@ export async function executeFlow(context) {
     }
     
     // Create execution record
+    // Note: trigger_node_id is optional - used for auditing when flow is triggered by specific node
     const executionResult = await app.db.query(
       `INSERT INTO flow_executions 
        (flow_id, trigger_node_id, status, started_at)
@@ -450,9 +458,9 @@ export async function executeFlow(context) {
         flow_id: flowId,
         node_id: null,
         log_level: 'info',
-        message: `Flow execution started (trigger: ${job.params.trigger_node_id || 'none'})`,
+        message: `Flow execution started${job.params.trigger_node_id ? ` (trigger: ${job.params.trigger_node_id})` : ''}`,
         timestamp: new Date(),
-        metadata: { trigger_node_id: job.params.trigger_node_id }
+        metadata: job.params.trigger_node_id ? { trigger_node_id: job.params.trigger_node_id } : {}
       });
     }
     
@@ -533,6 +541,21 @@ export async function executeFlow(context) {
       }
       
       log.info({ nodeId, nodeType: node.type, output, executionTime: output.executionTime }, 'Node executed');
+      
+      // Add node logs to buffer if logging is enabled
+      if (logBuffer && output.logs && output.logs.length > 0) {
+        for (const nodeLog of output.logs) {
+          logBuffer.add({
+            execution_id: execution.id,
+            flow_id: flowId,
+            node_id: nodeId,
+            log_level: nodeLog.level || 'info',
+            message: nodeLog.message,
+            timestamp: nodeLog.timestamp || new Date(),
+            metadata: nodeLog.metadata || null
+          });
+        }
+      }
     }
     
     // Collect all node outputs (including logs and timing)
@@ -575,6 +598,29 @@ export async function executeFlow(context) {
     );
     
     log.info({ executionId: execution.id, outputs }, 'Flow execution completed');
+    
+    // Auto-exit test mode for manual flows after single execution
+    if (flow.execution_mode === 'manual' && flow.test_mode) {
+      await app.db.query(
+        `UPDATE flows SET test_mode = false, updated_at = now() WHERE id = $1`,
+        [flowId]
+      );
+      log.info({ flowId }, 'Auto-exited test mode after manual flow execution');
+      
+      // Log test mode exit
+      if (logBuffer) {
+        logBuffer.add({
+          execution_id: execution.id,
+          flow_id: flowId,
+          node_id: null,
+          log_level: 'info',
+          message: '🛑 Test mode auto-exited after manual execution',
+          timestamp: new Date(),
+          metadata: { action: 'test_mode_auto_exit', execution_mode: 'manual' }
+        });
+        await logBuffer.finalize();
+      }
+    }
     
     await complete(job.id, { success: true, executionId: execution.id, outputs });
     

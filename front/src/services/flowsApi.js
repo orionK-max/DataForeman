@@ -380,11 +380,11 @@ export async function exportFlow(flowId) {
 /**
  * Validate flow import data
  */
-export async function validateFlowImport(importData) {
+export async function validateFlowImport(importData, connectionMappings = {}) {
   const response = await fetch(`${API_BASE}/flows/import/validate`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ importData })
+    body: JSON.stringify({ importData, connectionMappings })
   });
   if (!response.ok) throw new Error('Failed to validate flow import');
   return response.json();
@@ -393,11 +393,11 @@ export async function validateFlowImport(importData) {
 /**
  * Execute flow import after validation
  */
-export async function executeFlowImport(importData, validation, newName = null) {
+export async function executeFlowImport(importData, validation, newName = null, connectionMappings = {}) {
   const response = await fetch(`${API_BASE}/flows/import/execute`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ importData, validation, newName })
+    body: JSON.stringify({ importData, validation, newName, connectionMappings })
   });
   if (!response.ok) throw new Error('Failed to import flow');
   return response.json();

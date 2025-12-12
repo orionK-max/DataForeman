@@ -2781,7 +2781,7 @@ export async function connectivityRoutes(app) {
         LEFT JOIN units_of_measure u ON u.id = tm.unit_id
         LEFT JOIN poll_groups pg ON pg.group_id = tm.poll_group_id
         WHERE tm.driver_type = 'INTERNAL'
-          AND tm.is_deleted = false
+          AND coalesce(tm.status,'active') <> 'deleted'
         ORDER BY tm.tag_path ASC
       `);
 
@@ -2813,36 +2813,64 @@ export async function connectivityRoutes(app) {
 
       const systemConnectionId = connResult.rows[0].id;
 
-      // Check if tag already exists
+      // Check if tag already exists (including deleted tags)
       const existing = await app.db.query(
-        `SELECT tag_id FROM tag_metadata 
+        `SELECT tag_id, status FROM tag_metadata 
          WHERE connection_id = $1 AND tag_path = $2 AND driver_type = 'INTERNAL'`,
         [systemConnectionId, tag_path]
       );
 
+      let result;
+      
       if (existing.rows.length > 0) {
-        return reply.code(409).send({ error: 'tag_already_exists' });
+        const existingTag = existing.rows[0];
+        const existingStatus = existingTag.status || 'active';
+        
+        // If tag is deleted, resurrect it by updating to active
+        if (existingStatus === 'deleted') {
+          result = await app.db.query(`
+            UPDATE tag_metadata 
+            SET 
+              tag_name = $1,
+              data_type = $2,
+              unit_id = $3,
+              description = $4,
+              status = 'active',
+              is_subscribed = false,
+              deleted_at = NULL,
+              delete_job_id = NULL,
+              delete_started_at = NULL,
+              updated_at = now()
+            WHERE tag_id = $5
+            RETURNING *
+          `, [tag_name, data_type, unit_id || null, description || null, existingTag.tag_id]);
+          
+          req.log.info({ tag_id: existingTag.tag_id, tag_path, userId }, 'internal tag resurrected from deleted status');
+        } else {
+          // Tag exists and is active
+          return reply.code(409).send({ error: 'tag_already_exists' });
+        }
+      } else {
+        // Create new tag
+        result = await app.db.query(`
+          INSERT INTO tag_metadata (
+            connection_id, 
+            driver_type, 
+            tag_path, 
+            tag_name, 
+            data_type,
+            unit_id,
+            description,
+            is_subscribed,
+            status,
+            created_at,
+            updated_at
+          ) VALUES ($1, 'INTERNAL', $2, $3, $4, $5, $6, false, 'active', now(), now())
+          RETURNING *
+        `, [systemConnectionId, tag_path, tag_name, data_type, unit_id || null, description || null]);
+        
+        req.log.info({ tag_id: result.rows[0].tag_id, tag_path, userId }, 'internal tag created');
       }
-
-      // Create tag
-      const result = await app.db.query(`
-        INSERT INTO tag_metadata (
-          connection_id, 
-          driver_type, 
-          tag_path, 
-          tag_name, 
-          data_type,
-          unit_id,
-          description,
-          is_subscribed,
-          status,
-          created_at,
-          updated_at
-        ) VALUES ($1, 'INTERNAL', $2, $3, $4, $5, $6, false, 'active', now(), now())
-        RETURNING *
-      `, [systemConnectionId, tag_path, tag_name, data_type, unit_id || null, description || null]);
-
-      req.log.info({ tag_id: result.rows[0].tag_id, tag_path, userId }, 'internal tag created');
 
       return reply.send({ tag: result.rows[0] });
     } catch (e) {

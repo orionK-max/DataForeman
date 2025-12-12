@@ -12,6 +12,10 @@ import {
   Typography,
   Divider,
   Alert,
+  RadioGroup,
+  Radio,
+  FormControl,
+  FormLabel,
 } from '@mui/material';
 
 /**
@@ -25,6 +29,8 @@ export default function FlowSettingsDialog({ open, onClose, flow, onSave }) {
   const [logsEnabled, setLogsEnabled] = useState(false);
   const [logsRetentionDays, setLogsRetentionDays] = useState(30);
   const [scanRateMs, setScanRateMs] = useState(1000);
+  const [executionMode, setExecutionMode] = useState('continuous');
+  const [liveValuesUseScanRate, setLiveValuesUseScanRate] = useState(false);
 
   useEffect(() => {
     if (flow) {
@@ -34,6 +40,8 @@ export default function FlowSettingsDialog({ open, onClose, flow, onSave }) {
       setLogsEnabled(flow.logs_enabled || false);
       setLogsRetentionDays(flow.logs_retention_days || 30);
       setScanRateMs(flow.scan_rate_ms || 1000);
+      setExecutionMode(flow.execution_mode || 'continuous');
+      setLiveValuesUseScanRate(flow.live_values_use_scan_rate || false);
     }
   }, [flow]);
 
@@ -44,7 +52,9 @@ export default function FlowSettingsDialog({ open, onClose, flow, onSave }) {
       shared,
       logs_enabled: logsEnabled,
       logs_retention_days: logsRetentionDays,
-      scan_rate_ms: scanRateMs
+      scan_rate_ms: scanRateMs,
+      execution_mode: executionMode,
+      live_values_use_scan_rate: liveValuesUseScanRate
     });
     onClose();
   };
@@ -84,21 +94,73 @@ export default function FlowSettingsDialog({ open, onClose, flow, onSave }) {
           <Divider sx={{ my: 1 }} />
           
           <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-            Scan Rate
+            Execution Mode
           </Typography>
           
-          <TextField
-            label="Scan Rate (milliseconds)"
-            type="number"
-            value={scanRateMs}
-            onChange={(e) => {
-              const val = parseInt(e.target.value) || 1000;
-              setScanRateMs(Math.max(100, Math.min(60000, val)));
-            }}
-            inputProps={{ min: 100, max: 60000, step: 100 }}
-            helperText="Time between scan cycles (100-60000ms). Default: 1000ms (1 second)"
-            fullWidth
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={executionMode === 'manual'}
+                  onChange={(e) => setExecutionMode(e.target.checked ? 'manual' : 'continuous')}
+                />
+              }
+              label={executionMode === 'manual' ? 'Manual (on-demand)' : 'Continuous (scheduled)'}
+            />
+            {executionMode === 'continuous' ? (
+              <Alert severity="info" sx={{ fontSize: '0.875rem' }}>
+                Continuous mode runs on a schedule. Requires deployment to start execution.
+              </Alert>
+            ) : (
+              <Alert severity="success" sx={{ fontSize: '0.875rem' }}>
+                Manual mode runs on-demand only. No deployment needed - just click Execute.
+              </Alert>
+            )}
+          </Box>
+          
+          {executionMode === 'continuous' && (
+            <>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                Scan Rate
+              </Typography>
+              
+              <TextField
+                label="Scan Rate (milliseconds)"
+                type="number"
+                value={scanRateMs}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 1000;
+                  setScanRateMs(Math.max(100, Math.min(60000, val)));
+                }}
+                inputProps={{ min: 100, max: 60000, step: 100 }}
+                helperText="Time between scan cycles (100-60000ms). Default: 1000ms (1 second)"
+                fullWidth
+              />
+              
+              <Divider sx={{ my: 1 }} />
+            </>
+          )}
+          
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            Live Values Display
+          </Typography>
+          
+          <FormControlLabel
+            control={
+              <Switch
+                checked={liveValuesUseScanRate}
+                onChange={(e) => setLiveValuesUseScanRate(e.target.checked)}
+                disabled={executionMode === 'manual'}
+              />
+            }
+            label="Update at scan rate"
           />
+          
+          <Alert severity="info" sx={{ fontSize: '0.875rem' }}>
+            {liveValuesUseScanRate && executionMode === 'continuous'
+              ? `Live values will update every ${scanRateMs}ms (matching flow scan rate)`
+              : 'Live values will update every 1000ms (1 second) by default'}
+          </Alert>
           
           <Divider sx={{ my: 1 }} />
           

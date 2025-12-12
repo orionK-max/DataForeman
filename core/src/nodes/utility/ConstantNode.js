@@ -19,7 +19,7 @@ export class ConstantNode extends BaseNode {
     name: 'constant',
     version: 1,
     description: 'Output a constant value (number, string, boolean, or JSON)',
-    category: 'UTILITY',
+    category: 'TAG_OPERATIONS',
     section: 'BASIC',
     icon: '🔢',
     color: '#607D8B',

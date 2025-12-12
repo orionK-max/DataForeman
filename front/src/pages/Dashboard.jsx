@@ -450,23 +450,21 @@ const DashboardContent = () => {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: 1
+            gap: 2
           }}>
-            <Typography variant="body1" color="text.secondary">
-              No widgets in this dashboard.
+            <Typography variant="h6" color="text.secondary">
+              This dashboard is empty
             </Typography>
-            <Typography variant="body1" color="text.secondary">
-              Click <strong>Add Chart</strong> button above to add widgets.
-            </Typography>
-            {currentDashboard?.is_owner && (
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setShowAddChart(true)}
-                sx={{ mt: 2 }}
-              >
-                Add Your First Chart
-              </Button>
+            {currentDashboard?.is_owner ? (
+              <Alert severity="info" sx={{ maxWidth: 500 }}>
+                <Typography variant="body2">
+                  Click the <strong>Edit</strong> button in the toolbar, then use <strong>Add Chart</strong> to add widgets to this dashboard.
+                </Typography>
+              </Alert>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                This dashboard has no widgets yet.
+              </Typography>
             )}
           </Box>
         ) : (

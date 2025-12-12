@@ -470,7 +470,7 @@ export default function InternalTagsManager({ onSnackbar }) {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2" fontWeight="medium" sx={{ fontSize: '0.813rem' }}>
-                        {formatTagName(tag.tag_path)}
+                        {tag.tag_name || formatTagName(tag.tag_path)}
                       </Typography>
                       {tag.description && (
                         <Typography variant="caption" color="text.secondary" display="block">

@@ -70,6 +70,8 @@ const DashboardList = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [folderToDelete, setFolderToDelete] = useState(null);
   const [deletingFolder, setDeletingFolder] = useState(false);
+  const [deleteDashboardOpen, setDeleteDashboardOpen] = useState(false);
+  const [dashboardToDelete, setDashboardToDelete] = useState(null);
 
   useEffect(() => {
     setPageTitle('Dashboards');
@@ -135,16 +137,27 @@ const DashboardList = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this dashboard?')) {
-      return;
-    }
+  const handleDelete = (dashboard) => {
+    setDashboardToDelete(dashboard);
+    setDeleteDashboardOpen(true);
+  };
+
+  const confirmDeleteDashboard = async () => {
+    if (!dashboardToDelete) return;
+    
     try {
-      await dashboardService.deleteDashboard(id);
-      loadDashboards();
+      await dashboardService.deleteDashboard(dashboardToDelete.id);
+      await loadDashboards();
+      setDeleteDashboardOpen(false);
+      setDashboardToDelete(null);
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  const cancelDeleteDashboard = () => {
+    setDeleteDashboardOpen(false);
+    setDashboardToDelete(null);
   };
 
   // Folder management handlers
@@ -517,7 +530,7 @@ const DashboardList = () => {
                       size="small"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(dashboard.id);
+                        handleDelete(dashboard);
                       }}
                       title="Delete"
                     >
@@ -617,6 +630,17 @@ const DashboardList = () => {
         onConfirm={confirmDeleteFolder}
         onCancel={cancelDeleteFolder}
         loading={deletingFolder}
+        confirmText="Delete"
+        confirmColor="error"
+      />
+
+      {/* Delete Dashboard Confirmation */}
+      <ConfirmDialog
+        open={deleteDashboardOpen}
+        title="Delete Dashboard"
+        message={`Are you sure you want to delete the dashboard "${dashboardToDelete?.name}"? This action cannot be undone.`}
+        onConfirm={confirmDeleteDashboard}
+        onCancel={cancelDeleteDashboard}
         confirmText="Delete"
         confirmColor="error"
       />

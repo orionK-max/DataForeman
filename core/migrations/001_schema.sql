@@ -576,6 +576,7 @@ CREATE TABLE IF NOT EXISTS flows (
   test_auto_exit_minutes integer DEFAULT 5,
   execution_mode varchar(20) DEFAULT 'continuous',
   scan_rate_ms integer DEFAULT 1000,
+  live_values_use_scan_rate boolean DEFAULT false,
   logs_enabled boolean DEFAULT false,
   logs_retention_days integer DEFAULT 30 CHECK (logs_retention_days > 0 AND logs_retention_days <= 365),
   save_usage_data boolean DEFAULT true,
@@ -591,6 +592,7 @@ COMMENT ON COLUMN flows.test_auto_exit IS 'When true in test mode, automatically
 COMMENT ON COLUMN flows.test_auto_exit_minutes IS 'Duration in minutes before auto-exiting test mode (default: 5 minutes).';
 COMMENT ON COLUMN flows.execution_mode IS 'Execution mode: continuous (default) for scan-based loops, manual for one-time execution.';
 COMMENT ON COLUMN flows.scan_rate_ms IS 'Time between scan cycles in milliseconds (100-60000ms). Default: 1000ms (1 second).';
+COMMENT ON COLUMN flows.live_values_use_scan_rate IS 'When true, Live Values display updates at scan rate instead of default 1 second';
 COMMENT ON COLUMN flows.logs_enabled IS 'Enable persistent log storage for this flow (deployed flows only)';
 COMMENT ON COLUMN flows.logs_retention_days IS 'Number of days to retain logs before automatic deletion (1-365)';
 COMMENT ON COLUMN flows.save_usage_data IS 'Save resource usage metrics (CPU, memory, scan duration) as system tags for charting';
@@ -604,7 +606,7 @@ CREATE INDEX IF NOT EXISTS idx_flows_test_mode ON flows(test_mode) WHERE test_mo
 CREATE TABLE IF NOT EXISTS flow_executions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   flow_id uuid REFERENCES flows(id) ON DELETE CASCADE,
-  trigger_node_id text,
+  trigger_node_id text, -- Optional: node ID that triggered execution (for auditing)
   started_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,
   status text NOT NULL DEFAULT 'running',

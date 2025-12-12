@@ -37,7 +37,8 @@ const CustomNodeV2 = ({ data, type, selected, id }) => {
   const isExecuting = data?.executionStatus === 'running';
   const polledRuntimeData = useNodeRuntimeData(id, runtimeConfig, isExecuting);
   
-  // Use pinned data from node.data.runtime, fall back to polled runtime data
+  // Use global live data from node.data.runtime (updated via useFlowLiveData)
+  // Fall back to node-specific polled data for async operations
   const runtimeData = data?.runtime || polledRuntimeData;
   
   // Enhance data with computed fields for template resolution
@@ -347,4 +348,31 @@ const CustomNodeV2 = ({ data, type, selected, id }) => {
   );
 };
 
-export default memo(CustomNodeV2);
+// Custom comparison function for memo
+// Return true if props are equal (skip re-render), false if different (re-render)
+const arePropsEqual = (prevProps, nextProps) => {
+  // If live values are enabled, always re-render (don't memoize)
+  if (nextProps.data?._showLiveValues || prevProps.data?._showLiveValues) {
+    return false; // Always re-render when live values are active
+  }
+  
+  // Re-render if selection state changes
+  if (prevProps.selected !== nextProps.selected) {
+    return false;
+  }
+  
+  // Re-render if data object reference changes
+  if (prevProps.data !== nextProps.data) {
+    return false;
+  }
+  
+  // Re-render if type changes
+  if (prevProps.type !== nextProps.type) {
+    return false;
+  }
+  
+  // Otherwise, skip re-render (props are equal)
+  return true;
+};
+
+export default memo(CustomNodeV2, arePropsEqual);

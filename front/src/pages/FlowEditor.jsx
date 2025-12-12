@@ -116,7 +116,9 @@ const FlowEditor = () => {
   }, []); // Empty deps because metadata is loaded once by App.jsx before this component mounts
 
   // Fetch live cached tag values when showLiveValues is enabled
-  const liveData = useFlowLiveData(id, showLiveValues);
+  // Use scan rate if configured, otherwise default to 1000ms
+  const liveUpdateInterval = (flow?.live_values_use_scan_rate && flow?.scan_rate_ms) ? flow.scan_rate_ms : 1000;
+  const liveData = useFlowLiveData(id, showLiveValues, liveUpdateInterval);
   
   // Fetch flow resource usage when deployed or in test mode
   const { data: resourceData, loading: resourceLoading, refetch: refetchResources } = useFlowResources(
@@ -148,8 +150,10 @@ const FlowEditor = () => {
   
   // Update the ref whenever dependencies change
   handleExecuteTriggerRef.current = async (triggerNodeId) => {
-    if (!flow?.deployed && !isTestMode) {
-      setSnackbar({ open: true, message: 'Flow must be deployed or in test mode to execute. Use Test Run for testing.', severity: 'warning' });
+    // Manual flows can execute without deployment
+    // Continuous flows require deployment or test mode
+    if (flow?.execution_mode === 'continuous' && !flow?.deployed && !isTestMode) {
+      setSnackbar({ open: true, message: 'Continuous flows must be deployed or in test mode to execute.', severity: 'warning' });
       return;
     }
 
@@ -450,6 +454,31 @@ const FlowEditor = () => {
     setSnackbar({ open: true, message, severity });
   };
 
+  // Poll for test_mode changes (for manual flows that auto-exit)
+  useEffect(() => {
+    if (!id) return;
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await getFlow(id);
+        // Only update if test_mode actually changed
+        if (data.flow.test_mode !== isTestMode) {
+          setIsTestMode(data.flow.test_mode);
+          
+          // If test mode was exited, show notification
+          if (!data.flow.test_mode && isTestMode) {
+            showSnackbar('Test mode stopped', 'info');
+          }
+        }
+      } catch (error) {
+        // Silently fail - don't spam errors during polling
+        console.error('Failed to poll flow state:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+    
+    return () => clearInterval(pollInterval);
+  }, [id, isTestMode]); // Re-run if isTestMode changes to update the comparison
+
   // Handle node highlighting from query parameter
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -617,13 +646,6 @@ const FlowEditor = () => {
   // Start test mode with configuration
   const handleStartTestMode = async (disableWrites, autoExit, autoExitMinutes, autoExitSeconds) => {
     try {
-      // Check for trigger nodes and show warning if none found
-      const triggerNode = nodes.find(n => n.type === 'trigger-manual');
-      if (!triggerNode) {
-        showSnackbar('Warning: No manual trigger node found. Flow must be triggered manually or via events.', 'warning');
-        // Continue anyway - trigger might be in user script
-      }
-
       // Validate before test deployment
       const validation = validateForDeploy(nodes, edges);
       if (!validation.valid) {
@@ -1170,16 +1192,18 @@ const FlowEditor = () => {
               >
                 Save
               </Button>
-              <Button
-                startIcon={flow.deployed ? <UndeployIcon /> : <DeployIcon />}
-                onClick={handleDeploy}
-                disabled={isTestMode}
-                variant="contained"
-                color={flow.deployed ? 'secondary' : 'success'}
-                size="small"
-              >
-                {flow.deployed ? 'Undeploy' : 'Deploy'}
-              </Button>
+              {flow.execution_mode === 'continuous' && (
+                <Button
+                  startIcon={flow.deployed ? <UndeployIcon /> : <DeployIcon />}
+                  onClick={handleDeploy}
+                  disabled={isTestMode}
+                  variant="contained"
+                  color={flow.deployed ? 'secondary' : 'success'}
+                  size="small"
+                >
+                  {flow.deployed ? 'Undeploy' : 'Deploy'}
+                </Button>
+              )}
             </Box>
           </Box>
           
@@ -1214,21 +1238,23 @@ const FlowEditor = () => {
                   Exec Order
                 </Button>
               </Tooltip>
-              <Tooltip title={flow?.deployed || isTestMode ? "Resource Monitor" : "Deploy or test flow to monitor resources"}>
-                <span>
-                  <Button
-                    size="small"
-                    variant={resourceMonitorOpen ? 'contained' : 'outlined'}
-                    color={resourceMonitorOpen ? 'primary' : 'inherit'}
-                    disabled={!flow?.deployed && !isTestMode}
-                    startIcon={<ResourceIcon />}
-                    onClick={() => setResourceMonitorOpen(true)}
-                    sx={{ minWidth: 100 }}
-                  >
-                    Monitor
-                  </Button>
-                </span>
-              </Tooltip>
+              {flow.execution_mode === 'continuous' && (
+                <Tooltip title={flow?.deployed || isTestMode ? "Resource Monitor" : "Deploy or test flow to monitor resources"}>
+                  <span>
+                    <Button
+                      size="small"
+                      variant={resourceMonitorOpen ? 'contained' : 'outlined'}
+                      color={resourceMonitorOpen ? 'primary' : 'inherit'}
+                      disabled={!flow?.deployed && !isTestMode}
+                      startIcon={<ResourceIcon />}
+                      onClick={() => setResourceMonitorOpen(true)}
+                      sx={{ minWidth: 100 }}
+                    >
+                      Monitor
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
               <Tooltip title={`${logPanelOpen ? 'Hide' : 'Show'} Logs (Ctrl+L)`}>
                 <Button
                   size="small"
@@ -1249,6 +1275,20 @@ const FlowEditor = () => {
                   Logs
                 </Button>
               </Tooltip>
+              {flow.execution_mode === 'manual' && (
+                <Tooltip title="Execution History">
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="inherit"
+                    startIcon={<HistoryIcon />}
+                    onClick={() => setHistoryOpen(true)}
+                    sx={{ minWidth: 100 }}
+                  >
+                    History
+                  </Button>
+                </Tooltip>
+              )}
             </Box>
           </Box>
           
@@ -1271,20 +1311,12 @@ const FlowEditor = () => {
                 </Button>
               </Tooltip>
               <Tooltip title="Export Flow">
-                <ExportFlowButton 
-                  flowId={id} 
-                  flowName={flow.name}
-                />
-              </Tooltip>
-              <Tooltip title="Execution History">
-                <Button 
-                  startIcon={<HistoryIcon />}
-                  onClick={() => setHistoryOpen(true)}
-                  variant="outlined"
-                  size="small"
-                >
-                  History
-                </Button>
+                <span>
+                  <ExportFlowButton 
+                    flowId={id} 
+                    flowName={flow.name}
+                  />
+                </span>
               </Tooltip>
               <Tooltip title="Flow Settings">
                 <Button 

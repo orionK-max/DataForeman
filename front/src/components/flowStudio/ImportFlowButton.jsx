@@ -14,8 +14,12 @@ import {
   ListItemText,
   Chip,
   TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
-import { Upload, CheckCircle, Warning, Error as ErrorIcon } from '@mui/icons-material';
+import { Upload, CheckCircle, Warning, Error as ErrorIcon, SwapHoriz } from '@mui/icons-material';
 import { usePermissions } from '../../contexts/PermissionsContext';
 import { validateFlowImport, executeFlowImport } from '../../services/flowsApi';
 
@@ -30,6 +34,7 @@ const ImportFlowButton = ({ onImportSuccess, open: controlledOpen, onClose: cont
   const [validation, setValidation] = useState(null);
   const [importData, setImportData] = useState(null);
   const [newName, setNewName] = useState('');
+  const [connectionMappings, setConnectionMappings] = useState({}); // {oldConnectionId: newConnectionId}
 
   // Use controlled state if provided, otherwise use internal state
   const isControlled = controlledOpen !== undefined;
@@ -52,6 +57,7 @@ const ImportFlowButton = ({ onImportSuccess, open: controlledOpen, onClose: cont
     setValidation(null);
     setImportData(null);
     setNewName('');
+    setConnectionMappings({});
     if (controlledOnClose) {
       controlledOnClose();
     } else {
@@ -80,7 +86,7 @@ const ImportFlowButton = ({ onImportSuccess, open: controlledOpen, onClose: cont
       }
 
       // Validate
-      const validationResult = await validateFlowImport(data);
+      const validationResult = await validateFlowImport(data, connectionMappings);
       setValidation(validationResult);
 
       if (!validationResult.valid) {
@@ -102,7 +108,7 @@ const ImportFlowButton = ({ onImportSuccess, open: controlledOpen, onClose: cont
     setError('');
 
     try {
-      const result = await executeFlowImport(importData, validation, newName.trim() || null);
+      const result = await executeFlowImport(importData, validation, newName.trim() || null, connectionMappings);
       
       // Success - close and notify parent
       if (onImportSuccess) {
@@ -114,6 +120,40 @@ const ImportFlowButton = ({ onImportSuccess, open: controlledOpen, onClose: cont
       setError(err.message || 'Import failed');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleConnectionMapping = async (oldConnectionId, newConnectionId) => {
+    const newMappings = { ...connectionMappings };
+    
+    if (newConnectionId === '') {
+      // Remove mapping
+      delete newMappings[oldConnectionId];
+    } else {
+      // Add/update mapping
+      newMappings[oldConnectionId] = newConnectionId;
+    }
+    
+    setConnectionMappings(newMappings);
+    
+    // Re-validate with new mappings
+    if (importData) {
+      setValidating(true);
+      try {
+        const validationResult = await validateFlowImport(importData, newMappings);
+        setValidation(validationResult);
+        
+        if (!validationResult.valid) {
+          setError('Validation failed - see details below');
+        } else {
+          setError('');
+        }
+      } catch (err) {
+        console.error('Re-validation failed:', err);
+        setError(err.message || 'Validation failed');
+      } finally {
+        setValidating(false);
+      }
     }
   };
 
@@ -264,19 +304,44 @@ const ImportFlowButton = ({ onImportSuccess, open: controlledOpen, onClose: cont
                 </Alert>
               )}
 
-              {/* Invalid connections details */}
+              {/* Invalid connections details with remapping option */}
               {validation.invalidConnections?.length > 0 && (
-                <Alert severity="info" sx={{ mb: 2 }}>
+                <Alert severity="warning" sx={{ mb: 2 }} icon={<SwapHoriz />}>
                   <Typography variant="subtitle2" gutterBottom>
-                    Skipped Connections:
+                    Missing Connections - Remap to Existing:
                   </Typography>
                   <List dense>
                     {validation.invalidConnections.map((conn, idx) => (
-                      <ListItem key={idx} disablePadding>
+                      <ListItem key={idx} disablePadding sx={{ flexDirection: 'column', alignItems: 'flex-start', mb: 2 }}>
                         <ListItemText
                           primary={`${conn.connection_name} (${conn.driver_type})`}
                           secondary={conn.message}
                         />
+                        {conn.can_remap && conn.available_connections?.length > 0 && (
+                          <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+                            <InputLabel>Replace with</InputLabel>
+                            <Select
+                              value={connectionMappings[conn.connection_id] || ''}
+                              onChange={(e) => handleConnectionMapping(conn.connection_id, e.target.value)}
+                              label="Replace with"
+                              disabled={validating}
+                            >
+                              <MenuItem value="">
+                                <em>Do not remap (skip connection)</em>
+                              </MenuItem>
+                              {conn.available_connections.map((availConn) => (
+                                <MenuItem key={availConn.id} value={availConn.id}>
+                                  {availConn.name} ({availConn.driver_type})
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        )}
+                        {conn.can_remap && (!conn.available_connections || conn.available_connections.length === 0) && (
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                            No compatible connections available (need {conn.driver_type})
+                          </Typography>
+                        )}
                       </ListItem>
                     ))}
                   </List>
@@ -305,14 +370,18 @@ const ImportFlowButton = ({ onImportSuccess, open: controlledOpen, onClose: cont
               {/* Success message */}
               {validation.valid && validation.summary?.invalid_connections === 0 && validation.summary?.invalid_tags === 0 && (
                 <Alert severity="success">
-                  All connections and tags validated successfully! Flow ready to import.
+                  {Object.keys(connectionMappings).length > 0 
+                    ? `All connections remapped and validated! ${Object.keys(connectionMappings).length} connection(s) replaced. Flow ready to import.`
+                    : 'All connections and tags validated successfully! Flow ready to import.'
+                  }
                 </Alert>
               )}
 
               {validation.valid && (validation.summary?.invalid_connections > 0 || validation.summary?.invalid_tags > 0) && (
                 <Alert severity="warning">
                   Flow can be imported with {validation.summary.valid_connections} connection(s) and {validation.summary.valid_tags} tag(s).
-                  Some nodes may not function correctly due to missing dependencies.
+                  {Object.keys(connectionMappings).length > 0 && ` (${Object.keys(connectionMappings).length} connection(s) remapped)`}
+                  {' '}Some nodes may not function correctly due to missing dependencies.
                 </Alert>
               )}
             </Box>

@@ -128,9 +128,10 @@ const FlowBrowser = () => {
 
   const handleCreateFlow = async () => {
     try {
-      const result = await createFlow({
+      const newFlow = await createFlow({
         name: newFlowName,
         description: newFlowDescription,
+        execution_mode: 'manual',
         definition: {
           nodes: [],
           edges: []
@@ -139,7 +140,7 @@ const FlowBrowser = () => {
       setCreateDialogOpen(false);
       setNewFlowName('');
       setNewFlowDescription('');
-      navigate(`/flows/${result.flow.id}`);
+      navigate(`/flows/${newFlow.flow.id}`);
     } catch (error) {
       showSnackbar('Failed to create flow: ' + error.message, 'error');
     }
@@ -334,7 +335,7 @@ const FlowBrowser = () => {
         onClick={() => navigate(`/flows/${flow.id}`)}
         sx={{ flexGrow: 1, pb: 1 }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, gap: 0.5 }}>
           <Typography 
             variant="h6" 
             sx={{ 
@@ -347,10 +348,20 @@ const FlowBrowser = () => {
           >
             {flow.name}
           </Typography>
-          {flow.deployed ? (
-            <Chip icon={<DeployedIcon />} label="Deployed" size="small" color="primary" />
+          {flow.execution_mode === 'manual' ? (
+            <Chip 
+              icon={<RunIcon />} 
+              label="Manual" 
+              size="small" 
+              color="info"
+              title="On-demand execution"
+            />
           ) : (
-            <Chip icon={<UndeployedIcon />} label="Not Deployed" size="small" />
+            flow.deployed ? (
+              <Chip icon={<DeployedIcon />} label="Deployed" size="small" color="primary" />
+            ) : (
+              <Chip icon={<UndeployedIcon />} label="Not Deployed" size="small" />
+            )
           )}
         </Box>
         

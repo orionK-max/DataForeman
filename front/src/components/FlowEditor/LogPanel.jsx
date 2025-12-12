@@ -43,6 +43,7 @@ import {
   BugReport as DebugIcon,
   SwapVert as SwapVertIcon,
   FilterList as FilterIcon,
+  AccountTree as AccountTreeIcon,
 } from '@mui/icons-material';
 import { getExecutionLogs, getFlowLogs, clearFlowLogs } from '../../services/flowsApi';
 
@@ -446,13 +447,17 @@ export default function LogPanel({
         </Typography>
         {log.node_id && (
           <Chip
-            label={log.node_id}
+            icon={<AccountTreeIcon sx={{ fontSize: '0.9rem !important' }} />}
+            label=""
             size="small"
+            title={`Click to highlight node: ${log.node_id}`}
             sx={{
               height: 22,
               fontSize: '0.75rem',
               cursor: 'pointer',
-              fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+              minWidth: 'auto',
+              paddingLeft: '6px',
+              paddingRight: '6px',
               bgcolor: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
               color: 'text.primary',
               '&:hover': {
@@ -461,6 +466,10 @@ export default function LogPanel({
               },
               transition: 'all 0.2s ease',
               flexShrink: 0,
+              '& .MuiChip-icon': {
+                marginLeft: 0,
+                marginRight: 0,
+              },
             }}
             onClick={() => {
               if (onNodeHighlight) {

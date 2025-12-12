@@ -162,17 +162,22 @@ export default async function flowRoutes(app) {
     const userId = req.user?.sub;
     if (!(await checkPermission(userId, 'update', reply))) return;
 
-    const { name, description, definition, static_data } = req.body;
+    const { name, description, definition, static_data, execution_mode } = req.body;
 
     if (!name || !definition) {
       return reply.code(400).send({ error: 'name and definition are required' });
     }
 
+    // Validate execution_mode if provided
+    if (execution_mode && !['continuous', 'manual'].includes(execution_mode)) {
+      return reply.code(400).send({ error: 'execution_mode must be either "continuous" or "manual"' });
+    }
+
     const result = await db.query(`
-      INSERT INTO flows (name, description, owner_user_id, definition, static_data)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO flows (name, description, owner_user_id, definition, static_data, execution_mode)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
-    `, [name, description || null, userId, definition, static_data || {}]);
+    `, [name, description || null, userId, definition, static_data || {}, execution_mode || 'continuous']);
 
     reply.send({ flow: result.rows[0] });
   });
@@ -266,7 +271,9 @@ export default async function flowRoutes(app) {
       test_auto_exit_minutes,
       logs_enabled,
       logs_retention_days,
-      scan_rate_ms
+      scan_rate_ms,
+      execution_mode,
+      live_values_use_scan_rate
     } = req.body;
 
     // Verify ownership and get current state
@@ -346,6 +353,14 @@ export default async function flowRoutes(app) {
       updates.push(`logs_retention_days = $${paramCount++}`);
       values.push(logs_retention_days);
     }
+    if (execution_mode !== undefined) {
+      // Validate execution_mode
+      if (!['continuous', 'manual'].includes(execution_mode)) {
+        return reply.code(400).send({ error: 'execution_mode must be either "continuous" or "manual"' });
+      }
+      updates.push(`execution_mode = $${paramCount++}`);
+      values.push(execution_mode);
+    }
     if (scan_rate_ms !== undefined) {
       // Validate scan rate
       const rate = parseInt(scan_rate_ms);
@@ -354,6 +369,10 @@ export default async function flowRoutes(app) {
       }
       updates.push(`scan_rate_ms = $${paramCount++}`);
       values.push(rate);
+    }
+    if (live_values_use_scan_rate !== undefined) {
+      updates.push(`live_values_use_scan_rate = $${paramCount++}`);
+      values.push(live_values_use_scan_rate);
     }
 
     updates.push(`updated_at = now()`);
@@ -499,9 +518,9 @@ export default async function flowRoutes(app) {
     const { deployed } = req.body;
 
     try {
-      // Verify ownership
+      // Verify ownership and execution mode
       const ownerCheck = await db.query(
-        'SELECT owner_user_id, scan_rate_ms FROM flows WHERE id = $1',
+        'SELECT owner_user_id, scan_rate_ms, execution_mode FROM flows WHERE id = $1',
         [id]
       );
 
@@ -513,6 +532,14 @@ export default async function flowRoutes(app) {
       if (ownerCheck.rows[0].owner_user_id !== userId) {
         req.log.warn({ flowId: id, userId }, 'Deploy failed: not owner');
         return reply.code(403).send({ error: 'only owner can deploy flow' });
+      }
+
+      // Prevent deployment of manual flows
+      if (ownerCheck.rows[0].execution_mode === 'manual') {
+        return reply.code(400).send({ 
+          error: 'Manual flows cannot be deployed',
+          message: 'Manual flows run on-demand only. Use the Execute button instead.'
+        });
       }
 
       const result = await db.query(`
@@ -727,7 +754,7 @@ export default async function flowRoutes(app) {
 
     // Verify access
     const flowCheck = await db.query(`
-      SELECT id, deployed, test_mode, test_disable_writes, definition
+      SELECT id, deployed, test_mode, test_disable_writes, definition, execution_mode
       FROM flows
       WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
     `, [id, userId]);
@@ -738,19 +765,10 @@ export default async function flowRoutes(app) {
 
     const flow = flowCheck.rows[0];
 
-    // Allow execution if deployed OR in test mode
-    if (!flow.deployed && !flow.test_mode) {
-      return reply.code(400).send({ error: 'flow must be deployed or in test mode before execution' });
-    }
-
-    // Test Run: Bypass trigger type and start from first trigger node
-    // This allows testing flows with event/schedule triggers via the UI button
-    if (!trigger_node_id) {
-      const definition = flow.definition;
-      const triggerNodes = definition.nodes?.filter(n => n.type?.startsWith('trigger-')) || [];
-      if (triggerNodes.length > 0) {
-        trigger_node_id = triggerNodes[0].id;
-      }
+    // Manual flows can execute without deployment (on-demand)
+    // Continuous flows require deployment or test mode
+    if (flow.execution_mode === 'continuous' && !flow.deployed && !flow.test_mode) {
+      return reply.code(400).send({ error: 'Continuous flows must be deployed or in test mode before execution' });
     }
 
     // Enqueue flow execution job
@@ -1605,14 +1623,14 @@ export default async function flowRoutes(app) {
     if (!(await checkPermission(userId, 'read', reply))) return;
 
     try {
-      const { importData } = req.body;
+      const { importData, connectionMappings } = req.body;
 
       if (!importData) {
         return reply.code(400).send({ error: 'missing_import_data' });
       }
 
       const { validateImport } = await import('../services/flowImportExport.js');
-      const validation = await validateImport(importData, db);
+      const validation = await validateImport(importData, db, connectionMappings || {});
 
       reply.send(validation);
     } catch (error) {
@@ -1627,7 +1645,7 @@ export default async function flowRoutes(app) {
     if (!(await checkPermission(userId, 'update', reply))) return;
 
     try {
-      const { importData, validation, newName } = req.body;
+      const { importData, validation, newName, connectionMappings } = req.body;
 
       if (!importData || !validation) {
         return reply.code(400).send({ error: 'missing_import_data_or_validation' });
@@ -1638,7 +1656,7 @@ export default async function flowRoutes(app) {
       }
 
       const { importFlow } = await import('../services/flowImportExport.js');
-      const result = await importFlow(importData, userId, validation, db, newName);
+      const result = await importFlow(importData, userId, validation, db, newName, connectionMappings || {});
 
       req.log.info({ 
         userId, 

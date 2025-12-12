@@ -127,9 +127,10 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
             return;
           }
 
-          // Create new chart for this flow
+          // Create new chart for this flow (marked as system chart to hide from user list)
           const newChart = await apiClient.post('/charts', {
             name: `Flow Resources: ${flowName}`,
+            is_system_chart: true, // Hide from regular chart list
             time_mode: 'rolling',
             time_duration: 600000, // 10 minutes in milliseconds
             live_enabled: true,

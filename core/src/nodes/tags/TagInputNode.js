@@ -117,10 +117,11 @@ export class TagInputNode extends BaseNode {
   getLogMessages() {
     return {
       info: (result) => {
+        const tagName = result.tagName || result.tagPath;
         if (result.stale) {
-          return `Tag "${result.tagPath}": stale data (${result.ageSeconds}s old, max ${result.maxDataAge || 0}s)`;
+          return `Tag "${tagName}": stale data (${result.ageSeconds}s old, max ${result.maxDataAge || 0}s)`;
         }
-        return `Read tag "${result.tagPath}": ${result.value} (quality: ${result.quality})`;
+        return `Read tag "${tagName}": ${result.value} (quality: ${result.quality})`;
       },
       debug: (result) => `Tag ID: ${result.tagPath}, timestamp: ${result.timestamp}`,
       error: (error) => `Failed to read tag: ${error.message}`
@@ -151,21 +152,35 @@ export class TagInputNode extends BaseNode {
             context.logWarn({ tagId, ageSeconds, maxDataAge }, 'Cached data too old, falling back to DB');
             // Fall through to DB query below
           } else {
-            // Cache hit with acceptable age
+            // Cache hit with acceptable age - get tag name for logging
+            const metaResult = await context.query(
+              'SELECT tag_name FROM tag_metadata WHERE tag_id = $1',
+              [tagId]
+            );
+            const tagName = metaResult.rows.length > 0 ? metaResult.rows[0].tag_name : cached.tagPath;
+            
             return {
               value: cached.value,
               quality: cached.quality,
               tagPath: cached.tagPath,
+              tagName,
               timestamp: cached.timestamp,
               fromCache: true
             };
           }
         } else {
-          // No age restriction, use cached value
+          // No age restriction, use cached value - get tag name for logging
+          const metaResult = await context.query(
+            'SELECT tag_name FROM tag_metadata WHERE tag_id = $1',
+            [tagId]
+          );
+          const tagName = metaResult.rows.length > 0 ? metaResult.rows[0].tag_name : cached.tagPath;
+          
           return {
             value: cached.value,
             quality: cached.quality,
             tagPath: cached.tagPath,
+            tagName,
             timestamp: cached.timestamp,
             fromCache: true
           };
@@ -176,7 +191,7 @@ export class TagInputNode extends BaseNode {
     // Fallback to database query if cache miss or data too old
     // Get tag metadata from postgres
     const metaResult = await context.query(
-      'SELECT tag_path, data_type, connection_id, driver_type FROM tag_metadata WHERE tag_id = $1',
+      'SELECT tag_path, tag_name, data_type, connection_id, driver_type FROM tag_metadata WHERE tag_id = $1',
       [tagId]
     );
 
@@ -184,7 +199,7 @@ export class TagInputNode extends BaseNode {
       throw new Error(`Tag ${tagId} not found`);
     }
 
-    const { tag_path: tagPath, connection_id: connectionId, driver_type: driverType } = metaResult.rows[0];
+    const { tag_path: tagPath, tag_name: tagName, connection_id: connectionId, driver_type: driverType } = metaResult.rows[0];
 
     // System tags use system_metrics table, others use tag_values
     let valueResult;
@@ -198,7 +213,7 @@ export class TagInputNode extends BaseNode {
       
       if (valueResult.rows.length === 0) {
         context.logWarn({ tagId, tagPath }, 'No system metrics found');
-        return { value: null, quality: 0, tagPath };
+        return { value: null, quality: 0, tagPath, tagName };
       }
       
       const row = valueResult.rows[0];
@@ -214,6 +229,7 @@ export class TagInputNode extends BaseNode {
             value: null, 
             quality: 0, 
             tagPath,
+            tagName,
             stale: true,
             ageSeconds: Math.round(ageSeconds)
           };
@@ -224,6 +240,7 @@ export class TagInputNode extends BaseNode {
         value: row.v_num != null ? Number(row.v_num) : null,
         quality: 0, // System metrics always have good quality (OPC UA standard)
         tagPath,
+        tagName,
         timestamp: row.ts
       };
     }
@@ -245,7 +262,8 @@ export class TagInputNode extends BaseNode {
       return { 
         value: null, 
         quality: 0, 
-        tagPath 
+        tagPath,
+        tagName 
       };
     }
 
@@ -263,6 +281,7 @@ export class TagInputNode extends BaseNode {
           value: null, 
           quality: 0, 
           tagPath,
+          tagName,
           stale: true,
           ageSeconds: Math.round(ageSeconds)
         };
@@ -278,6 +297,7 @@ export class TagInputNode extends BaseNode {
       value, 
       quality, 
       tagPath,
+      tagName,
       timestamp: row.ts
     };
   }
