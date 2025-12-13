@@ -194,15 +194,32 @@ function validateItems(items) {
       }
     }
 
-    if (!item.chart_id || typeof item.chart_id !== 'string') {
-      itemErrors.push(`items[${idx}].chart_id must be a string`);
+    // Validate widget type (defaults to 'chart' for backward compatibility)
+    const widgetType = item.type || 'chart';
+    if (!['chart', 'flow'].includes(widgetType)) {
+      itemErrors.push(`items[${idx}].type must be 'chart' or 'flow'`);
     } else {
-      // Validate UUID format
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(item.chart_id)) {
+      validatedItem.type = widgetType;
+    }
+
+    // Validate chart_id or flow_id based on type
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    if (widgetType === 'chart') {
+      if (!item.chart_id || typeof item.chart_id !== 'string') {
+        itemErrors.push(`items[${idx}].chart_id must be a string for chart widgets`);
+      } else if (!uuidRegex.test(item.chart_id)) {
         itemErrors.push(`items[${idx}].chart_id must be a valid UUID`);
       } else {
         validatedItem.chart_id = item.chart_id;
+      }
+    } else if (widgetType === 'flow') {
+      if (!item.flow_id || typeof item.flow_id !== 'string') {
+        itemErrors.push(`items[${idx}].flow_id must be a string for flow widgets`);
+      } else if (!uuidRegex.test(item.flow_id)) {
+        itemErrors.push(`items[${idx}].flow_id must be a valid UUID`);
+      } else {
+        validatedItem.flow_id = item.flow_id;
       }
     }
 
@@ -282,6 +299,29 @@ function validateItems(items) {
 
     if (item.time_sync_group !== undefined && typeof item.time_sync_group === 'string') {
       validatedItem.time_sync_group = item.time_sync_group;
+    }
+
+    // Optional widget configuration object (for flow widgets)
+    if (item.config !== undefined) {
+      if (typeof item.config === 'object' && item.config !== null) {
+        validatedItem.config = item.config;
+      } else {
+        warnings.push(`items[${idx}].config should be an object, ignoring`);
+      }
+    }
+
+    // Optional title override
+    if (item.title_override !== undefined) {
+      if (typeof item.title_override === 'string') {
+        validatedItem.title_override = item.title_override.trim();
+      } else {
+        warnings.push(`items[${idx}].title_override should be a string, ignoring`);
+      }
+    }
+
+    // Optional hide_title flag
+    if (item.hide_title !== undefined) {
+      validatedItem.hide_title = Boolean(item.hide_title);
     }
 
     if (itemErrors.length > 0) {

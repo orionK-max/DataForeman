@@ -214,6 +214,7 @@ export const DashboardProvider = ({ children }) => {
     
     const newWidget = {
       i: widgetId,
+      type: 'chart', // Explicitly set type for clarity
       x,
       y,
       w: 6, // Default width: half screen
@@ -222,6 +223,47 @@ export const DashboardProvider = ({ children }) => {
       title_override: null,
       time_sync_group: null,
       refresh_override: null,
+      minW: 2,
+      minH: 2,
+      maxW: 12,
+      maxH: 12,
+    };
+    
+    setLayout(prev => ({
+      ...prev,
+      items: [...prev.items, newWidget],
+    }));
+    
+    setHasUnsavedChanges(true);
+  }, [layout.items]);
+
+  // Add flow widget to dashboard
+  const addFlowWidget = useCallback((flowId, position = null) => {
+    const widgetId = `widget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Calculate position if not provided
+    let x = 0, y = 0;
+    if (position) {
+      x = position.x;
+      y = position.y;
+    } else {
+      // Find the bottom-most widget and place below it
+      const maxY = layout.items.reduce((max, item) => Math.max(max, item.y + item.h), 0);
+      y = maxY;
+    }
+    
+    const newWidget = {
+      i: widgetId,
+      type: 'flow',
+      x,
+      y,
+      w: 4, // Default width: smaller for flow widgets
+      h: 3, // Default height: 3 rows
+      flow_id: flowId,
+      config: {
+        title_override: null,
+        hide_title: false,
+      },
       minW: 2,
       minH: 2,
       maxW: 12,
@@ -458,6 +500,7 @@ export const DashboardProvider = ({ children }) => {
     deleteDashboard,
     loadDashboardList,
     addWidget,
+    addFlowWidget,
     removeWidget,
     updateWidgetProperty,
     updateLayout,

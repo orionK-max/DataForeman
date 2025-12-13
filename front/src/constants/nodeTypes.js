@@ -222,17 +222,25 @@ export function addToRecentNodes(nodeType) {
  * @returns {string[]} Array of matching node types
  */
 export function searchNodes(searchTerm) {
+  if (!backendNodeMetadata) {
+    return [];
+  }
+
+  const nodeTypes = Object.keys(backendNodeMetadata);
+  
   if (!searchTerm || searchTerm.trim() === '') {
-    return getAllNodeTypes();
+    return nodeTypes;
   }
 
   const term = searchTerm.toLowerCase().trim();
   
-  return getAllNodeTypes().filter(nodeType => {
-    const metadata = getNodeMetadata(nodeType);
+  return nodeTypes.filter(nodeType => {
+    const metadata = backendNodeMetadata[nodeType];
+    if (!metadata) return false;
+    
     return (
-      metadata.displayName.toLowerCase().includes(term) ||
-      metadata.description.toLowerCase().includes(term) ||
+      metadata.displayName?.toLowerCase().includes(term) ||
+      metadata.description?.toLowerCase().includes(term) ||
       nodeType.toLowerCase().includes(term)
     );
   });

@@ -580,6 +580,7 @@ CREATE TABLE IF NOT EXISTS flows (
   logs_enabled boolean DEFAULT false,
   logs_retention_days integer DEFAULT 30 CHECK (logs_retention_days > 0 AND logs_retention_days <= 365),
   save_usage_data boolean DEFAULT true,
+  exposed_parameters jsonb DEFAULT '[]'::jsonb,
   definition jsonb NOT NULL DEFAULT '{}'::jsonb,
   static_data jsonb DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -596,6 +597,7 @@ COMMENT ON COLUMN flows.live_values_use_scan_rate IS 'When true, Live Values dis
 COMMENT ON COLUMN flows.logs_enabled IS 'Enable persistent log storage for this flow (deployed flows only)';
 COMMENT ON COLUMN flows.logs_retention_days IS 'Number of days to retain logs before automatic deletion (1-365)';
 COMMENT ON COLUMN flows.save_usage_data IS 'Save resource usage metrics (CPU, memory, scan duration) as system tags for charting';
+COMMENT ON COLUMN flows.exposed_parameters IS 'Array of parameter definitions exposed for runtime configuration. Each parameter maps to a node property.';
 
 CREATE INDEX IF NOT EXISTS idx_flows_owner ON flows(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_flows_folder ON flows(folder_id);
@@ -607,6 +609,7 @@ CREATE TABLE IF NOT EXISTS flow_executions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   flow_id uuid REFERENCES flows(id) ON DELETE CASCADE,
   trigger_node_id text, -- Optional: node ID that triggered execution (for auditing)
+  runtime_parameters jsonb DEFAULT '{}'::jsonb,
   started_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,
   status text NOT NULL DEFAULT 'running',
@@ -614,6 +617,8 @@ CREATE TABLE IF NOT EXISTS flow_executions (
   error_log jsonb DEFAULT '[]'::jsonb,
   execution_time_ms integer
 );
+
+COMMENT ON COLUMN flow_executions.runtime_parameters IS 'Actual parameter values provided at execution time (for parameterized flows)';
 
 CREATE INDEX IF NOT EXISTS idx_flow_executions_flow_id_started ON flow_executions(flow_id, started_at DESC);
 

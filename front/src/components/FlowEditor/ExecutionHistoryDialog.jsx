@@ -111,7 +111,7 @@ function HistoryRow({ execution, flowDefinition }) {
         <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={5}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ margin: 2 }}>
-              <Typography variant="h6" gutterBottom sx={{ color: '#000' }}>
+              <Typography variant="h6" gutterBottom>
                 Execution Details
               </Typography>
               

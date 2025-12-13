@@ -137,15 +137,71 @@ export async function duplicateFlow(id, name) {
 }
 
 /**
- * Execute flow
+ * Execute flow with optional parameters
  */
-export async function executeFlow(id, triggerNodeId) {
+export async function executeFlow(id, triggerNodeId, parameters = null) {
+  const body = { trigger_node_id: triggerNodeId };
+  if (parameters) {
+    body.parameters = parameters;
+  }
+  
   const response = await fetch(`${API_BASE}/flows/${id}/execute`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ trigger_node_id: triggerNodeId })
+    body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error('Failed to execute flow');
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.message || error.error || 'Failed to execute flow');
+  }
+  
+  return response.json();
+}
+
+/**
+ * Get flow parameter schema
+ */
+export async function getFlowParameters(id) {
+  const response = await fetch(`${API_BASE}/flows/${id}/parameters`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch flow parameters');
+  return response.json();
+}
+
+/**
+ * Update flow exposed parameters
+ */
+export async function updateFlowParameters(id, exposedParameters) {
+  const response = await fetch(`${API_BASE}/flows/${id}/parameters`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify({ exposed_parameters: exposedParameters })
+  });
+  if (!response.ok) throw new Error('Failed to update flow parameters');
+  return response.json();
+}
+
+/**
+ * Get last execution outputs
+ */
+export async function getLastExecution(id) {
+  const response = await fetch(`${API_BASE}/flows/${id}/last-execution`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch last execution');
+  return response.json();
+}
+
+/**
+ * Get parameter execution history
+ */
+export async function getParameterHistory(id, limit = 10) {
+  const response = await fetch(`${API_BASE}/flows/${id}/parameter-history?limit=${limit}`, {
+    headers: getHeaders()
+  });
+  if (!response.ok) throw new Error('Failed to fetch parameter history');
   return response.json();
 }
 

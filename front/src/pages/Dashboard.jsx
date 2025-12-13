@@ -31,6 +31,7 @@ import { DashboardProvider, useDashboard } from '../contexts/DashboardContext';
 import { ChartComposerProvider } from '../contexts/ChartComposerContext';
 import DashboardWidget from '../components/dashboard/DashboardWidget';
 import ChartLibrary from '../components/dashboard/ChartLibrary';
+import AddFlowDialog from '../components/dashboard/AddFlowDialog';
 import TimeSyncDialog from '../components/dashboard/TimeSyncDialog';
 import ExportDialog from '../components/dashboard/ExportDialog';
 import ExportDashboardButton from '../components/dashboard/ExportDashboardButton';
@@ -63,9 +64,11 @@ const DashboardContent = () => {
     saveDashboard,
     updateLayout,
     timeSyncGroups,
+    addFlowWidget,
   } = useDashboard();
 
   const [showAddChart, setShowAddChart] = useState(false);
+  const [showAddFlow, setShowAddFlow] = useState(false);
   const [showSyncTimeDialog, setShowSyncTimeDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
@@ -142,6 +145,12 @@ const DashboardContent = () => {
       }
     }
     toggleEditMode();
+  };
+
+  // Flow selection handler
+  const handleFlowSelected = (flow) => {
+    addFlowWidget(flow.id);
+    setShowAddFlow(false);
   };
 
   // Settings handler
@@ -313,16 +322,18 @@ const DashboardContent = () => {
                       </Button>
                     </span>
                   </Tooltip>
-                  <Tooltip title="Cancel editing">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<CancelIcon />}
-                      onClick={handleCancel}
-                      sx={{ minWidth: 90 }}
-                    >
-                      Cancel
-                    </Button>
+                  <Tooltip title="Cancel editing" disableInteractive>
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<CancelIcon />}
+                        onClick={handleCancel}
+                        sx={{ minWidth: 90 }}
+                      >
+                        Cancel
+                      </Button>
+                    </span>
                   </Tooltip>
                 </Box>
               </Box>
@@ -335,29 +346,46 @@ const DashboardContent = () => {
                   EDIT
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
-                  <Tooltip title="Add chart widget">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={() => setShowAddChart(true)}
-                      sx={{ minWidth: 100 }}
-                    >
-                      Add Chart
-                    </Button>
-                  </Tooltip>
-                  {selectedWidgets.size > 1 && (
-                    <Tooltip title="Synchronize time range for selected widgets">
+                  <Tooltip title="Add chart widget" disableInteractive>
+                    <span>
                       <Button
                         size="small"
                         variant="outlined"
-                        color="primary"
-                        startIcon={<AccessTimeIcon />}
-                        onClick={() => setShowSyncTimeDialog(true)}
-                        sx={{ minWidth: 90 }}
+                        startIcon={<AddIcon />}
+                        onClick={() => setShowAddChart(true)}
+                        sx={{ minWidth: 100 }}
                       >
-                        Sync ({selectedWidgets.size})
+                        Add Chart
                       </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Add flow widget" disableInteractive>
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={() => setShowAddFlow(true)}
+                        sx={{ minWidth: 100 }}
+                      >
+                        Add Flow
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  {selectedWidgets.size > 1 && (
+                    <Tooltip title="Synchronize time range for selected widgets" disableInteractive>
+                      <span>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="primary"
+                          startIcon={<AccessTimeIcon />}
+                          onClick={() => setShowSyncTimeDialog(true)}
+                          sx={{ minWidth: 90 }}
+                        >
+                          Sync ({selectedWidgets.size})
+                        </Button>
+                      </span>
                     </Tooltip>
                   )}
                 </Box>
@@ -373,16 +401,18 @@ const DashboardContent = () => {
                   VIEW
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
-                  <Tooltip title="TV Mode - Fullscreen presentation">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<FullscreenIcon />}
-                      onClick={() => setShowTVModeDialog(true)}
-                      sx={{ minWidth: 100 }}
-                    >
-                      TV Mode
-                    </Button>
+                  <Tooltip title="TV Mode - Fullscreen presentation" disableInteractive>
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<FullscreenIcon />}
+                        onClick={() => setShowTVModeDialog(true)}
+                        sx={{ minWidth: 100 }}
+                      >
+                        TV Mode
+                      </Button>
+                    </span>
                   </Tooltip>
                 </Box>
               </Box>
@@ -423,16 +453,18 @@ const DashboardContent = () => {
                       </Button>
                     </span>
                   </Tooltip>
-                  <Tooltip title="Export dashboard configuration">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<FileDownloadIcon />}
-                      onClick={() => setShowExportDialog(true)}
-                      sx={{ minWidth: 90 }}
-                    >
-                      Export
-                    </Button>
+                  <Tooltip title="Export dashboard configuration" disableInteractive>
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<FileDownloadIcon />}
+                        onClick={() => setShowExportDialog(true)}
+                        sx={{ minWidth: 90 }}
+                      >
+                        Export
+                      </Button>
+                    </span>
                   </Tooltip>
                 </Box>
               </Box>
@@ -503,6 +535,13 @@ const DashboardContent = () => {
       <ChartLibrary
         open={showAddChart}
         onClose={() => setShowAddChart(false)}
+      />
+
+      {/* Add Flow Dialog */}
+      <AddFlowDialog
+        open={showAddFlow}
+        onClose={() => setShowAddFlow(false)}
+        onFlowSelected={handleFlowSelected}
       />
 
       {/* Time Sync Dialog */}

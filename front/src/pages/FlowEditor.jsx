@@ -56,7 +56,7 @@ import {
   Download as DownloadIcon,
   Stop as StopIcon,
 } from '@mui/icons-material';
-import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder } from '../services/flowsApi';
+import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder, updateFlowParameters } from '../services/flowsApi';
 import { getNodeMetadata, getBackendMetadata, fetchBackendNodeMetadata } from '../constants/nodeTypes';
 import NodeBrowser from '../components/FlowEditor/NodeBrowser';
 import NodeConfigPanel from '../components/FlowEditor/NodeConfigPanel';
@@ -500,17 +500,54 @@ const FlowEditor = () => {
   // Save flow
   const handleSave = async () => {
     try {
+      // First, clean up nodes to remove invalid exposed parameters
+      const cleanedNodes = nodes.map(node => {
+        // Remove UI-only properties that shouldn't be persisted
+        const { _showLiveValues, ...persistentData } = node.data || {};
+        
+        // Clean up invalid exposed parameter keys
+        if (persistentData._exposedParams) {
+          const metadata = getNodeMetadata(node.type);
+          const cleanedParams = {};
+          
+          for (const [paramKey, config] of Object.entries(persistentData._exposedParams)) {
+            if (!config.exposed) continue; // Skip unexposed
+            
+            const parameterKind = config.parameterKind || 'input';
+            let isValid = false;
+            
+            if (parameterKind === 'input') {
+              // Check if property exists
+              isValid = metadata?.properties?.some(p => p.name === paramKey);
+            } else if (parameterKind === 'output') {
+              // Check if output exists by name or index
+              isValid = metadata?.outputs?.some(o => o.name === paramKey);
+              if (!isValid && paramKey.startsWith('output_')) {
+                const index = parseInt(paramKey.split('_')[1]);
+                isValid = !isNaN(index) && metadata?.outputs?.[index];
+              }
+            }
+            
+            if (isValid) {
+              cleanedParams[paramKey] = config;
+            } else {
+              console.warn(`Removing invalid exposed parameter: ${paramKey} (${parameterKind}) from node ${node.id}`);
+            }
+          }
+          
+          persistentData._exposedParams = cleanedParams;
+        }
+        
+        return {
+          id: node.id,
+          type: node.type,
+          position: node.position,
+          data: persistentData
+        };
+      });
+      
       const definition = {
-        nodes: nodes.map(node => {
-          // Remove UI-only properties that shouldn't be persisted
-          const { _showLiveValues, ...persistentData } = node.data || {};
-          return {
-            id: node.id,
-            type: node.type,
-            position: node.position,
-            data: persistentData
-          };
-        }),
+        nodes: cleanedNodes,
         edges: edges.map(edge => ({
           id: edge.id,
           source: edge.source,
@@ -528,6 +565,18 @@ const FlowEditor = () => {
       }
 
       await updateFlow(id, { definition });
+      
+      // Extract and save exposed parameters from cleaned nodes
+      try {
+        const exposedParameters = extractExposedParameters(cleanedNodes);
+        if (exposedParameters.length > 0) {
+          await updateFlowParameters(id, exposedParameters);
+        }
+      } catch (paramError) {
+        console.error('Failed to save exposed parameters:', paramError);
+        showSnackbar('Flow saved, but failed to update parameters: ' + paramError.message, 'warning');
+      }
+      
       setHasUnsavedChanges(false); // Clear unsaved changes after save
       showSnackbar('Flow saved successfully', 'success');
       
@@ -540,6 +589,75 @@ const FlowEditor = () => {
     } catch (error) {
       showSnackbar('Failed to save flow: ' + error.message, 'error');
     }
+  };
+
+  // Extract exposed parameters from all nodes
+  const extractExposedParameters = (nodes) => {
+    const parameters = [];
+    
+    for (const node of nodes) {
+      const exposedParams = node.data?._exposedParams;
+      if (!exposedParams) continue;
+      
+      for (const [paramName, config] of Object.entries(exposedParams)) {
+        if (config.exposed !== true) continue;
+        
+        // Determine if this is an input or output parameter
+        const parameterKind = config.parameterKind || 'input';
+        
+        // Get node metadata to determine parameter type
+        const metadata = getNodeMetadata(node.type);
+        
+        // Look for the parameter in properties (inputs) or outputs
+        let paramDef = null;
+        if (parameterKind === 'input') {
+          paramDef = metadata?.properties?.find(p => p.name === paramName);
+        } else if (parameterKind === 'output') {
+          // For outputs, paramName could be output.name or output_<index>
+          // First try to find by name
+          paramDef = metadata?.outputs?.find(o => o.name === paramName);
+          // If not found, try by index (e.g., "output_0" -> index 0)
+          if (!paramDef && paramName.startsWith('output_')) {
+            const index = parseInt(paramName.split('_')[1]);
+            if (!isNaN(index) && metadata?.outputs?.[index]) {
+              paramDef = metadata.outputs[index];
+            }
+          }
+        }
+        
+        if (!paramDef) {
+          console.warn(`${parameterKind} parameter ${paramName} not found in metadata for node ${node.id}`);
+          continue;
+        }
+        
+        // Build parameter definition
+        const param = {
+          name: `${node.id}.${paramName}`, // Unique name: nodeId.propertyName
+          displayName: config.displayName || paramDef.displayName || paramName,
+          description: config.description || paramDef.description || '',
+          type: paramDef.type,
+          parameterKind: parameterKind,
+          nodeId: node.id,
+          nodeParameter: paramName
+        };
+        
+        // Only add these fields for input parameters
+        if (parameterKind === 'input') {
+          param.required = config.required ?? false;
+          // Include current node value as default value for the execution dialog
+          param.defaultValue = node.data[paramName] !== undefined ? node.data[paramName] : paramDef.default;
+          
+          // For options type, include the valid options
+          if (paramDef.type === 'options' && paramDef.options) {
+            param.options = paramDef.options;
+          }
+        }
+        
+        parameters.push(param);
+      }
+    }
+    
+    return parameters;
   };
 
   // Calculate and show execution order
@@ -1215,18 +1333,20 @@ const FlowEditor = () => {
               DEBUG
             </Typography>
             <Box sx={{ display: 'flex', gap: 0.5 }}>
-              <Tooltip title="Live Values">
-                <Button
-                  size="small"
-                  variant={showLiveValues ? 'contained' : 'outlined'}
-                  color={showLiveValues ? 'primary' : 'inherit'}
-                  startIcon={<LiveIcon />}
-                  onClick={() => setShowLiveValues(!showLiveValues)}
-                  sx={{ minWidth: 100 }}
-                >
-                  Live
-                </Button>
-              </Tooltip>
+              {flow.execution_mode === 'continuous' && (
+                <Tooltip title="Live Values">
+                  <Button
+                    size="small"
+                    variant={showLiveValues ? 'contained' : 'outlined'}
+                    color={showLiveValues ? 'primary' : 'inherit'}
+                    startIcon={<LiveIcon />}
+                    onClick={() => setShowLiveValues(!showLiveValues)}
+                    sx={{ minWidth: 100 }}
+                  >
+                    Live
+                  </Button>
+                </Tooltip>
+              )}
               <Tooltip title="Execution Order">
                 <Button
                   size="small"

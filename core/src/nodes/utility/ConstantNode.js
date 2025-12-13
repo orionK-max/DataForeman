@@ -118,27 +118,29 @@ export class ConstantNode extends BaseNode {
       },
       {
         name: 'numberValue',
-        displayName: 'Number Value',
+        displayName: 'Value',
         type: 'number',
         default: 0,
+        userExposable: true,
         displayOptions: {
           show: {
             valueType: ['number']
           }
         },
-        description: 'Numeric constant value'
+        description: 'Numeric value'
       },
       {
         name: 'stringValue',
-        displayName: 'String Value',
+        displayName: 'Value',
         type: 'string',
         default: '',
+        userExposable: true,
         displayOptions: {
           show: {
             valueType: ['string']
           }
         },
-        description: 'Text constant value'
+        description: 'Text value'
       },
       {
         name: 'booleanValue',

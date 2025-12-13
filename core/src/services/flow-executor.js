@@ -426,27 +426,48 @@ export async function executeFlow(context) {
     // Manual execution mode - single run (includes manual flows in test mode)
     log.info({ executionMode: flow.execution_mode, testMode: flow.test_mode }, 'Starting single execution (manual mode)');
     
+    // Apply runtime parameters to flow definition if provided
+    let effectiveDefinition = flow.definition;
+    const runtimeParameters = job.params.runtime_parameters || {};
+    
+    if (Object.keys(runtimeParameters).length > 0) {
+      const { applyParameters } = await import('./parameterValidator.js');
+      effectiveDefinition = applyParameters(
+        flow.definition,
+        flow.exposed_parameters || [],
+        runtimeParameters
+      );
+      log.info({ parameterCount: Object.keys(runtimeParameters).length }, 'Runtime parameters applied to flow definition');
+    }
+    
     // Manual execution mode (existing logic)
     // Validate flow graph
-    const validation = validateFlowGraph(flow.definition);
+    const validation = validateFlowGraph(effectiveDefinition);
     if (!validation.valid) {
       throw new Error(`Flow validation failed: ${validation.errors.join(', ')}`);
     }
     
-    // Create execution record
+    // Create execution record with runtime parameters
     // Note: trigger_node_id is optional - used for auditing when flow is triggered by specific node
     const executionResult = await app.db.query(
       `INSERT INTO flow_executions 
-       (flow_id, trigger_node_id, status, started_at)
-       VALUES ($1, $2, 'running', now())
+       (flow_id, trigger_node_id, runtime_parameters, status, started_at)
+       VALUES ($1, $2, $3, 'running', now())
        RETURNING *`,
-      [flowId, job.params.trigger_node_id || null]
+      [
+        flowId, 
+        job.params.trigger_node_id || null,
+        Object.keys(runtimeParameters).length > 0 ? JSON.stringify(runtimeParameters) : null
+      ]
     );
     
     execution = executionResult.rows[0];
-    execution.edges = flow.definition.edges; // Add edges for node execution
+    execution.edges = effectiveDefinition.edges; // Add edges for node execution
     
-    log.info({ executionId: execution.id }, 'Execution record created');
+    log.info({ 
+      executionId: execution.id,
+      hasParameters: Object.keys(runtimeParameters).length > 0
+    }, 'Execution record created');
     
     // Create log buffer for persistent logging if enabled
     logBuffer = null;
@@ -464,14 +485,14 @@ export async function executeFlow(context) {
       });
     }
     
-    // Update tag dependencies
+    // Update tag dependencies (use original definition, not parameterized)
     await updateFlowTagDependencies(app, flowId, flow.definition);
     
-    // Update library dependencies
+    // Update library dependencies (use original definition, not parameterized)
     await updateFlowLibraryDependencies(app, flowId, flow.definition);
     
-    // Get execution order
-    const { nodes = [], edges = [], pinData = {} } = flow.definition;
+    // Get execution order (use parameterized definition)
+    const { nodes = [], edges = [], pinData = {} } = effectiveDefinition;
     
     // Handle partial execution if specified
     let nodesToExecute = nodes;

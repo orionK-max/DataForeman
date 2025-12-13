@@ -14,8 +14,21 @@ import {
   Chip,
   FormControlLabel,
   Switch,
+  Collapse,
+  Alert,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Tooltip,
 } from '@mui/material';
-import { Close as CloseIcon, Add as AddIcon, Edit as EditIcon } from '@mui/icons-material';
+import { 
+  Close as CloseIcon, 
+  Add as AddIcon, 
+  Edit as EditIcon, 
+  ExpandMore as ExpandMoreIcon,
+  Public as PublicIcon,
+  Settings as SettingsIcon,
+} from '@mui/icons-material';
 import Editor from '@monaco-editor/react';
 import { getInternalTags } from '../../services/flowsApi';
 import TagSelectionDialog from './TagSelectionDialog';
@@ -23,6 +36,7 @@ import { getNodeMetadata } from '../../constants/nodeTypes';
 
 const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
   const [tagSelectionOpen, setTagSelectionOpen] = useState(false);
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
 
   const handleChange = (field, value) => {
     onDataChange({ [field]: value });
@@ -60,6 +74,47 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
     return true;
   };
 
+  // Check if property is exposed to user
+  const isPropertyExposed = (propertyName) => {
+    return node.data?._exposedParams?.[propertyName]?.exposed === true;
+  };
+
+  // Toggle property exposure
+  const togglePropertyExposure = (propertyName, property) => {
+    const currentExposure = node.data?._exposedParams?.[propertyName] || {};
+    const isCurrentlyExposed = currentExposure.exposed === true;
+    
+    const updatedExposedParams = {
+      ...(node.data?._exposedParams || {}),
+      [propertyName]: isCurrentlyExposed 
+        ? { exposed: false }
+        : {
+            exposed: true,
+            parameterKind: 'input',
+            displayName: currentExposure.displayName || property.displayName || propertyName,
+            description: currentExposure.description || property.description || '',
+            required: currentExposure.required ?? false,
+            // For options type, include the valid options
+            ...(property.type === 'options' ? { options: property.options } : {})
+          }
+    };
+    
+    handleChange('_exposedParams', updatedExposedParams);
+  };
+
+  // Update exposure configuration
+  const updateExposureConfig = (propertyName, configField, value) => {
+    const updatedExposedParams = {
+      ...(node.data?._exposedParams || {}),
+      [propertyName]: {
+        ...(node.data?._exposedParams?.[propertyName] || {}),
+        [configField]: value
+      }
+    };
+    
+    handleChange('_exposedParams', updatedExposedParams);
+  };
+
   // Render a single property based on its type
   const renderProperty = (property, value, onChange) => {
     const key = property.name;
@@ -67,33 +122,73 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
     switch (property.type) {
       case 'string':
         return (
-          <TextField
-            key={key}
-            fullWidth
-            label={property.displayName}
-            placeholder={property.placeholder}
-            value={value ?? property.default ?? ''}
-            onChange={(e) => onChange(property.name, e.target.value)}
-            helperText={property.description}
-            sx={{ mb: 2 }}
-            multiline={property.placeholder?.includes('\n') || (value && value.length > 50)}
-            rows={property.placeholder?.includes('\n') ? 3 : undefined}
-          />
+          <Box key={key}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                display: 'block', 
+                mb: 0.5, 
+                color: 'text.secondary',
+                fontSize: '0.75rem',
+                fontWeight: 500
+              }}
+            >
+              {property.displayName}
+            </Typography>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder={property.placeholder || property.description}
+              value={value ?? property.default ?? ''}
+              onChange={(e) => onChange(property.name, e.target.value)}
+              multiline={property.placeholder?.includes('\n') || (value && value.length > 50)}
+              rows={property.placeholder?.includes('\n') ? 3 : undefined}
+              sx={{
+                '& .MuiInputBase-root': {
+                  bgcolor: (theme) => theme.palette.mode === 'dark' 
+                    ? 'rgba(0, 0, 0, 0.3)'
+                    : 'rgba(255, 255, 255, 0.9)',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }
+              }}
+            />
+          </Box>
         );
       
       case 'number':
         return (
-          <TextField
-            key={key}
-            fullWidth
-            type="number"
-            label={property.displayName}
-            placeholder={property.placeholder}
-            value={value ?? property.default ?? ''}
-            onChange={(e) => onChange(property.name, e.target.value === '' ? undefined : parseFloat(e.target.value))}
-            helperText={property.description}
-            sx={{ mb: 2 }}
-          />
+          <Box key={key}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                display: 'block', 
+                mb: 0.5, 
+                color: 'text.secondary',
+                fontSize: '0.75rem',
+                fontWeight: 500
+              }}
+            >
+              {property.displayName}
+            </Typography>
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              placeholder={property.placeholder || property.description}
+              value={value ?? property.default ?? ''}
+              onChange={(e) => onChange(property.name, e.target.value === '' ? undefined : parseFloat(e.target.value))}
+              sx={{
+                '& .MuiInputBase-root': {
+                  bgcolor: (theme) => theme.palette.mode === 'dark' 
+                    ? 'rgba(0, 0, 0, 0.3)'
+                    : 'rgba(255, 255, 255, 0.9)',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }
+              }}
+            />
+          </Box>
         );
       
       case 'boolean':
@@ -122,25 +217,39 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
       
       case 'options':
         return (
-          <FormControl key={key} fullWidth sx={{ mb: 2 }}>
-            <InputLabel>{property.displayName}</InputLabel>
-            <Select
-              value={value ?? property.default ?? ''}
-              onChange={(e) => onChange(property.name, e.target.value)}
-              label={property.displayName}
+          <Box key={key}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                display: 'block', 
+                mb: 0.5, 
+                color: 'text.secondary',
+                fontSize: '0.75rem',
+                fontWeight: 500
+              }}
             >
-              {property.options?.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.name}
-                </MenuItem>
-              ))}
-            </Select>
-            {property.description && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                {property.description}
-              </Typography>
-            )}
-          </FormControl>
+              {property.displayName}
+            </Typography>
+            <FormControl fullWidth size="small">
+              <Select
+                value={value ?? property.default ?? ''}
+                onChange={(e) => onChange(property.name, e.target.value)}
+                sx={{
+                  bgcolor: (theme) => theme.palette.mode === 'dark' 
+                    ? 'rgba(0, 0, 0, 0.3)'
+                    : 'rgba(255, 255, 255, 0.9)',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                {property.options?.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
         );
       
       case 'code':
@@ -199,6 +308,171 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
           </Typography>
         );
     }
+  };
+
+  // Section header component
+  const SectionHeader = ({ children }) => (
+    <Box sx={{ mb: 1.5, mt: 2 }}>
+      <Typography 
+        variant="caption" 
+        sx={{ 
+          textTransform: 'uppercase', 
+          letterSpacing: 0.5, 
+          color: 'text.secondary',
+          fontWeight: 600 
+        }}
+      >
+        {children}
+      </Typography>
+    </Box>
+  );
+
+  // Render property with optional exposure UI
+  const renderPropertyWithExposure = (property, value, onChange) => {
+    const propertyInput = renderProperty(property, value, onChange);
+    
+    // Skip exposure UI for tag type (handled specially) or if property is not userExposable
+    if (property.type === 'tag' || !property.userExposable) {
+      return <Box key={property.name} sx={{ mb: 1.5 }}>{propertyInput}</Box>;
+    }
+
+    const isExposed = isPropertyExposed(property.name);
+    const exposureConfig = node.data?._exposedParams?.[property.name] || {};
+
+    return (
+      <Box key={property.name} sx={{ mb: 2 }}>
+        {/* Property Input - Primary */}
+        <Box sx={{ mb: 0.5 }}>
+          {propertyInput}
+        </Box>
+        
+        {/* Divider before exposure toggle */}
+        <Divider sx={{ my: 1 }} />
+        
+        {/* Exposure Toggle - Minimal, inline with required */}
+        <Box 
+          sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            py: 0.5,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Switch
+              checked={isExposed}
+              onChange={() => togglePropertyExposure(property.name, property)}
+              size="small"
+              color="primary"
+            />
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                fontWeight: isExposed ? 500 : 400, 
+                color: isExposed ? 'text.primary' : 'text.secondary',
+              }}
+            >
+              Expose to user
+            </Typography>
+          </Box>
+          
+          {/* Required toggle inline */}
+          {isExposed && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Switch
+                checked={exposureConfig.required ?? false}
+                onChange={(e) => updateExposureConfig(property.name, 'required', e.target.checked)}
+                size="small"
+              />
+              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                Required
+              </Typography>
+            </Box>
+          )}
+        </Box>
+        
+        {/* Exposure Configuration - Child block, indented, animated */}
+        <Collapse in={isExposed} timeout="auto">
+          <Box 
+            sx={{ 
+              mt: 1,
+              ml: 2,
+              p: 1.5,
+              bgcolor: (theme) => theme.palette.mode === 'dark'
+                ? 'rgba(33, 150, 243, 0.08)'
+                : 'rgba(33, 150, 243, 0.05)',
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: (theme) => theme.palette.mode === 'dark'
+                ? 'rgba(33, 150, 243, 0.2)'
+                : 'rgba(33, 150, 243, 0.15)',
+            }}
+          >
+            <Box sx={{ mb: 1 }}>
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  display: 'block', 
+                  mb: 0.5, 
+                  color: 'text.secondary',
+                  fontSize: '0.75rem',
+                  fontWeight: 500
+                }}
+              >
+                Label
+              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                value={exposureConfig.displayName || property.displayName || property.name}
+                onChange={(e) => updateExposureConfig(property.name, 'displayName', e.target.value)}
+                sx={{ 
+                  '& .MuiInputBase-root': { 
+                    bgcolor: (theme) => theme.palette.mode === 'dark' 
+                      ? 'rgba(0, 0, 0, 0.3)'
+                      : 'rgba(255, 255, 255, 0.9)',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                  } 
+                }}
+              />
+            </Box>
+            
+            <Box>
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  display: 'block', 
+                  mb: 0.5, 
+                  color: 'text.secondary',
+                  fontSize: '0.75rem',
+                  fontWeight: 500
+                }}
+              >
+                Help Text
+              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                value={exposureConfig.description || property.description || ''}
+                onChange={(e) => updateExposureConfig(property.name, 'description', e.target.value)}
+                multiline
+                rows={2}
+                sx={{ 
+                  '& .MuiInputBase-root': { 
+                    bgcolor: (theme) => theme.palette.mode === 'dark' 
+                      ? 'rgba(0, 0, 0, 0.3)'
+                      : 'rgba(255, 255, 255, 0.9)',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                  } 
+                }}
+              />
+            </Box>
+          </Box>
+        </Collapse>
+      </Box>
+    );
   };
 
   const renderConfig = () => {
@@ -503,17 +777,146 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
           );
         }
 
+        // Separate exposable from non-exposable
+        const regularProps = [];
+        const exposableProps = [];
+        
+        metadata.properties.forEach(property => {
+          if (!shouldShowProperty(property, node.data || {}, metadata)) {
+            return;
+          }
+          
+          if (property.userExposable) {
+            exposableProps.push(property);
+          } else {
+            regularProps.push(property);
+          }
+        });
+
         return (
           <Box>
-            {metadata.properties.map((property) => {
-              // Check if property should be shown based on displayOptions
-              if (!shouldShowProperty(property, node.data || {}, metadata)) {
-                return null;
-              }
-
+            <SectionHeader>Configuration</SectionHeader>
+            
+            {/* Regular properties */}
+            {regularProps.map((property) => {
               const value = node.data?.[property.name];
               return renderProperty(property, value, handleChange);
             })}
+            
+            {/* Exposable parameters - with exposure UI */}
+            {exposableProps.map((property) => {
+              const value = node.data?.[property.name];
+              return renderPropertyWithExposure(property, value, handleChange);
+            })}
+            
+            {/* Output Parameters - Exposure UI */}
+            {metadata.outputs && metadata.outputs.length > 0 && (
+              <Box sx={{ mt: 3 }}>
+                <SectionHeader>Outputs</SectionHeader>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2, px: 0 }}>
+                  Expose outputs to make them visible when executing this flow
+                </Typography>
+                {metadata.outputs.map((output, index) => {
+                  // Use name if available, otherwise use index as identifier
+                  const outputId = output.name || `output_${index}`;
+                  const isExposed = node.data?._exposedParams?.[outputId]?.exposed === true;
+                  const exposureConfig = node.data?._exposedParams?.[outputId] || {};
+                  
+                  return (
+                    <Box key={outputId} sx={{ mb: 2 }}>
+                      {/* Output Info */}
+                      <Box sx={{ 
+                        p: 1.5, 
+                        bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.02)',
+                        borderRadius: 1,
+                        mb: 0.5
+                      }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          {output.displayName || outputId}
+                        </Typography>
+                        {output.description && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            {output.description}
+                          </Typography>
+                        )}
+                        <Chip label={output.type} size="small" sx={{ mt: 1 }} />
+                      </Box>
+                      
+                      <Divider sx={{ my: 1 }} />
+                      
+                      {/* Exposure Toggle */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', py: 0.5 }}>
+                        <Switch
+                          checked={isExposed}
+                          onChange={() => {
+                            const updatedExposedParams = {
+                              ...(node.data?._exposedParams || {}),
+                              [outputId]: isExposed 
+                                ? { exposed: false }
+                                : {
+                                    exposed: true,
+                                    parameterKind: 'output',
+                                    displayName: exposureConfig.displayName || output.displayName || outputId,
+                                    description: exposureConfig.description || output.description || ''
+                                  }
+                            };
+                            handleChange('_exposedParams', updatedExposedParams);
+                          }}
+                          size="small"
+                          color="primary"
+                        />
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            fontWeight: isExposed ? 500 : 400, 
+                            color: isExposed ? 'text.primary' : 'text.secondary',
+                          }}
+                        >
+                          Expose to user
+                        </Typography>
+                      </Box>
+                      
+                      {/* Exposure Configuration */}
+                      <Collapse in={isExposed} timeout="auto">
+                        <Box 
+                          sx={{ 
+                            mt: 1,
+                            ml: 2,
+                            p: 1.5,
+                            bgcolor: (theme) => theme.palette.mode === 'dark'
+                              ? 'rgba(255, 255, 255, 0.02)'
+                              : 'rgba(0, 0, 0, 0.02)',
+                            borderRadius: 1,
+                            border: '1px solid',
+                            borderColor: 'divider'
+                          }}
+                        >
+                          <TextField
+                            key={`${outputId}-displayName`}
+                            fullWidth
+                            size="small"
+                            label="Display Name"
+                            value={exposureConfig.displayName || output.displayName || outputId}
+                            onChange={(e) => updateExposureConfig(outputId, 'displayName', e.target.value)}
+                            sx={{ mb: 1 }}
+                          />
+                          <TextField
+                            key={`${outputId}-description`}
+                            fullWidth
+                            size="small"
+                            label="Description"
+                            value={exposureConfig.description || output.description || ''}
+                            onChange={(e) => updateExposureConfig(outputId, 'description', e.target.value)}
+                            multiline
+                            rows={2}
+                          />
+                        </Box>
+                      </Collapse>
+                    </Box>
+                  );
+                })}
+              </Box>
+            )}
           </Box>
         );
     }
@@ -523,7 +926,7 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
     <Paper
       elevation={2}
       sx={{
-        width: 350,
+        width: 380,
         height: '100%',
         overflow: 'auto',
         borderLeft: '1px solid rgba(0, 0, 0, 0.12)',
@@ -531,8 +934,9 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
         flexDirection: 'column'
       }}
     >
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h6">
+      {/* Header */}
+      <Box sx={{ p: 2, pb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>
           Node Configuration
         </Typography>
         <IconButton size="small" onClick={onClose}>
@@ -542,32 +946,117 @@ const NodeConfigPanel = ({ node, onDataChange, onClose }) => {
       
       <Divider />
       
-      <Box sx={{ p: 2, flex: 1, overflow: 'auto' }}>
-        <Typography variant="subtitle2" gutterBottom>
-          {node.type}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-          ID: {node.id}
-        </Typography>
+      {/* Content */}
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
+        {/* Node Info Section */}
+        <Box sx={{ 
+          px: 2, 
+          pt: 1.5, 
+          pb: 0.75,
+          bgcolor: (theme) => theme.palette.mode === 'dark'
+            ? 'rgba(255, 255, 255, 0.02)'
+            : 'rgba(0, 0, 0, 0.02)',
+        }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.25, fontSize: '1rem' }}>
+            {node.type}
+          </Typography>
+          <Tooltip title="Unique node identifier">
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                fontFamily: 'monospace', 
+                color: 'text.disabled',
+                fontSize: '0.65rem',
+                display: 'block',
+                lineHeight: 1.2
+              }}
+            >
+              {node.id}
+            </Typography>
+          </Tooltip>
+        </Box>
         
-        {/* Log Level Setting - Common to all nodes */}
-        <FormControl fullWidth sx={{ mb: 2 }}>
-          <InputLabel>Log Level</InputLabel>
-          <Select
-            value={node.data?.logLevel || 'none'}
-            onChange={(e) => handleChange('logLevel', e.target.value)}
-            label="Log Level"
+        <Divider sx={{ my: 1.5 }} />
+        
+        {/* Main Configuration */}
+        <Box sx={{ 
+          px: 2,
+          bgcolor: (theme) => theme.palette.mode === 'dark'
+            ? 'rgba(0, 0, 0, 0.15)'
+            : 'rgba(0, 0, 0, 0.01)',
+          py: 1.5,
+        }}>
+          {renderConfig()}
+        </Box>
+        
+        {/* Advanced Section - Collapsed by default */}
+        <Box sx={{ mt: 2 }}>
+          <Accordion 
+            expanded={advancedExpanded} 
+            onChange={() => setAdvancedExpanded(!advancedExpanded)}
+            disableGutters
+            elevation={0}
+            sx={{ 
+              '&:before': { display: 'none' },
+              bgcolor: (theme) => theme.palette.mode === 'dark'
+                ? 'rgba(0, 0, 0, 0.15)'
+                : 'rgba(0, 0, 0, 0.01)',
+            }}
           >
-            <MenuItem value="none">None (No Logs)</MenuItem>
-            <MenuItem value="error">Error Only</MenuItem>
-            <MenuItem value="info">Info + Error</MenuItem>
-            <MenuItem value="debug">Debug + Info + Error</MenuItem>
-          </Select>
-        </FormControl>
-        
-        <Divider sx={{ my: 2 }} />
-        
-        {renderConfig()}
+            <AccordionSummary 
+              expandIcon={<ExpandMoreIcon />}
+              sx={{ 
+                px: 2,
+                minHeight: 40,
+                '& .MuiAccordionSummary-content': { my: 0.5 }
+              }}
+            >
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  textTransform: 'uppercase', 
+                  letterSpacing: 0.5, 
+                  color: 'text.secondary',
+                  fontWeight: 600 
+                }}
+              >
+                Advanced
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 2, pt: 0, pb: 2 }}>
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  display: 'block', 
+                  mb: 0.5, 
+                  color: 'text.secondary',
+                  fontSize: '0.75rem',
+                  fontWeight: 500
+                }}
+              >
+                Log Level
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={node.data?.logLevel || 'none'}
+                  onChange={(e) => handleChange('logLevel', e.target.value)}
+                  sx={{
+                    bgcolor: (theme) => theme.palette.mode === 'dark' 
+                      ? 'rgba(0, 0, 0, 0.3)'
+                      : 'rgba(255, 255, 255, 0.9)',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                  }}
+                >
+                  <MenuItem value="none">None</MenuItem>
+                  <MenuItem value="error">Error</MenuItem>
+                  <MenuItem value="info">Info</MenuItem>
+                  <MenuItem value="debug">Debug</MenuItem>
+                </Select>
+              </FormControl>
+            </AccordionDetails>
+          </Accordion>
+        </Box>
       </Box>
 
       {/* Tag Selection Dialog */}

@@ -741,7 +741,7 @@ export default async function flowRoutes(app) {
     reply.send({ flow: result.rows[0] });
   });
 
-  // POST /api/flows/:id/execute - Execute a flow manually (test run)
+  // POST /api/flows/:id/execute - Execute a flow manually (test run or with parameters)
   app.post('/api/flows/:id/execute', async (req, reply) => {
     const userId = req.user?.sub;
     // Check execute permission (separate from update)
@@ -750,11 +750,11 @@ export default async function flowRoutes(app) {
     }
 
     const { id } = req.params;
-    let { trigger_node_id } = req.body;
+    let { trigger_node_id, parameters } = req.body;
 
     // Verify access
     const flowCheck = await db.query(`
-      SELECT id, deployed, test_mode, test_disable_writes, definition, execution_mode
+      SELECT id, deployed, test_mode, test_disable_writes, definition, execution_mode, exposed_parameters
       FROM flows
       WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
     `, [id, userId]);
@@ -771,6 +771,28 @@ export default async function flowRoutes(app) {
       return reply.code(400).send({ error: 'Continuous flows must be deployed or in test mode before execution' });
     }
 
+    // Validate parameters if provided
+    let validatedParameters = null;
+    if (parameters) {
+      const { validateParameters } = await import('../services/parameterValidator.js');
+      const validation = validateParameters(flow.exposed_parameters || [], parameters);
+      
+      if (!validation.valid) {
+        req.log.warn({ flowId: id, errors: validation.errors }, 'Parameter validation failed');
+        return reply.code(400).send({ 
+          error: 'Invalid parameters',
+          details: validation.errors
+        });
+      }
+      
+      // Log warnings but continue
+      if (validation.warnings.length > 0) {
+        req.log.warn({ flowId: id, warnings: validation.warnings }, 'Parameter validation warnings');
+      }
+      
+      validatedParameters = parameters;
+    }
+
     // Enqueue flow execution job
     try {
       const job = await app.jobs.enqueue('flow_execution', {
@@ -778,16 +800,23 @@ export default async function flowRoutes(app) {
         trigger_node_id: trigger_node_id || null,
         triggered_by: userId,
         test_run: flow.test_mode || false, // Flag if this is a test run
-        test_disable_writes: flow.test_disable_writes || false // Flag if writes should be disabled
+        test_disable_writes: flow.test_disable_writes || false, // Flag if writes should be disabled
+        runtime_parameters: validatedParameters || {} // Include validated parameters
       });
 
-      req.log.info({ flowId: id, jobId: job.id, userId, testRun: true }, 'Flow test execution job enqueued');
+      req.log.info({ 
+        flowId: id, 
+        jobId: job.id, 
+        userId, 
+        testRun: flow.test_mode || false,
+        hasParameters: !!validatedParameters 
+      }, 'Flow execution job enqueued');
 
       reply.send({ 
         jobId: job.id,
         flowId: id,
         status: 'queued',
-        message: 'Flow test execution queued successfully'
+        message: validatedParameters ? 'Flow execution with parameters queued successfully' : 'Flow test execution queued successfully'
       });
     } catch (error) {
       req.log.error({ err: error, flowId: id }, 'Failed to enqueue flow execution');
@@ -931,6 +960,219 @@ export default async function flowRoutes(app) {
     traverse(nodeId);
     return Array.from(downstream);
   }
+
+  // GET /api/flows/:id/parameters - Get parameter schema for a flow
+  app.get('/api/flows/:id/parameters', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+
+    // Verify access
+    const flowCheck = await db.query(`
+      SELECT id, exposed_parameters, execution_mode, definition
+      FROM flows
+      WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+    `, [id, userId]);
+
+    if (flowCheck.rows.length === 0) {
+      return reply.code(404).send({ error: 'flow not found' });
+    }
+
+    const flow = flowCheck.rows[0];
+    const parameters = flow.exposed_parameters || [];
+    const definition = flow.definition || {};
+    const edges = definition.edges || [];
+
+    // Build a map of nodes with incoming connections
+    const connectedInputs = new Set();
+    for (const edge of edges) {
+      if (edge.target && edge.targetHandle) {
+        connectedInputs.add(`${edge.target}:${edge.targetHandle}`);
+      }
+    }
+
+    // Separate inputs and outputs, mark connected inputs as read-only
+    const inputs = [];
+    const outputs = [];
+
+    for (const param of parameters) {
+      const paramCopy = { ...param };
+      
+      if (param.parameterKind === 'input') {
+        // Check if this input has an incoming connection
+        const inputKey = `${param.nodeId}:${param.nodeParameter}`;
+        paramCopy.readOnly = connectedInputs.has(inputKey);
+        inputs.push(paramCopy);
+      } else if (param.parameterKind === 'output') {
+        // Outputs are always read-only
+        paramCopy.readOnly = true;
+        outputs.push(paramCopy);
+      }
+    }
+
+    reply.send({ 
+      inputs,
+      outputs,
+      execution_mode: flow.execution_mode,
+      has_parameters: parameters.length > 0
+    });
+  });
+
+  // PUT /api/flows/:id/parameters - Update exposed parameters
+  app.put('/api/flows/:id/parameters', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    const { id } = req.params;
+    const { exposed_parameters } = req.body;
+
+    if (!Array.isArray(exposed_parameters)) {
+      return reply.code(400).send({ error: 'exposed_parameters must be an array' });
+    }
+
+    // Verify ownership
+    const ownerCheck = await db.query(
+      'SELECT owner_user_id FROM flows WHERE id = $1',
+      [id]
+    );
+
+    if (ownerCheck.rows.length === 0) {
+      return reply.code(404).send({ error: 'flow not found' });
+    }
+
+    if (ownerCheck.rows[0].owner_user_id !== userId) {
+      return reply.code(403).send({ error: 'only owner can update parameters' });
+    }
+
+    // Validate parameter schema
+    for (const param of exposed_parameters) {
+      if (!param.name || !param.nodeId || !param.nodeParameter) {
+        return reply.code(400).send({ 
+          error: 'Invalid parameter definition',
+          message: 'Each parameter must have: name, nodeId, nodeParameter'
+        });
+      }
+      
+      // Validate parameterKind (input or output)
+      const validKinds = ['input', 'output'];
+      if (!param.parameterKind || !validKinds.includes(param.parameterKind)) {
+        return reply.code(400).send({
+          error: 'Invalid parameter kind',
+          message: `Parameter kind must be one of: ${validKinds.join(', ')}`
+        });
+      }
+      
+      // Validate type
+      const validTypes = ['string', 'number', 'boolean', 'file', 'directory', 'date', 'datetime', 'options', 'json'];
+      if (!param.type || !validTypes.includes(param.type)) {
+        return reply.code(400).send({
+          error: 'Invalid parameter type',
+          message: `Parameter type must be one of: ${validTypes.join(', ')}`
+        });
+      }
+    }
+
+    // Update parameters
+    const result = await db.query(`
+      UPDATE flows
+      SET exposed_parameters = $1, updated_at = now()
+      WHERE id = $2
+      RETURNING *
+    `, [JSON.stringify(exposed_parameters), id]);
+
+    reply.send({ flow: result.rows[0] });
+  });
+
+  // GET /api/flows/:id/last-execution - Get last execution outputs
+  app.get('/api/flows/:id/last-execution', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+
+    // Verify access
+    const flowCheck = await db.query(`
+      SELECT id FROM flows
+      WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+    `, [id, userId]);
+
+    if (flowCheck.rows.length === 0) {
+      return reply.code(404).send({ error: 'flow not found' });
+    }
+
+    // Get the most recent completed execution
+    const result = await db.query(`
+      SELECT 
+        id,
+        started_at,
+        completed_at,
+        status,
+        node_outputs,
+        runtime_parameters
+      FROM flow_executions
+      WHERE flow_id = $1 AND status = 'completed'
+      ORDER BY completed_at DESC
+      LIMIT 1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return reply.send({ 
+        hasExecution: false,
+        message: 'No completed executions found'
+      });
+    }
+
+    const execution = result.rows[0];
+    
+    reply.send({ 
+      hasExecution: true,
+      executionId: execution.id,
+      completedAt: execution.completed_at,
+      status: execution.status,
+      outputs: execution.node_outputs || {},
+      parameters: execution.runtime_parameters || {}
+    });
+  });
+
+  // GET /api/flows/:id/parameter-history - Get recent parameter executions
+  app.get('/api/flows/:id/parameter-history', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+    const { limit = 10 } = req.query;
+
+    // Verify access
+    const flowCheck = await db.query(`
+      SELECT id FROM flows
+      WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+    `, [id, userId]);
+
+    if (flowCheck.rows.length === 0) {
+      return reply.code(404).send({ error: 'flow not found' });
+    }
+
+    // Get recent executions with parameters
+    const result = await db.query(`
+      SELECT 
+        id,
+        runtime_parameters,
+        started_at,
+        completed_at,
+        status,
+        execution_time_ms
+      FROM flow_executions
+      WHERE flow_id = $1
+        AND runtime_parameters IS NOT NULL
+        AND jsonb_typeof(runtime_parameters) = 'object'
+        AND runtime_parameters::text != '{}'
+      ORDER BY started_at DESC
+      LIMIT $2
+    `, [id, parseInt(limit)]);
+
+    reply.send({ history: result.rows });
+  });
 
   // GET /api/flows/:id/history - Get execution history for a flow
   app.get('/api/flows/:id/history', async (req, reply) => {

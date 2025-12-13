@@ -17,6 +17,7 @@ import {
 } from '@mui/icons-material';
 import { useDashboard } from '../../contexts/DashboardContext';
 import ChartLoader from '../chart/ChartLoader';
+import FlowWidget from './FlowWidget';
 
 const DashboardWidget = ({ widgetConfig, syncGroupIndex = null }) => {
   const navigate = useNavigate();
@@ -35,7 +36,9 @@ const DashboardWidget = ({ widgetConfig, syncGroupIndex = null }) => {
   const contentRef = React.useRef(null);
 
   const widgetId = widgetConfig.i;
+  const widgetType = widgetConfig.type || 'chart'; // Default to 'chart' for backward compatibility
   const chartId = widgetConfig.chart_id;
+  const flowId = widgetConfig.flow_id;
   const isSelected = selectedWidgets.has(widgetId);
 
   // Measure content height when widget resizes
@@ -51,6 +54,11 @@ const DashboardWidget = ({ widgetConfig, syncGroupIndex = null }) => {
   // Handle chart loaded callback
   const handleChartLoaded = (chart) => {
     setChartName(chart.name || '');
+  };
+
+  // Handle flow loaded callback
+  const handleFlowLoaded = (flow) => {
+    setChartName(flow.name || ''); // Reuse chartName state for flow names too
   };
 
   // Handle data updated callback
@@ -81,11 +89,14 @@ const DashboardWidget = ({ widgetConfig, syncGroupIndex = null }) => {
   const handleOpenProperties = (e) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!chartId) {
-      console.error('No chartId available');
-      return;
+    
+    if (widgetType === 'chart' && chartId) {
+      navigate(`/chart-composer/${chartId}`);
+    } else if (widgetType === 'flow' && flowId) {
+      navigate(`/flows/${flowId}`);
+    } else {
+      console.error('No chart or flow ID available');
     }
-    navigate(`/chart-composer/${chartId}`);
   };
 
   // Get sync group class name
@@ -148,14 +159,20 @@ const DashboardWidget = ({ widgetConfig, syncGroupIndex = null }) => {
 
         {editMode && (
           <>
-            <Tooltip title={widgetConfig.hide_title ? "Show title in view mode" : "Hide title in view mode"}>
-              <IconButton size="small" onClick={handleToggleHideTitle}>
-                {widgetConfig.hide_title ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
-              </IconButton>
+            <Tooltip title={widgetConfig.hide_title ? "Show title in view mode" : "Hide title in view mode"} disableInteractive>
+              <span>
+                <IconButton size="small" onClick={handleToggleHideTitle}>
+                  {widgetConfig.hide_title ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                </IconButton>
+              </span>
             </Tooltip>
-            <IconButton size="small" onClick={handleRemove} title="Remove">
-              <Close fontSize="small" />
-            </IconButton>
+            <Tooltip title="Remove widget" disableInteractive>
+              <span>
+                <IconButton size="small" onClick={handleRemove}>
+                  <Close fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
           </>
         )}
       </Box>
@@ -172,15 +189,31 @@ const DashboardWidget = ({ widgetConfig, syncGroupIndex = null }) => {
           height: (!editMode && widgetConfig.hide_title) ? '100%' : 'calc(100% - 32px)'
         }}
       >
-        <ChartLoader
-          chartId={chartId}
-          compactMode={true}
-          height={chartHeight}
-          overrideTimeRange={syncGroupIndex !== null ? globalTimeRange : null}
-          onChartLoaded={handleChartLoaded}
-          onDataUpdated={handleDataUpdated}
-          contextType="dashboard"
-        />
+        {widgetType === 'chart' && chartId && (
+          <ChartLoader
+            chartId={chartId}
+            compactMode={true}
+            height={chartHeight}
+            overrideTimeRange={syncGroupIndex !== null ? globalTimeRange : null}
+            onChartLoaded={handleChartLoaded}
+            onDataUpdated={handleDataUpdated}
+            contextType="dashboard"
+          />
+        )}
+        
+        {widgetType === 'flow' && flowId && (
+          <FlowWidget
+            flowId={flowId}
+            config={widgetConfig.config || {}}
+            onFlowLoaded={handleFlowLoaded}
+          />
+        )}
+        
+        {!chartId && !flowId && (
+          <Box sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
+            Invalid widget configuration
+          </Box>
+        )}
       </Box>
     </Card>
   );

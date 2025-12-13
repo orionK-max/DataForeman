@@ -40,8 +40,9 @@ import {
   People as PeopleIcon,
   Person as PersonIcon,
 } from '@mui/icons-material';
-import { listFlows, listSharedFlows, createFlow, deleteFlow, duplicateFlow } from '../services/flowsApi';
+import { listFlows, listSharedFlows, createFlow, deleteFlow, duplicateFlow, executeFlow } from '../services/flowsApi';
 import FlowResourceMonitor from '../components/FlowEditor/FlowResourceMonitor';
+import ParameterExecutionDialog from '../components/flowStudio/ParameterExecutionDialog';
 import { useFlowResources } from '../hooks/useFlowResources';
 import folderService, { FOLDER_TYPES } from '../services/folderService';
 import FolderTree from '../components/folders/FolderTree';
@@ -79,6 +80,8 @@ const FlowBrowser = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [folderToDelete, setFolderToDelete] = useState(null);
   const [deletingFolder, setDeletingFolder] = useState(false);
+  const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
+  const [flowToExecute, setFlowToExecute] = useState(null);
 
   const { data: resourceData, loading: resourceLoading, refetch: refetchResources } = useFlowResources(
     selectedFlow?.id,
@@ -187,6 +190,15 @@ const FlowBrowser = () => {
   const handleOpenResourceMonitor = (flow) => {
     setSelectedFlow(flow);
     setResourceMonitorOpen(true);
+  };
+
+  const handleExecuteFlow = (flow) => {
+    setFlowToExecute(flow);
+    setParameterDialogOpen(true);
+  };
+
+  const handleExecutionStarted = (result) => {
+    showSnackbar(`Flow execution started (Job ID: ${result.jobId})`, 'success');
   };
 
   // Folder management handlers
@@ -388,7 +400,21 @@ const FlowBrowser = () => {
       </CardContent>
       
       <CardActions sx={{ pt: 0, justifyContent: 'flex-end', px: 2, pb: 2 }}>
-        {flow.deployed && (
+        {flow.execution_mode === 'manual' && (
+          <Button
+            size="small"
+            variant="contained"
+            color="primary"
+            startIcon={<RunIcon />}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleExecuteFlow(flow);
+            }}
+          >
+            Execute
+          </Button>
+        )}
+        {flow.deployed && flow.execution_mode === 'continuous' && (
           <IconButton 
             size="small" 
             onClick={(e) => {
@@ -732,6 +758,17 @@ const FlowBrowser = () => {
             onRefresh={refetchResources}
           />
         )}
+
+        {/* Parameter Execution Dialog */}
+        <ParameterExecutionDialog
+          open={parameterDialogOpen}
+          onClose={() => {
+            setParameterDialogOpen(false);
+            setFlowToExecute(null);
+          }}
+          flow={flowToExecute}
+          onExecutionStarted={handleExecutionStarted}
+        />
 
         {/* Folder Dialog */}
         <FolderDialog

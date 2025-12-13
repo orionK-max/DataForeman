@@ -128,7 +128,22 @@ const dashboardService = {
     } else {
       layout.items.forEach((item, idx) => {
         if (!item.i) errors.push(`Item ${idx}: missing 'i' (widget ID)`);
-        if (!item.chart_id) errors.push(`Item ${idx}: missing 'chart_id'`);
+        
+        // Validate widget type (default to 'chart' for backward compatibility)
+        const widgetType = item.type || 'chart';
+        if (!['chart', 'flow'].includes(widgetType)) {
+          errors.push(`Item ${idx}: type must be 'chart' or 'flow'`);
+        }
+        
+        // Validate type-specific required fields
+        if (widgetType === 'chart' && !item.chart_id) {
+          errors.push(`Item ${idx}: missing 'chart_id' for chart widget`);
+        }
+        if (widgetType === 'flow' && !item.flow_id) {
+          errors.push(`Item ${idx}: missing 'flow_id' for flow widget`);
+        }
+        
+        // Validate grid position
         if (typeof item.x !== 'number') errors.push(`Item ${idx}: x must be a number`);
         if (typeof item.y !== 'number') errors.push(`Item ${idx}: y must be a number`);
         if (typeof item.w !== 'number' || item.w < 1) errors.push(`Item ${idx}: w must be >= 1`);
