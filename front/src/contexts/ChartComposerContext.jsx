@@ -308,7 +308,8 @@ export const ChartComposerProvider = ({ children }) => {
                 const connectionName = connectionsMap.get(connectionId) || tagConfig.connection_name;
                 
                 // Fix axisId if it doesn't exist in loaded axes
-                let axisId = tagConfig.axisId || defaultAxisId;
+                // DB stores as yAxisId but frontend uses axisId
+                let axisId = tagConfig.yAxisId || tagConfig.axisId || defaultAxisId;
                 if (!validAxisIds.has(axisId)) {
                   console.warn(`Tag ${tagConfig.tag_id} references non-existent axis ${axisId}, using ${defaultAxisId}`);
                   axisId = defaultAxisId;
@@ -322,9 +323,12 @@ export const ChartComposerProvider = ({ children }) => {
                   deletionReason = metadataRes.missing_tags[tagConfig.tag_id].reason;
                 }
                 
+                // Spread tagConfig but ensure yAxisId is not included (DB stores yAxisId, frontend uses axisId)
+                const { yAxisId, ...tagWithoutYAxisId } = tagConfig;
+                
                 return {
-                  ...tagConfig,
-                  axisId, // Use validated axis ID
+                  ...tagWithoutYAxisId,
+                  axisId, // Use validated axis ID (mapped from yAxisId in DB)
                   name: meta?.tag_name || tagConfig.name || `Tag ${tagConfig.tag_id}`,
                   connection_id: connectionId,
                   connection_name: connectionName,
@@ -367,11 +371,14 @@ export const ChartComposerProvider = ({ children }) => {
               console.error('Failed to fetch tag metadata:', metaErr);
               // Still load chart config even if metadata fetch fails, but fix axis refs
               const fixedTags = opts.tags.map(tagConfig => {
-                let axisId = tagConfig.axisId || defaultAxisId;
+                // DB stores as yAxisId but frontend uses axisId
+                let axisId = tagConfig.yAxisId || tagConfig.axisId || defaultAxisId;
                 if (!validAxisIds.has(axisId)) {
                   axisId = defaultAxisId;
                 }
-                return { ...tagConfig, axisId };
+                // Remove yAxisId from the tag object (DB property, not used in frontend)
+                const { yAxisId, ...tagWithoutYAxisId } = tagConfig;
+                return { ...tagWithoutYAxisId, axisId };
               });
               
               setChartConfig(prev => ({

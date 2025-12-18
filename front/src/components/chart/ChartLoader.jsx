@@ -403,10 +403,19 @@ const ChartLoader = ({
     );
   }
 
+  // Map yAxisId (from DB) to axisId (used by frontend) for tag configs
+  const mappedTagConfigs = (chartConfig.tags || []).map(tag => {
+    const { yAxisId, ...tagWithoutYAxisId } = tag;
+    return {
+      ...tagWithoutYAxisId,
+      axisId: yAxisId || tag.axisId || 'default', // Use yAxisId from DB, fallback to axisId or default
+    };
+  });
+
   return (
     <ChartRenderer
       data={chartData}
-      tagConfigs={chartConfig.tags || []}
+      tagConfigs={mappedTagConfigs}
       axes={chartConfig.axes || []}
       referenceLines={chartConfig.referenceLines || []}
       grid={chartConfig.grid}

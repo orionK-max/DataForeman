@@ -111,7 +111,7 @@ const SaveChartButton = () => {
             color: tag.color || '#3b82f6',
             thickness: tag.thickness || 2,
             strokeType: tag.strokeType || 'solid',
-            yAxisId: tag.yAxisId || tag.axisId || 'default',
+            yAxisId: tag.axisId || 'default', // Frontend uses axisId, DB stores as yAxisId
             interpolation: tag.interpolation || 'linear',
             hidden: tag.hidden || false,
           })),
