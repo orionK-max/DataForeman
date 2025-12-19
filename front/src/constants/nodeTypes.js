@@ -10,6 +10,8 @@
 
 import { flowsApi } from '../services/api.js';
 
+const RECENT_NODES_STORAGE_KEY = 'flow-studio-recent-nodes';
+
 // Storage for backend-provided category definitions
 let backendCategories = null;
 
@@ -67,6 +69,26 @@ export async function fetchBackendNodeMetadata() {
     });
     
     backendNodeMetadata = metadata;
+
+    // If the backend node set has changed (e.g., new installation / different libraries),
+    // ensure we don't show stale RECENT entries from a previous instance.
+    try {
+      const recent = localStorage.getItem(RECENT_NODES_STORAGE_KEY);
+      if (recent) {
+        const nodes = JSON.parse(recent);
+        if (Array.isArray(nodes)) {
+          const filtered = nodes.filter(t => typeof t === 'string' && metadata[t]);
+          if (filtered.length === 0) {
+            localStorage.removeItem(RECENT_NODES_STORAGE_KEY);
+          } else if (filtered.length !== nodes.length) {
+            localStorage.setItem(RECENT_NODES_STORAGE_KEY, JSON.stringify(filtered));
+          }
+        }
+      }
+    } catch {
+      // Ignore localStorage/JSON issues; we will handle this again on read.
+    }
+
     return metadata;
   } catch (error) {
     console.error('Failed to fetch node types from backend:', error);
@@ -185,11 +207,28 @@ export function getCategoryForNodeType(nodeType) {
  */
 export function getRecentNodes(limit = 5) {
   try {
-    const recent = localStorage.getItem('flow-studio-recent-nodes');
+    // Don't show RECENT until backend metadata is loaded; otherwise we risk showing
+    // stale entries that don't exist in this installation.
+    if (!backendNodeMetadata) return [];
+
+    const recent = localStorage.getItem(RECENT_NODES_STORAGE_KEY);
     if (!recent) return [];
-    
+
     const nodes = JSON.parse(recent);
-    return Array.isArray(nodes) ? nodes.slice(0, limit) : [];
+    if (!Array.isArray(nodes)) return [];
+
+    const filtered = nodes.filter(t => typeof t === 'string' && backendNodeMetadata[t]);
+
+    // Persist sanitization so future reads are clean.
+    if (filtered.length === 0) {
+      localStorage.removeItem(RECENT_NODES_STORAGE_KEY);
+      return [];
+    }
+    if (filtered.length !== nodes.length) {
+      localStorage.setItem(RECENT_NODES_STORAGE_KEY, JSON.stringify(filtered));
+    }
+
+    return filtered.slice(0, limit);
   } catch (error) {
     console.error('Error reading recent nodes:', error);
     return [];
@@ -213,7 +252,7 @@ export function addToRecentNodes(nodeType) {
     recent.unshift(nodeType);
     recent = recent.slice(0, 10);
     
-    localStorage.setItem('flow-studio-recent-nodes', JSON.stringify(recent));
+    localStorage.setItem(RECENT_NODES_STORAGE_KEY, JSON.stringify(recent));
   } catch (error) {
     console.error('Error saving recent nodes:', error);
   }

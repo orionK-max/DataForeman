@@ -6,7 +6,7 @@ import {
   Typography,
   Tooltip,
 } from '@mui/material';
-import { getNodeMetadata } from '../../constants/nodeTypes';
+import { getBackendMetadata, getNodeMetadata } from '../../constants/nodeTypes';
 
 /**
  * NodeItem - Individual node card in the browser
@@ -18,12 +18,12 @@ import { getNodeMetadata } from '../../constants/nodeTypes';
  * - Color-coded by node type
  */
 const NodeItem = ({ nodeType, onAddNode, onDragStart }) => {
-  const metadata = getNodeMetadata(nodeType);
+  // Only render node types that exist in the backend-provided registry.
+  // This avoids showing stale localStorage RECENT entries on a new installation.
+  const backendMeta = getBackendMetadata(nodeType);
+  if (!backendMeta) return null;
 
-  if (!metadata) {
-    console.warn('Unknown node type:', nodeType);
-    return null;
-  }
+  const metadata = getNodeMetadata(nodeType);
 
   const handleClick = () => {
     onAddNode(nodeType, null); // null position means center of canvas
