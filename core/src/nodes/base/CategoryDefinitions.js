@@ -56,23 +56,29 @@ export const CATEGORIES = {
         description: 'Arithmetic operations',
         order: 1
       },
+      LOGIC: {
+        key: 'LOGIC',
+        displayName: 'Boolean Logic',
+        description: 'Boolean operations and logic gates',
+        order: 2
+      },
       COMPARISON: {
         key: 'COMPARISON',
         displayName: 'Comparison',
         description: 'Compare values and conditions',
-        order: 2
+        order: 3
       },
       CONTROL: {
         key: 'CONTROL',
         displayName: 'Control Flow',
         description: 'Conditional execution and flow control',
-        order: 3
+        order: 4
       },
       ADVANCED: {
         key: 'ADVANCED',
         displayName: 'Scripts',
         description: 'Custom JavaScript logic',
-        order: 4
+        order: 5
       }
     }
   },
@@ -106,11 +112,23 @@ export const CATEGORIES = {
     description: 'Transform and manipulate data',
     order: 5,
     sections: {
+      CONVERSION: {
+        key: 'CONVERSION',
+        displayName: 'Type Conversion',
+        description: 'Convert between data types',
+        order: 1
+      },
+      TEXT: {
+        key: 'TEXT',
+        displayName: 'Text Operations',
+        description: 'String manipulation and formatting',
+        order: 2
+      },
       BASIC: {
         key: 'BASIC',
-        displayName: 'Basic',
-        description: 'Basic transformations',
-        order: 1
+        displayName: 'Other',
+        description: 'Other transformations',
+        order: 99
       }
     }
   },

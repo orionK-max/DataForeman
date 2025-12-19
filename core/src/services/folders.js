@@ -205,10 +205,24 @@ export async function deleteFolder(folderId, userId, folderType, db) {
   );
   
   const itemTable = getItemTable(folderType);
-  const childItems = await db.query(
-    `SELECT id FROM ${itemTable} WHERE folder_id = $1 LIMIT 1`,
-    [folderId]
-  );
+  const folderStorage = ITEM_FOLDER_STORAGE[folderType];
+  
+  let childItems;
+  if (folderStorage === 'options') {
+    // For charts and dashboards, folder_id is stored in options JSONB
+    // Only check non-deleted items
+    childItems = await db.query(
+      `SELECT id FROM ${itemTable} WHERE options->>'folder_id' = $1 AND is_deleted = false LIMIT 1`,
+      [folderId]
+    );
+  } else {
+    // For flows, folder_id is a direct column
+    // Only check non-deleted items
+    childItems = await db.query(
+      `SELECT id FROM ${itemTable} WHERE folder_id = $1 AND is_deleted = false LIMIT 1`,
+      [folderId]
+    );
+  }
   
   if (childFolders.rows.length > 0 || childItems.rows.length > 0) {
     throw new Error('Cannot delete folder with children. Move or delete children first.');

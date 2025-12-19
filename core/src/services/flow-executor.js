@@ -127,6 +127,74 @@ export function topologicalSort(nodes, edges) {
 }
 
 /**
+ * Augment edge list with virtual connections (e.g., Jump Out → Jump In)
+ * @param {Array} nodes - Node definitions
+ * @param {Array} edges - Physical edges
+ * @returns {Array} Combined edge list including virtual edges
+ */
+export function buildExecutionEdges(nodes, edges = []) {
+  const combinedEdges = edges ? [...edges] : [];
+  const existingPairs = new Set(combinedEdges.map(e => `${e.source}->${e.target}`));
+  const labelMap = new Map();
+
+  for (const node of nodes) {
+    if (!node?.data) continue;
+    if (node.type !== 'jump-out' && node.type !== 'jump-in') continue;
+
+    const rawLabel = node.data.jumpLabel;
+    if (typeof rawLabel !== 'string') continue;
+    const label = rawLabel.trim();
+    if (!label) continue;
+
+    if (!labelMap.has(label)) {
+      labelMap.set(label, { outs: [], ins: [] });
+    }
+
+    const entry = labelMap.get(label);
+    if (node.type === 'jump-out') {
+      entry.outs.push(node);
+    } else {
+      entry.ins.push(node);
+    }
+  }
+
+  for (const [label, { outs, ins }] of labelMap.entries()) {
+    if (outs.length === 0 || ins.length === 0) {
+      continue;
+    }
+
+    for (const outNode of outs) {
+      for (const inNode of ins) {
+        if (outNode.id === inNode.id) {
+          continue;
+        }
+
+        const key = `${outNode.id}->${inNode.id}`;
+        if (existingPairs.has(key)) {
+          continue;
+        }
+
+        existingPairs.add(key);
+        combinedEdges.push({
+          id: `jump:${label}:${outNode.id}->${inNode.id}`,
+          source: outNode.id,
+          target: inNode.id,
+          sourceHandle: 'output',
+          targetHandle: 'input',
+          virtual: true,
+          metadata: {
+            type: 'jump',
+            label
+          }
+        });
+      }
+    }
+  }
+
+  return combinedEdges;
+}
+
+/**
  * Check if a node should skip execution based on inputs
  * Used for skipNodeOnNull feature - checks if any critical inputs are null or bad quality
  * 
@@ -462,7 +530,11 @@ export async function executeFlow(context) {
     );
     
     execution = executionResult.rows[0];
-    execution.edges = effectiveDefinition.edges; // Add edges for node execution
+
+    const { nodes = [], edges = [], pinData = {} } = effectiveDefinition;
+    const executionEdges = buildExecutionEdges(nodes, edges);
+
+    execution.edges = executionEdges; // Include virtual edges for node execution
     
     log.info({ 
       executionId: execution.id,
@@ -492,7 +564,6 @@ export async function executeFlow(context) {
     await updateFlowLibraryDependencies(app, flowId, flow.definition);
     
     // Get execution order (use parameterized definition)
-    const { nodes = [], edges = [], pinData = {} } = effectiveDefinition;
     
     // Handle partial execution if specified
     let nodesToExecute = nodes;
@@ -506,7 +577,7 @@ export async function executeFlow(context) {
       }, 'Partial execution mode');
     }
     
-    const executionOrder = topologicalSort(nodesToExecute, edges);
+    const executionOrder = topologicalSort(nodesToExecute, executionEdges);
     
     // Execute nodes in order
     const nodeOutputs = new Map();
@@ -785,7 +856,8 @@ class ScanExecutor {
       }
       
       const { nodes = [], edges = [] } = this.flow.definition;
-      const executionOrder = topologicalSort(nodes, edges);
+      const executionEdges = buildExecutionEdges(nodes, edges);
+      const executionOrder = topologicalSort(nodes, executionEdges);
       
       cycleLog.debug({ executionOrder, totalNodes: nodes.length }, 'Execution order determined');
       
@@ -809,7 +881,7 @@ class ScanExecutor {
           id: null, // null for continuous execution (no flow_executions record)
           session_id: this.sessionId, // Track session separately for debugging
           scan_cycle: this.scanCycle,
-          edges: edges // Add edges so NodeExecutionContext can find incoming edges
+          edges: executionEdges // Add edges so NodeExecutionContext can find incoming edges
         },
         inputStateManager: this.inputStateManager,
         logBuffer: this.logBuffer, // Add logBuffer so nodes can use automatic logging
@@ -836,11 +908,17 @@ class ScanExecutor {
         const nodeStart = performance.now();
         
         // Check if all required inputs are ready (source nodes have executed in this scan)
-        const incomingEdges = edges.filter(e => e.target === nodeId);
+        const incomingEdges = executionEdges.filter(e => e.target === nodeId);
         if (incomingEdges.length > 0) {
           // Check if all source nodes have executed in THIS scan cycle
           const hasAllInputs = incomingEdges.every(edge => {
-            return this.nodeOutputs.has(edge.source);
+            if (this.nodeOutputs.has(edge.source)) {
+              return true;
+            }
+
+            const portName = edge.targetHandle || 'input';
+            const existingInput = this.inputStateManager.getInput(nodeId, portName);
+            return existingInput !== undefined;
           });
           
           if (!hasAllInputs) {
@@ -890,7 +968,7 @@ class ScanExecutor {
           });
           
           // Update downstream inputs with null output
-          const outgoingEdges = edges.filter(e => e.source === nodeId);
+          const outgoingEdges = executionEdges.filter(e => e.source === nodeId);
           for (const edge of outgoingEdges) {
             const targetPort = edge.targetHandle || 'input';
             this.inputStateManager.updateInput(edge.target, targetPort, { value: null, quality: 0 });
@@ -900,7 +978,7 @@ class ScanExecutor {
         }
         
         // Check if node should skip based on skipNodeOnNull configuration
-        const skipCheck = shouldSkipNode(node, scanContext, edges);
+        const skipCheck = shouldSkipNode(node, scanContext, executionEdges);
         if (skipCheck) {
           cycleLog.debug({ nodeId, skipCheck }, 'Node skipped - skipNodeOnNull check failed');
           
@@ -926,7 +1004,7 @@ class ScanExecutor {
           });
           
           // Update downstream inputs with null output
-          const outgoingEdges = edges.filter(e => e.source === nodeId);
+          const outgoingEdges = executionEdges.filter(e => e.source === nodeId);
           for (const edge of outgoingEdges) {
             const targetPort = edge.targetHandle || 'input';
             this.inputStateManager.updateInput(edge.target, targetPort, { value: null, quality: 0 });
@@ -959,7 +1037,7 @@ class ScanExecutor {
           
           // Update input state for downstream nodes immediately after execution
           // Find all edges where this node is the source
-          const outgoingEdges = edges.filter(e => e.source === nodeId);
+          const outgoingEdges = executionEdges.filter(e => e.source === nodeId);
           for (const edge of outgoingEdges) {
             const targetPort = edge.targetHandle || 'input';
             this.inputStateManager.updateInput(edge.target, targetPort, output);
@@ -980,7 +1058,7 @@ class ScanExecutor {
           });
           
           // Update downstream inputs with null output
-          const outgoingEdges = edges.filter(e => e.source === nodeId);
+          const outgoingEdges = executionEdges.filter(e => e.source === nodeId);
           for (const edge of outgoingEdges) {
             const targetPort = edge.targetHandle || 'input';
             this.inputStateManager.updateInput(edge.target, targetPort, { value: null, quality: 0 });

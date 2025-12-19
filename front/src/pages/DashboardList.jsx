@@ -24,6 +24,7 @@ import {
   ListItemText,
   FormControlLabel,
   Checkbox,
+  Snackbar,
 } from '@mui/material';
 import {
   Add,
@@ -37,41 +38,84 @@ import {
   People as PeopleIcon,
   Person as PersonIcon,
   FileUpload,
+  ViewModule as CardViewIcon,
+  TableRows as TableViewIcon,
+  CheckBox as BulkModeIcon,
+  AccountTree as HierarchyIcon,
+  ViewList as FlattenIcon,
 } from '@mui/icons-material';
 import dashboardService from '../services/dashboardService';
-import folderService, { FOLDER_TYPES } from '../services/folderService';
+import { useBrowserFolders } from '../hooks/useBrowserFolders';
+import { FOLDER_TYPES } from '../services/folderService';
 import { usePageTitle } from '../contexts/PageTitleContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import FolderTree from '../components/folders/FolderTree';
 import FolderDialog from '../components/folders/FolderDialog';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import ImportDashboardButton from '../components/dashboard/ImportDashboardButton';
+import BrowserCard from '../components/browser/BrowserCard';
+import BrowserTable from '../components/browser/BrowserTable';
+import BulkActionToolbar from '../components/browser/BulkActionToolbar';
 
 const DashboardList = () => {
   const { setPageTitle, setPageSubtitle } = usePageTitle();
   const navigate = useNavigate();
   const { can } = usePermissions();
   const [dashboards, setDashboards] = useState([]);
-  const [folders, setFolders] = useState([]);
-  const [selectedFolderId, setSelectedFolderId] = useState(null);
-  const [viewMode, setViewMode] = useState('all'); // 'all' | 'mine' | 'shared'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState('');
   const [newDashboardDesc, setNewDashboardDesc] = useState('');
   const [newDashboardShared, setNewDashboardShared] = useState(false);
-  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-  const [folderDialogMode, setFolderDialogMode] = useState('create');
-  const [editingFolder, setEditingFolder] = useState(null);
-  const [parentFolderId, setParentFolderId] = useState(null);
-  const [moveMenuAnchor, setMoveMenuAnchor] = useState(null);
-  const [movingDashboard, setMovingDashboard] = useState(null);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [folderToDelete, setFolderToDelete] = useState(null);
-  const [deletingFolder, setDeletingFolder] = useState(false);
   const [deleteDashboardOpen, setDeleteDashboardOpen] = useState(false);
   const [dashboardToDelete, setDashboardToDelete] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+
+  // Use universal folder management hook (pass null for onReload, we'll call it manually)
+  const folderState = useBrowserFolders(FOLDER_TYPES.DASHBOARD, dashboards, null);
+  const {
+    folders,
+    selectedFolderId,
+    viewMode,
+    displayMode,
+    flattenHierarchy,
+    filteredItems: filteredDashboards,
+    flatFolders,
+    sortColumn,
+    sortDirection,
+    selectedItems,
+    bulkActionMode,
+    folderDialogOpen,
+    folderDialogMode,
+    editingFolder,
+    parentFolderId,
+    moveMenuAnchor,
+    movingItem: movingDashboard,
+    deleteConfirmOpen,
+    folderToDelete,
+    deletingFolder,
+    handleSelectFolder,
+    handleSelectShared,
+    handleSelectMine,
+    handleCreateFolder,
+    handleEditFolder,
+    handleDeleteFolder,
+    confirmDeleteFolder,
+    cancelDeleteFolder,
+    handleSaveFolder,
+    handleOpenMoveMenu,
+    handleCloseMoveMenu,
+    handleMoveItem: handleMoveDashboard,
+    handleToggleItem,
+    handleSelectAll,
+    handleClearSelection,
+    handleToggleBulkMode,
+    handleToggleDisplayMode,
+    handleToggleFlatten,
+    handleSort,
+    setFolderDialogOpen,
+  } = folderState;
 
   useEffect(() => {
     setPageTitle('Dashboards');
@@ -80,12 +124,7 @@ const DashboardList = () => {
 
   useEffect(() => {
     loadDashboards();
-    loadFolders();
   }, []);
-
-  useEffect(() => {
-    loadDashboards();
-  }, [viewMode]);
 
   const loadDashboards = async () => {
     try {
@@ -98,15 +137,6 @@ const DashboardList = () => {
       setError(err.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadFolders = async () => {
-    try {
-      const tree = await folderService.getFolderTree(FOLDER_TYPES.DASHBOARD);
-      setFolders(tree);
-    } catch (err) {
-      console.error('Error loading folders:', err);
     }
   };
 
@@ -128,12 +158,18 @@ const DashboardList = () => {
     }
   };
 
+  const showSnackbar = (message, severity = 'info') => {
+    setSnackbar({ open: true, message, severity });
+  };
+
   const handleDuplicate = async (dashboard) => {
     try {
-      const duplicated = await dashboardService.duplicateDashboard(dashboard.id);
-      navigate(`/dashboards/${duplicated.id}`);
+      // Backend will default to source name + " (Copy)" if no name provided
+      await dashboardService.duplicateDashboard(dashboard.id);
+      await loadDashboards();
+      showSnackbar('Dashboard duplicated successfully', 'success');
     } catch (err) {
-      setError(err.message);
+      showSnackbar('Failed to duplicate dashboard: ' + err.message, 'error');
     }
   };
 
@@ -160,133 +196,31 @@ const DashboardList = () => {
     setDashboardToDelete(null);
   };
 
-  // Folder management handlers
-  const handleSelectFolder = (folderId) => {
-    setSelectedFolderId(folderId);
-    setViewMode('all'); // Switch back to 'all' when selecting a folder
-  };
-
-  const handleSelectShared = () => {
-    setSelectedFolderId(null);
-    setViewMode('shared');
-  };
-
-  const handleSelectMine = () => {
-    setSelectedFolderId(null);
-    setViewMode('mine');
-  };
-
-  const handleCreateFolder = (parentId = null) => {
-    setParentFolderId(parentId);
-    setEditingFolder(null);
-    setFolderDialogMode('create');
-    setFolderDialogOpen(true);
-  };
-
-  const handleEditFolder = (folder) => {
-    setEditingFolder(folder);
-    setFolderDialogMode('edit');
-    setFolderDialogOpen(true);
-  };
-
-  const handleDeleteFolder = async (folder) => {
-    setFolderToDelete(folder);
-    setDeleteConfirmOpen(true);
-  };
-
-  const confirmDeleteFolder = async () => {
-    if (!folderToDelete) return;
-    
-    try {
-      setDeletingFolder(true);
-      await folderService.deleteFolder(FOLDER_TYPES.DASHBOARD, folderToDelete.id);
-      await loadFolders();
-      // If currently viewing this folder, switch to all items
-      if (selectedFolderId === folderToDelete.id) {
-        setSelectedFolderId(null);
-      }
-      setDeleteConfirmOpen(false);
-      setFolderToDelete(null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDeletingFolder(false);
-    }
-  };
-
-  const cancelDeleteFolder = () => {
-    setDeleteConfirmOpen(false);
-    setFolderToDelete(null);
-  };
-
-  const handleSaveFolder = async (folderData) => {
-    try {
-      if (folderDialogMode === 'edit' && editingFolder) {
-        await folderService.updateFolder(FOLDER_TYPES.DASHBOARD, editingFolder.id, folderData);
-      } else {
-        await folderService.createFolder(FOLDER_TYPES.DASHBOARD, folderData);
-      }
-      await loadFolders();
-      setFolderDialogOpen(false);
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  // Move dashboard to folder
-  const handleOpenMoveMenu = (event, dashboard) => {
-    setMoveMenuAnchor(event.currentTarget);
-    setMovingDashboard(dashboard);
-  };
-
-  const handleCloseMoveMenu = () => {
-    setMoveMenuAnchor(null);
-    setMovingDashboard(null);
-  };
-
-  const handleMoveDashboard = async (folderId) => {
-    try {
-      await folderService.moveItemToFolder(
-        FOLDER_TYPES.DASHBOARD,
-        movingDashboard.id,
-        folderId,
-        0
-      );
-      await loadDashboards();
-      handleCloseMoveMenu();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  // Filter dashboards by selected folder and view mode
-  const filteredDashboards = (() => {
-    if (viewMode === 'shared') {
-      return dashboards.filter(d => d.is_shared && !d.is_owner); // Show only dashboards shared with me
-    }
-    if (viewMode === 'mine') {
-      return dashboards.filter(d => d.is_owner); // Show all my dashboards regardless of folder
-    }
-    // viewMode === 'all'
-    if (selectedFolderId === null) {
-      return dashboards.filter(d => !d.folder_id); // Show only root-level dashboards
-    }
-    return dashboards.filter(d => d.folder_id === selectedFolderId);
-  })();
-
-  // Flatten folders for move menu
-  const flattenFolders = (folders, level = 0) => {
-    let result = [];
-    for (const folder of folders) {
-      result.push({ ...folder, level });
-      if (folder.children && folder.children.length > 0) {
-        result = result.concat(flattenFolders(folder.children, level + 1));
-      }
+  // Wrap folder handlers to show errors properly
+  const handleFolderSaveWithError = async (folderData) => {
+    const result = await handleSaveFolder(folderData);
+    if (!result.success) {
+      setError(result.error || 'Failed to save folder');
     }
     return result;
   };
 
-  const flatFolders = flattenFolders(folders);
+  const handleFolderDeleteWithError = async () => {
+    const result = await confirmDeleteFolder();
+    if (!result.success) {
+      setError(result.error || 'Failed to delete folder');
+    }
+  };
+
+  const handleMoveDashboardWithError = async (folderId) => {
+    const result = await handleMoveDashboard(folderId);
+    if (result.success) {
+      await loadDashboards();
+      handleCloseMoveMenu();
+    } else {
+      setError(result.error || 'Failed to move dashboard');
+    }
+  };
 
   if (loading) {
     return (
@@ -406,6 +340,66 @@ const DashboardList = () => {
           )}
         </Box>
 
+        {/* View Controls */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+          <Button
+            size="small"
+            variant={displayMode === 'card' ? 'contained' : 'outlined'}
+            startIcon={<CardViewIcon />}
+            onClick={handleToggleDisplayMode}
+          >
+            Card
+          </Button>
+          <Button
+            size="small"
+            variant={displayMode === 'table' ? 'contained' : 'outlined'}
+            startIcon={<TableViewIcon />}
+            onClick={handleToggleDisplayMode}
+          >
+            Table
+          </Button>
+          {displayMode === 'table' && (
+            <>
+              {/* Bulk mode always enabled in table view - toggle button removed but state kept for future use */}
+              <Button
+                size="small"
+                variant={flattenHierarchy ? 'contained' : 'outlined'}
+                startIcon={flattenHierarchy ? <FlattenIcon /> : <HierarchyIcon />}
+                onClick={handleToggleFlatten}
+              >
+                {flattenHierarchy ? 'Flattened' : 'Hierarchy'}
+              </Button>
+            </>
+          )}
+        </Box>
+
+        {/* Bulk Action Toolbar - always visible, greyed out when no selection */}
+        {bulkActionMode && (
+          <BulkActionToolbar
+            selectedCount={selectedItems.size}
+            onSelectAll={handleSelectAll}
+            onClearSelection={handleClearSelection}
+            onBulkMove={(e) => {
+              const selectedDashboardItems = filteredDashboards.filter(d => selectedItems.has(d.id));
+              if (selectedDashboardItems.length > 0) {
+                handleOpenMoveMenu(e, { id: 'bulk', name: 'Selected Dashboards', isBulk: true, items: selectedDashboardItems });
+              }
+            }}
+            onBulkDelete={() => {
+              const selectedDashboardItems = filteredDashboards.filter(d => selectedItems.has(d.id));
+              if (selectedDashboardItems.length > 0 && confirm(`Delete ${selectedDashboardItems.length} dashboard(s)?`)) {
+                Promise.all(selectedDashboardItems.map(d => dashboardService.deleteDashboard(d.id)))
+                  .then(() => {
+                    loadDashboards();
+                    handleClearSelection();
+                    showSnackbar(`Deleted ${selectedDashboardItems.length} dashboard(s)`, 'success');
+                  })
+                  .catch(err => showSnackbar('Error deleting dashboards: ' + err.message, 'error'));
+              }
+            }}
+          />
+        )}
+
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
           {error}
@@ -425,7 +419,6 @@ const DashboardList = () => {
               : viewMode === 'mine'
                 ? 'No dashboards created yet'
                 : (selectedFolderId ? 'No dashboards in this folder' : 'No dashboards at home level. All dashboards are in folders.')}
-            }
           </Typography>
           {can('dashboards', 'create') && viewMode !== 'shared' && (
             <Button
@@ -439,109 +432,58 @@ const DashboardList = () => {
           )}
         </Box>
       ) : (
-        <Grid container spacing={3}>
-          {filteredDashboards.map(dashboard => (
-            <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={dashboard.id}>
-              <Card 
-                sx={{ 
-                  cursor: 'pointer',
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  '&:hover': { 
-                    boxShadow: 4,
-                    transform: 'translateY(-2px)',
-                    transition: 'all 0.2s'
-                  }
-                }}
-              >
-                <CardContent 
-                  onClick={() => navigate(`/dashboards/${dashboard.id}`)}
-                  sx={{ flexGrow: 1, pb: 1 }}
-                >
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 1 }}>
-                    <Typography variant="h6" component="div" sx={{ 
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      flexGrow: 1,
-                      mr: 1
-                    }}>
-                      {dashboard.name}
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
-                      {dashboard.is_shared && (
-                        <Chip label="Shared" size="small" color="primary" />
-                      )}
-                      {viewMode === 'shared' && !dashboard.is_owner && (
-                        <Chip label="Read Only" size="small" variant="outlined" />
-                      )}
-                    </Box>
-                  </Box>
-                  {dashboard.description && (
-                    <Typography 
-                      variant="body2" 
-                      color="text.secondary" 
-                      sx={{ 
-                        mb: 2,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        minHeight: '2.5em',
-                      }}
-                      title={dashboard.description}
-                    >
-                      {dashboard.description}
-                    </Typography>
-                  )}
-                  <Typography variant="caption" color="text.secondary">
-                    {dashboard.layout?.items?.length || 0} widgets
-                  </Typography>
-                </CardContent>
-                <CardActions sx={{ pt: 0, justifyContent: 'flex-end' }}>
-                  {can('dashboards', 'update') && dashboard.is_owner && (
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenMoveMenu(e, dashboard);
-                      }}
-                      title="Move to folder"
-                    >
-                      <MoveIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                  {can('dashboards', 'create') && (
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDuplicate(dashboard);
-                      }}
-                      title="Duplicate"
-                    >
-                      <FileCopy fontSize="small" />
-                    </IconButton>
-                  )}
-                  {dashboard.is_owner && can('dashboards', 'delete') && (
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(dashboard);
-                      }}
-                      title="Delete"
-                    >
-                      <Delete fontSize="small" />
-                    </IconButton>
-                  )}
-                </CardActions>
-              </Card>
+        <>
+          {/* Card View */}
+          {displayMode === 'card' && (
+            <Grid container spacing={3}>
+              {filteredDashboards.map(dashboard => (
+                <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={dashboard.id}>
+                  <BrowserCard
+                    item={dashboard}
+                    type="dashboard"
+                    isOwner={dashboard.is_owner}
+                    viewMode={viewMode}
+                    onNavigate={(dashboard) => navigate(`/dashboards/${dashboard.id}`)}
+                    onMove={handleOpenMoveMenu}
+                    onDuplicate={handleDuplicate}
+                    onDelete={handleDelete}
+                    permissions={{
+                      canUpdate: can('dashboards', 'update'),
+                      canCreate: can('dashboards', 'create'),
+                      canDelete: can('dashboards', 'delete'),
+                    }}
+                  />
+                </Grid>
+              ))}
             </Grid>
-          ))}
-        </Grid>
+          )}
+
+          {/* Table View */}
+          {displayMode === 'table' && (
+            <BrowserTable
+              items={filteredDashboards}
+              type="dashboard"
+              selectedItems={selectedItems}
+              bulkActionMode={bulkActionMode}
+              flattenHierarchy={flattenHierarchy}
+              onToggleItem={handleToggleItem}
+              onNavigate={(dashboard) => navigate(`/dashboards/${dashboard.id}`)}
+              onMove={handleOpenMoveMenu}
+              onDuplicate={handleDuplicate}
+              onDelete={handleDelete}
+              isOwner={true}
+              viewMode={viewMode}
+              permissions={{
+                canUpdate: can('dashboards', 'update'),
+                canCreate: can('dashboards', 'create'),
+                canDelete: can('dashboards', 'delete'),
+              }}
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+            />
+          )}
+        </>
       )}
       </Box>
 
@@ -551,14 +493,14 @@ const DashboardList = () => {
         open={Boolean(moveMenuAnchor)}
         onClose={handleCloseMoveMenu}
       >
-        <MenuItem onClick={() => handleMoveDashboard(null)}>
+        <MenuItem onClick={() => handleMoveDashboardWithError(null)}>
           <ListItemIcon>
             <HomeIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText>Root (No Folder)</ListItemText>
         </MenuItem>
         {flatFolders.map((folder) => (
-          <MenuItem key={folder.id} onClick={() => handleMoveDashboard(folder.id)}>
+          <MenuItem key={folder.id} onClick={() => handleMoveDashboardWithError(folder.id)}>
             <ListItemIcon sx={{ pl: folder.level * 2 }}>
               <FolderOpenIcon fontSize="small" />
             </ListItemIcon>
@@ -615,7 +557,7 @@ const DashboardList = () => {
       <FolderDialog
         open={folderDialogOpen}
         onClose={() => setFolderDialogOpen(false)}
-        onSave={handleSaveFolder}
+        onSave={handleFolderSaveWithError}
         folder={editingFolder}
         parentFolderId={parentFolderId}
         allFolders={folders}
@@ -627,7 +569,7 @@ const DashboardList = () => {
         open={deleteConfirmOpen}
         title="Delete Folder"
         message={`Are you sure you want to delete the folder "${folderToDelete?.name}"? This action cannot be undone.`}
-        onConfirm={confirmDeleteFolder}
+        onConfirm={handleFolderDeleteWithError}
         onCancel={cancelDeleteFolder}
         loading={deletingFolder}
         confirmText="Delete"
@@ -644,6 +586,18 @@ const DashboardList = () => {
         confirmText="Delete"
         confirmColor="error"
       />
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

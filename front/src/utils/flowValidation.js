@@ -127,30 +127,11 @@ const validateNodeConfig = (node) => {
 
 /**
  * Check if nodes have required input connections
+ * Note: Unconnected nodes are allowed but won't execute
  */
 const validateConnections = (nodes, edges) => {
   const errors = [];
-  const nodeInputCounts = {};
-
-  // Count inputs per node
-  edges.forEach(edge => {
-    nodeInputCounts[edge.target] = (nodeInputCounts[edge.target] || 0) + 1;
-  });
-
-  nodes.forEach(node => {
-    const inputCount = nodeInputCounts[node.id] || 0;
-
-    // Source nodes don't need inputs
-    const sourceNodes = ['tag-input', 'constant', 'trigger-manual'];
-    // Passive nodes don't need inputs
-    const passiveNodes = ['comment'];
-    
-    // Most nodes need at least one input (except source and passive nodes)
-    if (!sourceNodes.includes(node.type) && !passiveNodes.includes(node.type) && inputCount === 0) {
-      errors.push({ nodeId: node.id, message: 'Node requires at least one input connection' });
-    }
-  });
-
+  // No longer validate input connections - unconnected nodes will simply be skipped during execution
   return errors;
 };
 

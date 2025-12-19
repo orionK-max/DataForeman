@@ -307,7 +307,88 @@ export const FlowNodeSchema = {
   inputConfiguration: {
     type: 'object',
     required: false,
-    description: 'Internal input processing configuration'
+    description: 'Internal input processing configuration (legacy, prefer ioRules)'
+  },
+
+  ioRules: {
+    type: 'array',
+    required: false,
+    description: 'Parameter-driven dynamic I/O configuration rules',
+    items: {
+      type: 'object',
+      properties: {
+        when: {
+          type: 'object',
+          description: 'Condition for rule to apply (parameter name -> value or array of values)'
+        },
+        inputs: {
+          type: 'object',
+          description: 'Input configuration for this rule',
+          properties: {
+            count: { type: 'number', description: 'Fixed input count (implies min=max=count)' },
+            min: { type: 'number', description: 'Minimum inputs' },
+            max: { type: 'number', description: 'Maximum inputs' },
+            default: { type: 'number', description: 'Default/initial input count' },
+            canAdd: { type: 'boolean', description: 'Can user add inputs?' },
+            canRemove: { type: 'boolean', description: 'Can user remove inputs?' },
+            type: { type: 'string', description: 'Type for all inputs (homogeneous mode)' },
+            typeFixed: { type: 'boolean', description: 'Is input type fixed?' },
+            required: { type: 'boolean', description: 'Are inputs required?' },
+            definitions: {
+              type: 'array',
+              description: 'Explicit list of inputs with different types (heterogeneous mode)',
+              items: {
+                type: 'object',
+                properties: {
+                  type: { type: 'string', required: true },
+                  displayName: { type: 'string' },
+                  typeFixed: { type: 'boolean' },
+                  required: { type: 'boolean' },
+                  description: { type: 'string' }
+                }
+              }
+            },
+            dynamic: {
+              type: 'object',
+              description: 'Dynamic inputs configuration (for hybrid mode with definitions)',
+              properties: {
+                min: { type: 'number' },
+                max: { type: 'number' },
+                default: { type: 'number' },
+                type: { type: 'string' },
+                typeFixed: { type: 'boolean' },
+                canAdd: { type: 'boolean' },
+                canRemove: { type: 'boolean' },
+                template: {
+                  type: 'object',
+                  properties: {
+                    displayName: { type: 'string', description: 'Template with {n} placeholder' }
+                  }
+                }
+              }
+            }
+          }
+        },
+        outputs: {
+          type: 'object',
+          description: 'Output configuration for this rule',
+          properties: {
+            count: { type: 'number', description: 'Fixed output count' },
+            min: { type: 'number', description: 'Minimum outputs' },
+            max: { type: 'number', description: 'Maximum outputs' },
+            default: { type: 'number', description: 'Default/initial output count' },
+            canAdd: { type: 'boolean', description: 'Can user add outputs?' },
+            canRemove: { type: 'boolean', description: 'Can user remove outputs?' },
+            type: { type: 'string', description: 'Type for all outputs' },
+            types: {
+              type: 'array',
+              description: 'Different type per output',
+              items: { type: 'string' }
+            }
+          }
+        }
+      }
+    }
   }
 };
 

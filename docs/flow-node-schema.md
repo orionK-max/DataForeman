@@ -1,7 +1,7 @@
 # Flow Node Schema Specification
 
 **Version:** 1.0  
-**Last Updated:** November 28, 2025  
+**Last Updated:** December 14, 2025  
 **Status:** Active Standard
 
 ---
@@ -71,17 +71,32 @@ This document defines the standard schema for Flow Studio nodes. All nodes must 
   ],
   
   // ============================================
-  // INPUT CONFIGURATION (Optional)
-  // For nodes with dynamic input count
+  // INPUT/OUTPUT CONFIGURATION (Optional)
+  // For nodes with dynamic I/O based on parameters
   // ============================================
   
-  inputConfiguration: {
-    minInputs: 2,
-    maxInputs: 10,
-    defaultInputs: 2,
-    canAddInputs: true,
-    canRemoveInputs: true
-  },
+  ioRules: [
+    {
+      // Optional condition - when to apply this rule
+      when: { operation: ['add', 'subtract'] },
+      
+      // Input configuration for this rule
+      inputs: {
+        min: 2,
+        max: 10,
+        default: 2,
+        canAdd: true,
+        canRemove: true,
+        type: 'number'
+      },
+      
+      // Output configuration (optional)
+      outputs: {
+        count: 1,  // or min/max/default like inputs
+        type: 'number'
+      }
+    }
+  ],
   
   // ============================================
   // OUTPUTS (Required, can be empty array)
@@ -1125,6 +1140,8 @@ visual: {
 
 ### Example 2: Math (Dynamic Inputs)
 
+This node uses `ioRules` for dynamic input configuration (2-10 inputs).
+
 ```javascript
 visual: {
   canvas: {
@@ -1156,8 +1173,8 @@ visual: {
     }
   ],
   handles: {
-    // Backend generates inputs array based on data.inputCount
-    inputs: [],  // Populated by backend
+    // Backend generates inputs array based on ioRules + node data
+    inputs: [],  // Populated dynamically from ioRules
     outputs: [
       { index: 0, position: 'auto', color: 'auto' }
     ]
@@ -1468,39 +1485,199 @@ inputs: []
 
 ---
 
-### Input Configuration (Dynamic Inputs)
+### I/O Rules Configuration (ioRules)
 
-Optional configuration for nodes that allow adding/removing inputs at runtime.
+The `ioRules` field provides parameter-driven dynamic I/O configuration that can adapt based on node properties.
+
+#### Basic Structure
 
 ```javascript
-inputConfiguration: {
-  minInputs: 2,          // Minimum number of inputs
-  maxInputs: 10,         // Maximum number of inputs
-  defaultInputs: 2,      // Initial number of inputs
-  canAddInputs: true,    // Can user add more inputs?
-  canRemoveInputs: true  // Can user remove inputs?
+ioRules: [
+  {
+    when: { /* condition */ },  // Optional: when this rule applies
+    inputs: { /* input config */ },   // Optional: input configuration
+    outputs: { /* output config */ }  // Optional: output configuration
+  }
+]
+```
+
+#### Rule Matching
+
+- Rules are evaluated in order
+- First matching rule is used
+- `when` clause checks node properties (e.g., `{ operation: 'add' }` or `{ operation: ['add', 'subtract'] }`)
+- If no `when` clause, rule always matches (use as default/fallback)
+
+#### Input/Output Configuration Options
+
+**Fixed Count:**
+```javascript
+inputs: {
+  count: 2,           // Exactly 2 inputs (implies min=max=2)
+  type: 'number'      // Type for all inputs
 }
 ```
 
-**When to use:**
-- Math operations that accept variable number of operands
-- Aggregation nodes
-- Concatenation nodes
+**Variable Count:**
+```javascript
+inputs: {
+  min: 2,             // Minimum inputs
+  max: 10,            // Maximum inputs
+  default: 2,         // Initial/default count
+  canAdd: true,       // User can add inputs?
+  canRemove: true,    // User can remove inputs?
+  type: 'number'      // Type for all inputs
+}
+```
 
-**Example: Math Node**
+**Same options apply to `outputs` configuration.**
+
+#### Example 1: Homogeneous (Same rules always)
+
+**Math Node** - All operations use 2-10 inputs:
+
 ```javascript
 inputs: [
   { type: 'number', displayName: 'Input 1', required: true },
   { type: 'number', displayName: 'Input 2', required: true }
 ],
-inputConfiguration: {
-  minInputs: 2,
-  maxInputs: 10,
-  defaultInputs: 2,
-  canAddInputs: true,
-  canRemoveInputs: true
-}
+ioRules: [
+  {
+    inputs: {
+      min: 2,
+      max: 10,
+      default: 2,
+      canAdd: true,
+      canRemove: true,
+      type: 'number'
+    }
+  }
+],
+properties: [
+  {
+    displayName: 'Operation',
+    name: 'operation',
+    type: 'options',
+    options: [
+      { name: 'Add', value: 'add' },
+      { name: 'Subtract', value: 'subtract' },
+      { name: 'Multiply', value: 'multiply' }
+    ],
+    default: 'add'
+  }
+]
 ```
+
+#### Example 2: Heterogeneous (Operation-dependent)
+
+**Boolean Logic Node** - Different I/O for different operations:
+
+```javascript
+inputs: [
+  { type: 'boolean', displayName: 'Input', required: true }
+],
+ioRules: [
+  {
+    when: { operation: 'NOT' },
+    inputs: { count: 1, type: 'boolean' }
+  },
+  {
+    when: { operation: ['AND', 'OR', 'NAND', 'NOR'] },
+    inputs: {
+      min: 2,
+      max: 10,
+      default: 2,
+      canAdd: true,
+      canRemove: true,
+      type: 'boolean'
+    }
+  },
+  {
+    when: { operation: 'XOR' },
+    inputs: { min: 2, max: 2, default: 2, type: 'boolean' }
+  }
+],
+properties: [
+  {
+    displayName: 'Operation',
+    name: 'operation',
+    type: 'options',
+    options: [
+      { name: 'AND', value: 'AND' },
+      { name: 'OR', value: 'OR' },
+      { name: 'NOT', value: 'NOT' },
+      { name: 'XOR', value: 'XOR' }
+    ],
+    default: 'AND'
+  }
+]
+```
+
+#### Example 3: String Operations (Multiple inputs for some operations)
+
+**String Ops Node** - Concat needs multiple inputs, others need one:
+
+```javascript
+inputs: [
+  { type: 'string', displayName: 'Input', required: true }
+],
+ioRules: [
+  {
+    when: { operation: ['concat', 'join'] },
+    inputs: {
+      min: 2,
+      max: 5,
+      default: 2,
+      canAdd: true,
+      canRemove: true,
+      type: 'string'
+    }
+  },
+  {
+    // Default: single input for all other operations
+    inputs: { count: 1, type: 'string' }
+  }
+]
+```
+
+#### Example 4: Output Configuration
+
+**Switch Node** - Variable outputs based on cases:
+
+```javascript
+inputs: [
+  { type: 'main', displayName: 'Value', required: true }
+],
+outputs: [
+  { type: 'main', displayName: 'Case 1' },
+  { type: 'main', displayName: 'Case 2' },
+  { type: 'main', displayName: 'Default' }
+],
+ioRules: [
+  {
+    inputs: { count: 1, type: 'main' },
+    outputs: {
+      min: 2,   // At least 1 case + 1 default
+      max: 11,  // 10 cases + 1 default
+      default: 3,
+      canAdd: true,
+      canRemove: true,
+      type: 'main'
+    }
+  }
+]
+```
+
+#### When to Use ioRules
+
+**Use ioRules when:**
+- Node has variable number of inputs or outputs
+- I/O configuration depends on node properties (e.g., operation type)
+- Different operations need different I/O patterns
+
+**Skip ioRules when:**
+- Node has fixed inputs and outputs that never change
+- Example: ComparisonNode always has 2 inputs, 1 output
 
 ---
 
@@ -1557,6 +1734,29 @@ Array of configuration parameters for the node.
 
 ## Property Types
 
+### Parameter Exposure
+
+All property types support runtime exposure for parameterized execution:
+
+```javascript
+{
+  name: 'filePath',
+  displayName: 'File Path',
+  type: 'string',
+  required: true,
+  description: 'Path to input file',
+  userExposable: true,  // Allows users to expose this parameter at runtime
+  exposureDefaults: {   // Default values when exposed
+    displayName: 'Input File',
+    description: 'File to process'
+  }
+}
+```
+
+- **userExposable**: Set to `true` to allow users to expose this parameter for runtime configuration
+- **exposureDefaults**: Default display name and description when parameter is exposed
+- Parameters marked as `userExposable: false` (or omitted) cannot be exposed
+
 ### 1. String
 
 Basic text input.
@@ -1569,7 +1769,8 @@ Basic text input.
   default: '',
   required: false,
   description: 'Name for the tag',
-  placeholder: 'e.g., Temperature_Sensor_1'
+  placeholder: 'e.g., Temperature_Sensor_1',
+  userExposable: false  // This parameter cannot be exposed (optional, default: false)
 }
 ```
 
@@ -1882,7 +2083,7 @@ description: {
 }
 ```
 
-### Example 2: Processing Node (Inputs + Outputs)
+### Example 2: Processing Node with Dynamic I/O
 
 ```javascript
 description: {
@@ -1908,13 +2109,19 @@ description: {
     }
   ],
   
-  inputConfiguration: {
-    minInputs: 2,
-    maxInputs: 10,
-    defaultInputs: 2,
-    canAddInputs: true,
-    canRemoveInputs: true
-  },
+  // Dynamic I/O configuration
+  ioRules: [
+    {
+      inputs: {
+        min: 2,
+        max: 10,
+        default: 2,
+        canAdd: true,
+        canRemove: true,
+        type: 'number'
+      }
+    }
+  ],
   
   outputs: [
     {
@@ -2041,6 +2248,93 @@ description: {
         }
       ],
       description: 'What to output when condition is false'
+    }
+  ]
+}
+```
+
+### Example 5: Operation-Dependent I/O (Heterogeneous ioRules)
+
+```javascript
+description: {
+  schemaVersion: 1,
+  displayName: 'Boolean Logic',
+  name: 'boolean-logic',
+  version: 1,
+  description: 'Perform boolean logic operations (AND, OR, NOT, XOR, etc.)',
+  category: 'LOGIC_MATH',
+  section: 'LOGIC',
+  icon: '🔣',
+  color: '#673AB7',
+  
+  inputs: [
+    {
+      type: 'boolean',
+      displayName: 'Input',
+      required: true
+    }
+  ],
+  
+  // Heterogeneous ioRules - different I/O based on operation
+  ioRules: [
+    {
+      // NOT operation needs exactly 1 input
+      when: { operation: 'NOT' },
+      inputs: {
+        count: 1,
+        type: 'boolean'
+      }
+    },
+    {
+      // AND, OR, NAND, NOR need 2-10 inputs
+      when: { operation: ['AND', 'OR', 'NAND', 'NOR'] },
+      inputs: {
+        min: 2,
+        max: 10,
+        default: 2,
+        canAdd: true,
+        canRemove: true,
+        type: 'boolean'
+      }
+    },
+    {
+      // XOR needs exactly 2 inputs (cannot add/remove)
+      when: { operation: 'XOR' },
+      inputs: {
+        min: 2,
+        max: 2,
+        default: 2,
+        canAdd: false,
+        canRemove: false,
+        type: 'boolean'
+      }
+    }
+  ],
+  
+  outputs: [
+    {
+      type: 'boolean',
+      displayName: 'Result',
+      description: 'Boolean operation result'
+    }
+  ],
+  
+  properties: [
+    {
+      name: 'operation',
+      displayName: 'Operation',
+      type: 'options',
+      default: 'AND',
+      required: true,
+      options: [
+        { name: 'AND', value: 'AND' },
+        { name: 'OR', value: 'OR' },
+        { name: 'NOT', value: 'NOT' },
+        { name: 'XOR', value: 'XOR' },
+        { name: 'NAND', value: 'NAND' },
+        { name: 'NOR', value: 'NOR' }
+      ],
+      description: 'Boolean operation to perform'
     }
   ]
 }
@@ -2324,6 +2618,22 @@ Condition ──> Gate (mode: previous) ──> Tag Output
 - Put most important properties first
 - Use `displayOptions` to reduce clutter
 
+### I/O Configuration
+
+- **Use `ioRules`** for nodes with dynamic I/O
+- Prefer homogeneous rules when all operations need the same I/O
+- Use heterogeneous rules (with `when` conditions) when operations have different requirements
+- Always provide a default/fallback rule (no `when` clause) as the last rule
+- Keep `min` reasonable (typically 1-2), don't make it harder than needed
+- Set `max` based on practical limits (10 is usually sufficient)
+- Use `count` for fixed I/O instead of `min`/`max` when inputs/outputs cannot vary
+
+**Example decision tree:**
+- Fixed I/O? → Just use `inputs`/`outputs` arrays, no ioRules needed
+- Same I/O for all operations? → Use homogeneous ioRules (one rule, no `when`)
+- Different I/O per operation? → Use heterogeneous ioRules (multiple rules with `when`)
+- Need variable outputs? → Use `outputs` field in ioRules
+
 ---
 
 ## FAQ
@@ -2366,6 +2676,39 @@ Frontend can check this and load custom component.
 2. Use `displayOptions` to show/hide conditionally
 3. Split into multiple simpler nodes
 4. Consider if configuration should be in flow settings instead
+
+### Q: How do I make operation-dependent I/O with ioRules?
+
+**A:** Use multiple rules with `when` clauses:
+```javascript
+ioRules: [
+  {
+    when: { operation: 'NOT' },
+    inputs: { count: 1, type: 'boolean' }
+  },
+  {
+    when: { operation: ['AND', 'OR'] },
+    inputs: { min: 2, max: 10, default: 2, type: 'boolean' }
+  },
+  {
+    // Fallback for any other operation
+    inputs: { count: 1, type: 'boolean' }
+  }
+]
+```
+
+### Q: Can I use ioRules for outputs?
+
+**A:** Yes! Use the `outputs` field in ioRules:
+```javascript
+ioRules: [
+  {
+    inputs: { count: 1 },
+    outputs: { min: 2, max: 11, default: 3, canAdd: true }
+  }
+]
+```
+See SwitchNode for a complete example.
 
 ---
 

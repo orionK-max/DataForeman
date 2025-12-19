@@ -596,6 +596,12 @@ If you're a regular user just wanting to use DataForeman, you can stop reading h
 - Nodes read tag values from in-memory cache for zero-latency execution
 - Results can be written back to internal tags or device tags
 
+**Quality Codes:**
+- **0** = Good quality (standard across all drivers)
+- **1+** = Bad/uncertain quality (simple approach for non-OPC drivers)
+- **OPC UA**: Native 32-bit statusCode values passed through (0 = Good, higher = various statuses)
+- All flow nodes and storage preserve quality information
+
 ### Project Structure
 
 - **front**: React + Material UI frontend (port 5174)

@@ -11,7 +11,8 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { nodeTypes as coreNodeTypes, buildNodeTypes } from '../components/FlowEditor/CustomNodes';
-import { getAllNodeTypes } from '../constants/nodeTypes';
+import { getAllNodeTypes, getNodeMetadata } from '../constants/nodeTypes';
+import { getRequiredInputAdjustment, getInputConfig, parseInputConfig, generateOutputs, generateInputs } from '../utils/ioRulesUtils';
 import { validateForSave, validateForDeploy } from '../utils/flowValidation';
 import {
   Box,
@@ -56,8 +57,8 @@ import {
   Download as DownloadIcon,
   Stop as StopIcon,
 } from '@mui/icons-material';
-import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder, updateFlowParameters } from '../services/flowsApi';
-import { getNodeMetadata, getBackendMetadata, fetchBackendNodeMetadata } from '../constants/nodeTypes';
+import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder, updateFlowParameters, executeNodeAction } from '../services/flowsApi';
+import { getBackendMetadata, fetchBackendNodeMetadata } from '../constants/nodeTypes';
 import NodeBrowser from '../components/FlowEditor/NodeBrowser';
 import NodeConfigPanel from '../components/FlowEditor/NodeConfigPanel';
 import NodeDetailsPanel from '../components/FlowEditor/NodeDetailsPanel';
@@ -105,8 +106,13 @@ const FlowEditor = () => {
   const [showLiveValues, setShowLiveValues] = useState(false); // Toggle live values display on nodes
   const [resourceMonitorOpen, setResourceMonitorOpen] = useState(false); // Resource monitor dialog
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track unsaved changes
+  const [autoSave, setAutoSave] = useState(() => {
+    const saved = localStorage.getItem('df_flow_autosave');
+    return saved !== null ? saved === 'true' : true; // Default to true
+  });
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const autoSaveTimerRef = useRef(null);
 
   // Build dynamic nodeTypes from backend metadata (already loaded by App.jsx)
   // This creates React components for all node types (core + library nodes)
@@ -138,6 +144,69 @@ const FlowEditor = () => {
       setHasUnsavedChanges(true);
     }
   }, [onNodesChange]);
+
+  // Validate all existing edges and mark invalid ones
+  const validateEdges = useCallback(() => {
+    setEdges(currentEdges => 
+      currentEdges.map(edge => {
+        const sourceNode = nodes.find(n => n.id === edge.source);
+        const targetNode = nodes.find(n => n.id === edge.target);
+        
+        if (!sourceNode || !targetNode) {
+          return { ...edge, data: { ...edge.data, isInvalid: true } };
+        }
+        
+        const sourceMetadata = getBackendMetadata(sourceNode.type);
+        const targetMetadata = getBackendMetadata(targetNode.type);
+        
+        if (!sourceMetadata || !targetMetadata) {
+          return { ...edge, data: { ...edge.data, isInvalid: false } };
+        }
+        
+        // Generate actual outputs and inputs based on current node configuration
+        const sourceOutputs = generateOutputs(sourceMetadata, sourceNode.data || {});
+        const targetHandleIndex = edge.targetHandle ? parseInt(edge.targetHandle.split('-')[1]) : 0;
+        const targetInputs = generateInputs(targetMetadata, targetNode.data || {});
+        
+        // Check if connection is valid
+        if (!sourceOutputs || sourceOutputs.length === 0 || 
+            !targetInputs || targetInputs.length === 0 || 
+            !targetInputs[targetHandleIndex]) {
+          return { ...edge, data: { ...edge.data, isInvalid: true } };
+        }
+        
+        const sourceType = sourceOutputs[0].type;
+        const targetType = targetInputs[targetHandleIndex].type;
+        
+        // Type compatibility check (same logic as isValidConnection)
+        let isCompatible = true;
+        if (sourceType !== targetType && 
+            sourceType !== 'main' && 
+            targetType !== 'any' && 
+            targetType !== 'string') {
+          if (targetType === 'number' && sourceType !== 'number') isCompatible = false;
+          if (targetType === 'boolean' && sourceType !== 'boolean') isCompatible = false;
+          if (sourceType === 'trigger' && targetType !== 'trigger') isCompatible = false;
+        }
+        
+        return { 
+          ...edge, 
+          data: { ...edge.data, isInvalid: !isCompatible },
+          style: !isCompatible ? {
+            stroke: '#ef4444',
+            strokeWidth: 1.5,
+            filter: 'drop-shadow(0 0 6px rgba(239, 68, 68, 0.9))'
+          } : undefined,
+          className: !isCompatible ? 'invalid-edge' : undefined
+        };
+      })
+    );
+  }, [nodes, setEdges]);
+
+  // Validate edges whenever nodes change
+  useEffect(() => {
+    validateEdges();
+  }, [nodes, validateEdges]);
 
   // Wrap onEdgesChange to detect edge removals
   const handleEdgesChange = useCallback((changes) => {
@@ -323,6 +392,32 @@ const FlowEditor = () => {
     }
   }, []);
 
+  // Save autoSave preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('df_flow_autosave', autoSave.toString());
+  }, [autoSave]);
+
+  // Auto-save when changes are detected
+  useEffect(() => {
+    if (autoSave && hasUnsavedChanges) {
+      // Clear existing timer
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+      
+      // Debounce auto-save by 2 seconds
+      autoSaveTimerRef.current = setTimeout(() => {
+        handleSave(true); // Pass true to indicate auto-save
+      }, 2000);
+    }
+    
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [autoSave, hasUnsavedChanges, nodes, edges]);
+
   // Save log panel position to localStorage
   const handleLogPanelPositionChange = (newPosition) => {
     setLogPanelPosition(newPosition);
@@ -498,7 +593,7 @@ const FlowEditor = () => {
   };
 
   // Save flow
-  const handleSave = async () => {
+  const handleSave = async (isAutoSave = false) => {
     try {
       // First, clean up nodes to remove invalid exposed parameters
       const cleanedNodes = nodes.map(node => {
@@ -578,7 +673,9 @@ const FlowEditor = () => {
       }
       
       setHasUnsavedChanges(false); // Clear unsaved changes after save
-      showSnackbar('Flow saved successfully', 'success');
+      if (!isAutoSave) {
+        showSnackbar('Flow saved successfully', 'success');
+      }
       
       // Show warnings if any
       if (validation.warnings.length > 0) {
@@ -909,6 +1006,45 @@ const FlowEditor = () => {
     }
   };
 
+  // Handle node action (e.g., Regen ID, Create sibling)
+  const handleNodeAction = async (node, actionName) => {
+    if (!flow || !node) return;
+
+    try {
+      const result = await executeNodeAction(flow.id, node.id, actionName, node.data);
+      
+      // Handle config update
+      if (result.configUpdate) {
+        // Update the node data
+        setNodes((nds) =>
+          nds.map((n) => {
+            if (n.id === node.id) {
+              return { ...n, data: { ...n.data, ...result.configUpdate } };
+            }
+            return n;
+          })
+        );
+        setHasUnsavedChanges(true);
+        showSnackbar('Node configuration updated', 'success');
+      }
+
+      // Handle create node
+      if (result.createNode) {
+        const newNode = {
+          id: `${result.createNode.type}-${crypto.randomUUID()}`,
+          type: result.createNode.type,
+          position: result.createNode.position,
+          data: result.createNode.config || {}
+        };
+        setNodes((nds) => nds.concat(newNode));
+        setHasUnsavedChanges(true);
+        showSnackbar('Sibling node created', 'success');
+      }
+    } catch (error) {
+      showSnackbar('Failed to execute action: ' + error.message, 'error');
+    }
+  };
+
   // Pin data to node
   const handlePinData = async (nodeId, data) => {
     try {
@@ -983,6 +1119,33 @@ const FlowEditor = () => {
     }
   };
 
+  // Helper function to check type compatibility (without showing errors)
+  const checkTypeCompatibility = useCallback((sourceType, targetType) => {
+    // Same type is always valid
+    if (sourceType === targetType) return true;
+    
+    // 'main' type (generic data from tag nodes) can connect to any specific type
+    if (sourceType === 'main') return true;
+    
+    // 'any' target type can accept anything
+    if (targetType === 'any') return true;
+    
+    // String target is flexible - can accept most types
+    if (targetType === 'string') return true;
+    
+    // Number target can accept number only
+    if (targetType === 'number' && sourceType !== 'number') return false;
+    
+    // Boolean target can accept boolean only
+    if (targetType === 'boolean' && sourceType !== 'boolean') return false;
+    
+    // Trigger type should only connect to trigger inputs
+    if (sourceType === 'trigger' && targetType !== 'trigger') return false;
+    
+    // Default: allow connection
+    return true;
+  }, []);
+
   // Validate connection compatibility
   const isValidConnection = useCallback((connection) => {
     const sourceNode = nodes.find(n => n.id === connection.source);
@@ -999,35 +1162,29 @@ const FlowEditor = () => {
     
     if (!sourceMetadata || !targetMetadata) return true; // Allow if metadata not available
     
-    // Get output type from source (always uses sourceHandle which is just 'source')
-    // Handle both array format ([...]) and object format ({value: {...}, quality: {...}})
-    let sourceOutput;
-    if (Array.isArray(sourceMetadata.outputs)) {
-      sourceOutput = sourceMetadata.outputs[0];
-    } else if (sourceMetadata.outputs && typeof sourceMetadata.outputs === 'object') {
-      // For object format, get first value
-      const outputKeys = Object.keys(sourceMetadata.outputs);
-      sourceOutput = outputKeys.length > 0 ? sourceMetadata.outputs[outputKeys[0]] : undefined;
-    }
+    // Generate actual outputs based on ioRules and node configuration
+    const sourceOutputs = generateOutputs(sourceMetadata, sourceNode.data || {});
     
-    if (!sourceOutput) {
+    if (!sourceOutputs || sourceOutputs.length === 0) {
       showSnackbar('Cannot connect: source node has no output', 'error');
       return false;
     }
     
+    // Get the first output (or use sourceHandle if specified in the future)
+    const sourceOutput = sourceOutputs[0];
+    
     // Get input type from target using targetHandle (e.g., 'input-0', 'input-1')
     const targetHandleIndex = connection.targetHandle ? parseInt(connection.targetHandle.split('-')[1]) : 0;
     
-    // Handle both array format ([...]) and object format ({input0: {...}, input1: {...}})
-    let targetInput;
-    if (Array.isArray(targetMetadata.inputs)) {
-      targetInput = targetMetadata.inputs[targetHandleIndex];
-    } else if (targetMetadata.inputs && typeof targetMetadata.inputs === 'object') {
-      // For object format, get the Nth value
-      const inputKeys = Object.keys(targetMetadata.inputs);
-      const key = inputKeys[targetHandleIndex];
-      targetInput = key ? targetMetadata.inputs[key] : undefined;
+    // Generate actual inputs based on ioRules and node configuration
+    const targetInputs = generateInputs(targetMetadata, targetNode.data || {});
+    
+    if (!targetInputs || targetInputs.length === 0) {
+      showSnackbar('Cannot connect: target node has no input', 'error');
+      return false;
     }
+    
+    const targetInput = targetInputs[targetHandleIndex];
     
     if (!targetInput) {
       showSnackbar('Cannot connect: target node has no input', 'error');
@@ -1038,39 +1195,20 @@ const FlowEditor = () => {
     const sourceType = sourceOutput.type;
     const targetType = targetInput.type;
     
-    // Same type is always valid
-    if (sourceType === targetType) return true;
+    const isCompatible = checkTypeCompatibility(sourceType, targetType);
     
-    // 'main' type (generic data from tag nodes) can connect to any specific type
-    if (sourceType === 'main') return true;
-    
-    // 'any' target type can accept anything
-    if (targetType === 'any') return true;
-    
-    // String target is flexible - can accept most types
-    if (targetType === 'string') return true;
-    
-    // Number target can accept number only
-    if (targetType === 'number' && sourceType !== 'number') {
-      showSnackbar(`Cannot connect: ${sourceNode.data?.name || sourceNode.type} outputs ${sourceType}, but ${targetNode.data?.name || targetNode.type} expects number`, 'error');
-      return false;
+    if (!isCompatible) {
+      if (targetType === 'number' && sourceType !== 'number') {
+        showSnackbar(`Cannot connect: ${sourceNode.data?.name || sourceNode.type} outputs ${sourceType}, but ${targetNode.data?.name || targetNode.type} expects number`, 'error');
+      } else if (targetType === 'boolean' && sourceType !== 'boolean') {
+        showSnackbar(`Cannot connect: ${sourceNode.data?.name || sourceNode.type} outputs ${sourceType}, but ${targetNode.data?.name || targetNode.type} expects boolean`, 'error');
+      } else if (sourceType === 'trigger' && targetType !== 'trigger') {
+        showSnackbar(`Cannot connect: trigger outputs cannot connect to ${targetType} inputs`, 'error');
+      }
     }
     
-    // Boolean target can accept boolean only
-    if (targetType === 'boolean' && sourceType !== 'boolean') {
-      showSnackbar(`Cannot connect: ${sourceNode.data?.name || sourceNode.type} outputs ${sourceType}, but ${targetNode.data?.name || targetNode.type} expects boolean`, 'error');
-      return false;
-    }
-    
-    // Trigger type should only connect to trigger inputs (prevents trigger -> number/boolean)
-    if (sourceType === 'trigger' && targetType !== 'trigger') {
-      showSnackbar(`Cannot connect: trigger outputs cannot connect to ${targetType} inputs`, 'error');
-      return false;
-    }
-    
-    // Default: allow connection
-    return true;
-  }, [nodes, showSnackbar]);
+    return isCompatible;
+  }, [nodes, showSnackbar, checkTypeCompatibility]);
 
   // Handle edge connection
   const onConnect = useCallback((params) => {
@@ -1182,21 +1320,26 @@ const FlowEditor = () => {
 
     // Get metadata for the node type to initialize with defaults
     const metadata = getNodeMetadata(nodeType);
-    const inputCount = metadata?.inputs?.length || 0;
     
-    // Initialize node data with default values from properties
-    const initialData = {
-      // Initialize with default input count from node type metadata
-      inputCount: inputCount > 0 ? inputCount : undefined,
-    };
-    
-    // Add default values for all properties that have them
+    // Initialize node data with default values from properties FIRST
+    // This is important because ioRules matching depends on these values (e.g., operation parameter)
+    const initialData = {};
     if (metadata?.properties) {
       metadata.properties.forEach(prop => {
         if (prop.default !== undefined && prop.name) {
           initialData[prop.name] = prop.default;
         }
       });
+    }
+    
+    // Now get default input count from ioRules (parameter-driven) after properties are set
+    // Note: getInputConfig already returns parsed config, no need to parse again
+    const inputConfig = getInputConfig(metadata, initialData);
+    if (inputConfig && inputConfig.default > 0) {
+      initialData.inputCount = inputConfig.default;
+    } else if (metadata?.inputs?.length > 0) {
+      // Fallback to static input count
+      initialData.inputCount = metadata.inputs.length;
     }
     
     const newNode = {
@@ -1228,15 +1371,35 @@ const FlowEditor = () => {
 
   // Update selected node data
   const handleNodeDataChange = useCallback((newData) => {
+    // Get node metadata for ioRules checking
+    const metadata = getNodeMetadata(selectedNode.type);
+    
+    // Merge new data with existing
+    const updatedData = { ...selectedNode.data, ...newData };
+    
+    // Check if input count needs adjustment based on ioRules
+    const adjustment = getRequiredInputAdjustment(metadata, updatedData);
+    if (adjustment) {
+      // Auto-adjust inputCount if outside min/max range
+      updatedData.inputCount = adjustment.required;
+      
+      // Show notification to user
+      showSnackbar(
+        `Input count auto-adjusted to ${adjustment.required} (${adjustment.reason})`,
+        'info'
+      );
+    }
+    
+    // Update nodes
     setNodes((nds) =>
       nds.map((node) => {
         if (node.id === selectedNode.id) {
-          return { ...node, data: { ...node.data, ...newData } };
+          return { ...node, data: updatedData };
         }
         return node;
       })
     );
-    setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, ...newData } });
+    setSelectedNode({ ...selectedNode, data: updatedData });
     setHasUnsavedChanges(true); // Mark as having unsaved changes
   }, [selectedNode, setNodes]);
 
@@ -1271,7 +1434,7 @@ const FlowEditor = () => {
             {flow.name}
           </Typography>
           
-          {hasUnsavedChanges && (
+          {hasUnsavedChanges && !autoSave && (
             <Chip label="Unsaved" color="warning" size="small" sx={{ mr: 2 }} />
           )}
           
@@ -1310,6 +1473,19 @@ const FlowEditor = () => {
               >
                 Save
               </Button>
+              <Tooltip title={autoSave ? "Auto-save enabled" : "Auto-save disabled"}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={autoSave}
+                      onChange={(e) => setAutoSave(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label={<Typography variant="caption" sx={{ fontSize: '0.7rem' }}>Auto</Typography>}
+                  sx={{ ml: 0.5, mr: 0 }}
+                />
+              </Tooltip>
               {flow.execution_mode === 'continuous' && (
                 <Button
                   startIcon={flow.deployed ? <UndeployIcon /> : <DeployIcon />}
@@ -1474,6 +1650,19 @@ const FlowEditor = () => {
             sx={{ 
               flex: 1, 
               height: '100%',
+              '& .react-flow__edge.invalid-edge path': {
+                stroke: '#ef4444 !important',
+                strokeWidth: '1.5 !important'
+              },
+              '& .react-flow__edge.invalid-edge.selected path': {
+                stroke: '#dc2626 !important',
+                strokeWidth: '2.5 !important',
+                filter: 'drop-shadow(0 0 10px rgba(239, 68, 68, 1)) drop-shadow(0 0 4px rgba(239, 68, 68, 1)) !important'
+              },
+              '& .react-flow__edge.selected:not(.invalid-edge) path': {
+                stroke: '#555',
+                strokeWidth: 2.5
+              }
             }}
           >
             <ReactFlow
@@ -1504,8 +1693,10 @@ const FlowEditor = () => {
           {selectedNode && (
             <NodeConfigPanel
               node={selectedNode}
+              flow={flow}
               onDataChange={handleNodeDataChange}
               onClose={() => setSelectedNode(null)}
+              onNodeAction={handleNodeAction}
             />
           )}
         </Box>
@@ -1608,46 +1799,50 @@ const FlowEditor = () => {
                 Tag-output nodes will not write values. Test without affecting production data.
               </Typography>
               
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={testModeAutoExit}
-                    onChange={(e) => setTestModeAutoExit(e.target.checked)}
+              {flow.execution_mode === 'continuous' && (
+                <>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={testModeAutoExit}
+                        onChange={(e) => setTestModeAutoExit(e.target.checked)}
+                      />
+                    }
+                    label="Auto-exit test mode after timeout"
                   />
-                }
-                label="Auto-exit test mode after timeout"
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mb: 1 }}>
-                Automatically exit test mode after the specified duration.
-              </Typography>
-              
-              {testModeAutoExit && (
-                <Box sx={{ ml: 4, display: 'flex', gap: 1 }}>
-                  <TextField
-                    size="small"
-                    label="Minutes"
-                    type="number"
-                    value={testModeAutoExitMinutes}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 0;
-                      setTestModeAutoExitMinutes(Math.max(0, Math.min(60, val)));
-                    }}
-                    inputProps={{ min: 0, max: 60 }}
-                    sx={{ width: 100 }}
-                  />
-                  <TextField
-                    size="small"
-                    label="Seconds"
-                    type="number"
-                    value={testModeAutoExitSeconds}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 0;
-                      setTestModeAutoExitSeconds(Math.max(0, Math.min(59, val)));
-                    }}
-                    inputProps={{ min: 0, max: 59 }}
-                    sx={{ width: 100 }}
-                  />
-                </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mb: 1 }}>
+                    Automatically exit test mode after the specified duration.
+                  </Typography>
+                  
+                  {testModeAutoExit && (
+                    <Box sx={{ ml: 4, display: 'flex', gap: 1 }}>
+                      <TextField
+                        size="small"
+                        label="Minutes"
+                        type="number"
+                        value={testModeAutoExitMinutes}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          setTestModeAutoExitMinutes(Math.max(0, Math.min(60, val)));
+                        }}
+                        inputProps={{ min: 0, max: 60 }}
+                        sx={{ width: 100 }}
+                      />
+                      <TextField
+                        size="small"
+                        label="Seconds"
+                        type="number"
+                        value={testModeAutoExitSeconds}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          setTestModeAutoExitSeconds(Math.max(0, Math.min(59, val)));
+                        }}
+                        inputProps={{ min: 0, max: 59 }}
+                        sx={{ width: 100 }}
+                      />
+                    </Box>
+                  )}
+                </>
               )}
             </FormGroup>
           </Box>

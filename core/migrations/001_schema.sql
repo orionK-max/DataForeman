@@ -581,6 +581,7 @@ CREATE TABLE IF NOT EXISTS flows (
   logs_retention_days integer DEFAULT 30 CHECK (logs_retention_days > 0 AND logs_retention_days <= 365),
   save_usage_data boolean DEFAULT true,
   exposed_parameters jsonb DEFAULT '[]'::jsonb,
+  resource_chart_id uuid REFERENCES chart_configs(id) ON DELETE SET NULL,
   definition jsonb NOT NULL DEFAULT '{}'::jsonb,
   static_data jsonb DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -598,6 +599,7 @@ COMMENT ON COLUMN flows.logs_enabled IS 'Enable persistent log storage for this 
 COMMENT ON COLUMN flows.logs_retention_days IS 'Number of days to retain logs before automatic deletion (1-365)';
 COMMENT ON COLUMN flows.save_usage_data IS 'Save resource usage metrics (CPU, memory, scan duration) as system tags for charting';
 COMMENT ON COLUMN flows.exposed_parameters IS 'Array of parameter definitions exposed for runtime configuration. Each parameter maps to a node property.';
+COMMENT ON COLUMN flows.resource_chart_id IS 'Reference to the system chart displaying resource monitoring metrics for this flow';
 
 CREATE INDEX IF NOT EXISTS idx_flows_owner ON flows(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_flows_folder ON flows(folder_id);

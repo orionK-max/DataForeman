@@ -58,7 +58,8 @@ These are essential nodes that should be available by default in every DataForem
 **Proposed additions (3 nodes):**
 - **Manual Trigger/Switch** - Button-triggered conditional execution
   - **Status:** Legacy code exists at `core/src/nodes/triggers/ManualTriggerNode.js` (not registered)
-  - **Original behavior:** Outputs false by default, true when button pressed (continuous flows) or always true (manual flows)
+  - **Current behavior:** Outputs false by default, true when button pressed during deployment or test mode
+  - **Note:** Only works in continuous flows (manual flows use parameterized execution instead)
   - **Proposed revision:** Convert to versatile manual control with multiple behavior modes:
     - **Momentary:** Button press outputs true for one scan cycle, then false
     - **Toggle:** Button press alternates between true/false states (persisted)
@@ -70,7 +71,8 @@ These are essential nodes that should be available by default in every DataForem
     - Keep existing API endpoint `POST /api/flows/:id/trigger/:nodeId`
     - Add state persistence for toggle/multi-state modes
     - UI: In-node button with visual state indicator
-  - **Priority:** Medium - useful for testing and manual control scenarios
+    - Only enabled for deployed/test continuous flows (grayed out otherwise)
+  - **Priority:** Medium - useful for testing and manual control scenarios in continuous flows
 - **Switch/Case** - Route to different outputs based on input value
   - Multiple case values with default output
   - Essential for multi-state logic

@@ -19,13 +19,18 @@ export class MathNode extends BaseNode {
       { type: 'number', displayName: 'Input 1', required: true },
       { type: 'number', displayName: 'Input 2', required: true }
     ],
-    inputConfiguration: {
-      minInputs: 2,
-      maxInputs: 10,
-      defaultInputs: 2,
-      canAddInputs: true,
-      canRemoveInputs: true
-    },
+    ioRules: [
+      {
+        inputs: {
+          min: 2,
+          max: 10,
+          default: 2,
+          canAdd: true,
+          canRemove: true,
+          type: 'number'
+        }
+      }
+    ],
     outputs: [{ type: 'number', displayName: 'Result' }],
     visual: {
       canvas: {
@@ -89,48 +94,16 @@ export class MathNode extends BaseNode {
       {
         displayName: 'Operation',
         name: 'operation',
-        type: 'options',
+        type: 'select',
         options: [
-          {
-            name: 'Add All',
-            value: 'add',
-            description: 'Sum all input values',
-          },
-          {
-            name: 'Subtract (First - Rest)',
-            value: 'subtract',
-            description: 'Subtract all subsequent inputs from the first',
-          },
-          {
-            name: 'Multiply All',
-            value: 'multiply',
-            description: 'Multiply all input values',
-          },
-          {
-            name: 'Divide (First / Rest)',
-            value: 'divide',
-            description: 'Divide first input by all subsequent inputs',
-          },
-          {
-            name: 'Average',
-            value: 'average',
-            description: 'Calculate the average of all inputs',
-          },
-          {
-            name: 'Minimum',
-            value: 'min',
-            description: 'Find the smallest value',
-          },
-          {
-            name: 'Maximum',
-            value: 'max',
-            description: 'Find the largest value',
-          },
-          {
-            name: 'Custom Formula',
-            value: 'formula',
-            description: 'Enter your own mathematical formula',
-          },
+          { label: 'Add All', value: 'add' },
+          { label: 'Subtract (First - Rest)', value: 'subtract' },
+          { label: 'Multiply All', value: 'multiply' },
+          { label: 'Divide (First / Rest)', value: 'divide' },
+          { label: 'Average', value: 'average' },
+          { label: 'Minimum', value: 'min' },
+          { label: 'Maximum', value: 'max' },
+          { label: 'Custom Formula', value: 'formula' },
         ],
         default: 'add',
         noDataExpression: true,
@@ -149,29 +122,32 @@ export class MathNode extends BaseNode {
         },
       },
       {
-        displayName: 'Options',
-        name: 'options',
-        type: 'collection',
-        placeholder: 'Add Option',
-        default: {},
-        options: [
-          {
-            displayName: 'Decimal Places',
-            name: 'decimalPlaces',
-            type: 'number',
-            default: -1,
-            description: 'Number of decimal places to round to. -1 means no rounding.',
-          },
-          {
-            displayName: 'Skip Invalid Inputs',
-            name: 'skipInvalid',
-            type: 'boolean',
-            default: false,
-            description: 'Whether to skip inputs that are not valid numbers instead of throwing an error',
-          },
-        ],
+        displayName: 'Decimal Places',
+        name: 'decimalPlaces',
+        type: 'number',
+        default: -1,
+        description: 'Number of decimal places (-1 = no rounding)',
+        userExposable: true
+      },
+      {
+        displayName: 'Skip Invalid Inputs',
+        name: 'skipInvalid',
+        type: 'boolean',
+        default: false,
+        description: 'Skip inputs that are not valid numbers',
+        userExposable: true
       },
     ],
+
+    // Config UI structure
+    configUI: {
+      sections: [
+        {
+          type: 'property-group',
+          title: 'Configuration'
+        }
+      ]
+    }
   };
 
   /**
@@ -215,6 +191,12 @@ export class MathNode extends BaseNode {
       numValue = value.value ?? value.v_num ?? value.v_json;
     }
 
+    // Reject boolean values - use TypeConvertNode for bool->number conversion
+    if (typeof numValue === 'boolean') {
+      if (skipInvalid) return null;
+      throw new Error(`Input ${inputIndex} is a boolean. Use TypeConvertNode to convert boolean to number.`);
+    }
+
     // Convert to number
     const num = Number(numValue);
 
@@ -231,7 +213,7 @@ export class MathNode extends BaseNode {
    * Collects and validates all input values
    */
   collectInputValues(context) {
-    const skipInvalid = this.getParameter(context.node, 'options.skipInvalid', false);
+    const skipInvalid = this.getParameter(context.node, 'skipInvalid', false);
     const values = [];
     const qualities = [];
 
@@ -247,7 +229,7 @@ export class MathNode extends BaseNode {
 
       // Extract value and quality from input
       const value = inputData.value ?? inputData;
-      const quality = inputData.quality ?? 192; // Default good quality
+      const quality = inputData.quality ?? 0; // Default good quality (0 = Good in OPC UA)
 
       // Validate number
       const numValue = this.validateNumber(value, i, skipInvalid);
@@ -333,7 +315,7 @@ export class MathNode extends BaseNode {
    */
   async execute(context) {
     const operation = this.getParameter(context.node, 'operation', 'add');
-    const decimalPlaces = this.getParameter(context.node, 'options.decimalPlaces', -1);
+    const decimalPlaces = this.getParameter(context.node, 'decimalPlaces', -1);
 
     // Collect and validate all inputs
     const { values, qualities } = this.collectInputValues(context);
@@ -402,6 +384,46 @@ export class MathNode extends BaseNode {
       operation,
       inputs: values,
       timestamp: new Date().toISOString(),
+    };
+  }
+
+  static get help() {
+    return {
+      overview: "Performs mathematical operations on multiple numeric inputs with support for basic arithmetic, aggregation, and custom formulas. Handles 2-10 inputs with configurable decimal precision and quality aggregation.",
+      useCases: [
+        "Calculate total production by adding outputs from multiple machines",
+        "Compute average temperature across multiple sensors for stability monitoring",
+        "Find minimum/maximum values for threshold detection and alarming",
+        "Apply custom formulas for complex calculations (e.g., efficiency ratios, conversions)"
+      ],
+      examples: [
+        {
+          title: "Average Temperature",
+          config: { operation: "average", decimalPlaces: 1 },
+          input: { inputs: [22.3, 23.1, 22.7] },
+          output: { value: 22.7, operation: "average" }
+        },
+        {
+          title: "Production Total",
+          config: { operation: "add", decimalPlaces: 0 },
+          input: { inputs: [150, 200, 175, 225] },
+          output: { value: 750, operation: "add" }
+        },
+        {
+          title: "Custom Formula",
+          config: { operation: "formula", formula: "(inputs[0] + inputs[1]) / 2", decimalPlaces: 2 },
+          input: { inputs: [100, 50] },
+          output: { value: 75.00, operation: "formula" }
+        }
+      ],
+      tips: [
+        "Use 'average' instead of manually dividing sum by count",
+        "Custom formulas support full JavaScript math expressions (Math.sqrt, Math.pow, etc.)",
+        "Quality output uses 'worst' strategy by default - one bad input makes output bad",
+        "Add/remove inputs dynamically by adjusting input count in configuration",
+        "Decimal places apply to final result, intermediate calculations use full precision"
+      ],
+      relatedNodes: ["ClampNode", "RoundNode", "ComparisonNode"]
     };
   }
 }

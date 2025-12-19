@@ -32,14 +32,15 @@ import {
 /**
  * Single folder tree node
  */
-function FolderNode({ 
-  folder, 
-  level = 0, 
-  selectedId, 
-  onSelect, 
+function FolderNode({
+  folder,
+  level = 0,
+  selectedId,
+  onSelect,
   onEdit,
   onDelete,
   onCreateSubfolder,
+  enableFolderActions = true,
 }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = folder.children && folder.children.length > 0;
@@ -56,17 +57,17 @@ function FolderNode({
 
   const handleEdit = (e) => {
     e.stopPropagation();
-    onEdit(folder);
+    onEdit?.(folder);
   };
 
   const handleDelete = (e) => {
     e.stopPropagation();
-    onDelete(folder);
+    onDelete?.(folder);
   };
 
   const handleCreateSubfolder = (e) => {
     e.stopPropagation();
-    onCreateSubfolder(folder);
+    onCreateSubfolder?.(folder);
   };
 
   return (
@@ -81,31 +82,33 @@ function FolderNode({
           },
         }}
         secondaryAction={
-          <Box 
-            className="folder-actions"
-            sx={{ 
-              display: 'flex', 
-              gap: 0.5,
-              opacity: 0,
-              transition: 'opacity 0.2s',
-            }}
-          >
-            <Tooltip title="New subfolder">
-              <IconButton size="small" onClick={handleCreateSubfolder}>
-                <CreateNewFolderIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Edit folder">
-              <IconButton size="small" onClick={handleEdit}>
-                <EditIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Delete folder">
-              <IconButton size="small" onClick={handleDelete}>
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Box>
+          enableFolderActions ? (
+            <Box 
+              className="folder-actions"
+              sx={{ 
+                display: 'flex', 
+                gap: 0.5,
+                opacity: 0,
+                transition: 'opacity 0.2s',
+              }}
+            >
+              <Tooltip title="New subfolder">
+                <IconButton size="small" onClick={handleCreateSubfolder}>
+                  <CreateNewFolderIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Edit folder">
+                <IconButton size="small" onClick={handleEdit}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Delete folder">
+                <IconButton size="small" onClick={handleDelete}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          ) : null
         }
       >
         <ListItemButton onClick={handleSelect} sx={{ py: 0.5 }}>
@@ -144,6 +147,7 @@ function FolderNode({
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onCreateSubfolder={onCreateSubfolder}
+                enableFolderActions={enableFolderActions}
               />
             ))}
           </List>
@@ -164,17 +168,19 @@ export default function FolderTree({
   onEditFolder,
   onDeleteFolder,
   showRootOption = true,
+  rootLabel = 'Home',
   showSharedOption = false,
   onSelectShared,
   isSharedView = false,
   emptyMessage = 'No folders yet',
+  enableFolderActions = true,
 }) {
   const handleSelectRoot = () => {
     onSelectFolder(null);
   };
 
   const handleCreateRootFolder = () => {
-    onCreateFolder(null); // null parent = root folder
+    onCreateFolder?.(null); // null parent = root folder
   };
 
   const handleSelectShared = () => {
@@ -201,22 +207,24 @@ export default function FolderTree({
               <HomeIcon color={selectedFolderId === null && !isSharedView ? 'primary' : 'action'} />
             </ListItemIcon>
             <ListItemText 
-              primary="Home"
+              primary={rootLabel}
               primaryTypographyProps={{
                 variant: 'body2',
                 fontWeight: selectedFolderId === null && !isSharedView ? 600 : 400,
               }}
             />
           </ListItemButton>
-          <Tooltip title="New Folder">
-            <IconButton 
-              size="small" 
-              onClick={handleCreateRootFolder}
-              sx={{ mr: 1 }}
-            >
-              <CreateNewFolderIcon fontSize="small" color="primary" />
-            </IconButton>
-          </Tooltip>
+          {enableFolderActions && (
+            <Tooltip title="New Folder">
+              <IconButton 
+                size="small" 
+                onClick={handleCreateRootFolder}
+                sx={{ mr: 1 }}
+              >
+                <CreateNewFolderIcon fontSize="small" color="primary" />
+              </IconButton>
+            </Tooltip>
+          )}
         </ListItem>
       )}
 
@@ -257,6 +265,7 @@ export default function FolderTree({
               onEdit={onEditFolder}
               onDelete={onDeleteFolder}
               onCreateSubfolder={(parent) => onCreateFolder(parent.id)}
+              enableFolderActions={enableFolderActions}
             />
           ))}
         </List>

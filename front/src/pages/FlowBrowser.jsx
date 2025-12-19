@@ -39,16 +39,25 @@ import {
   FolderOpen as FolderOpenIcon,
   People as PeopleIcon,
   Person as PersonIcon,
+  ViewModule as CardViewIcon,
+  TableRows as TableViewIcon,
+  CheckBox as BulkModeIcon,
+  AccountTree as HierarchyIcon,
+  ViewList as FlattenIcon,
 } from '@mui/icons-material';
 import { listFlows, listSharedFlows, createFlow, deleteFlow, duplicateFlow, executeFlow } from '../services/flowsApi';
 import FlowResourceMonitor from '../components/FlowEditor/FlowResourceMonitor';
 import ParameterExecutionDialog from '../components/flowStudio/ParameterExecutionDialog';
 import { useFlowResources } from '../hooks/useFlowResources';
-import folderService, { FOLDER_TYPES } from '../services/folderService';
+import { useBrowserFolders } from '../hooks/useBrowserFolders';
+import { FOLDER_TYPES } from '../services/folderService';
 import FolderTree from '../components/folders/FolderTree';
 import FolderDialog from '../components/folders/FolderDialog';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { usePageTitle } from '../contexts/PageTitleContext';
+import BrowserCard from '../components/browser/BrowserCard';
+import BrowserTable from '../components/browser/BrowserTable';
+import BulkActionToolbar from '../components/browser/BulkActionToolbar';
 import AddFlowButton from '../components/flowStudio/AddFlowButton';
 
 const FlowBrowser = () => {
@@ -57,9 +66,6 @@ const FlowBrowser = () => {
   const [tab, setTab] = useState(0);
   const [myFlows, setMyFlows] = useState([]);
   const [sharedFlows, setSharedFlows] = useState([]);
-  const [folders, setFolders] = useState([]);
-  const [selectedFolderId, setSelectedFolderId] = useState(null);
-  const [viewMode, setViewMode] = useState('all'); // 'all' | 'mine' | 'shared'
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
@@ -71,17 +77,54 @@ const FlowBrowser = () => {
   const [newFlowName, setNewFlowName] = useState('');
   const [newFlowDescription, setNewFlowDescription] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
-  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-  const [folderDialogMode, setFolderDialogMode] = useState('create');
-  const [editingFolder, setEditingFolder] = useState(null);
-  const [parentFolderId, setParentFolderId] = useState(null);
-  const [moveMenuAnchor, setMoveMenuAnchor] = useState(null);
-  const [movingFlow, setMovingFlow] = useState(null);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [folderToDelete, setFolderToDelete] = useState(null);
-  const [deletingFolder, setDeletingFolder] = useState(false);
   const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
   const [flowToExecute, setFlowToExecute] = useState(null);
+
+  // Use universal folder management hook (pass null for onReload, we'll call it manually)
+  const folderState = useBrowserFolders(FOLDER_TYPES.FLOW, myFlows, null);
+  const {
+    folders,
+    selectedFolderId,
+    viewMode,
+    displayMode,
+    flattenHierarchy,
+    filteredItems: filteredFlows,
+    flatFolders,
+    sortColumn,
+    sortDirection,
+    selectedItems,
+    bulkActionMode,
+    folderDialogOpen,
+    folderDialogMode,
+    editingFolder,
+    parentFolderId,
+    moveMenuAnchor,
+    movingItem: movingFlow,
+    deleteConfirmOpen,
+    folderToDelete,
+    deletingFolder,
+    handleSelectFolder,
+    handleSelectShared,
+    handleSelectMine,
+    handleCreateFolder,
+    handleEditFolder,
+    handleDeleteFolder,
+    confirmDeleteFolder,
+    cancelDeleteFolder,
+    handleSaveFolder,
+    handleOpenMoveMenu,
+    handleCloseMoveMenu,
+    handleMoveItem: handleMoveFlow,
+    handleToggleItem,
+    handleSelectAll,
+    handleClearSelection,
+    handleToggleBulkMode,
+    handleToggleDisplayMode,
+    handleToggleFlatten,
+    handleSort,
+    setFolderDialogOpen,
+    setError: setFolderError,
+  } = folderState;
 
   const { data: resourceData, loading: resourceLoading, refetch: refetchResources } = useFlowResources(
     selectedFlow?.id,
@@ -96,12 +139,7 @@ const FlowBrowser = () => {
 
   useEffect(() => {
     loadFlows();
-    loadFolders();
   }, []);
-
-  useEffect(() => {
-    loadFlows();
-  }, [viewMode]);
 
   const loadFlows = async () => {
     try {
@@ -113,15 +151,6 @@ const FlowBrowser = () => {
       setSharedFlows(sharedData.flows || []);
     } catch (error) {
       showSnackbar('Failed to load flows: ' + error.message, 'error');
-    }
-  };
-
-  const loadFolders = async () => {
-    try {
-      const tree = await folderService.getFolderTree(FOLDER_TYPES.FLOW);
-      setFolders(tree);
-    } catch (err) {
-      console.error('Error loading folders:', err);
     }
   };
 
@@ -201,270 +230,38 @@ const FlowBrowser = () => {
     showSnackbar(`Flow execution started (Job ID: ${result.jobId})`, 'success');
   };
 
-  // Folder management handlers
-  const handleSelectFolder = (folderId) => {
-    setSelectedFolderId(folderId);
-    setViewMode('all');
-  };
-
-  const handleSelectShared = () => {
-    setSelectedFolderId(null);
-    setViewMode('shared');
-  };
-
-  const handleSelectMine = () => {
-    setSelectedFolderId(null);
-    setViewMode('mine');
-  };
-
-  const handleCreateFolder = (parentId = null) => {
-    setParentFolderId(parentId);
-    setEditingFolder(null);
-    setFolderDialogMode('create');
-    setFolderDialogOpen(true);
-  };
-
-  const handleEditFolder = (folder) => {
-    setEditingFolder(folder);
-    setFolderDialogMode('edit');
-    setFolderDialogOpen(true);
-  };
-
-  const handleDeleteFolder = async (folder) => {
-    setFolderToDelete(folder);
-    setDeleteConfirmOpen(true);
-  };
-
-  const confirmDeleteFolder = async () => {
-    if (!folderToDelete) return;
-    
-    try {
-      setDeletingFolder(true);
-      await folderService.deleteFolder(FOLDER_TYPES.FLOW, folderToDelete.id);
-      await loadFolders();
-      if (selectedFolderId === folderToDelete.id) {
-        setSelectedFolderId(null);
-      }
-      setDeleteConfirmOpen(false);
-      setFolderToDelete(null);
-    } catch (err) {
-      showSnackbar('Failed to delete folder: ' + err.message, 'error');
-    } finally {
-      setDeletingFolder(false);
-    }
-  };
-
-  const cancelDeleteFolder = () => {
-    setDeleteConfirmOpen(false);
-    setFolderToDelete(null);
-  };
-
-  const handleSaveFolder = async (folderData) => {
-    try {
-      if (folderDialogMode === 'edit' && editingFolder) {
-        await folderService.updateFolder(FOLDER_TYPES.FLOW, editingFolder.id, folderData);
-      } else {
-        await folderService.createFolder(FOLDER_TYPES.FLOW, folderData);
-      }
-      await loadFolders();
-      setFolderDialogOpen(false);
-    } catch (err) {
-      showSnackbar('Failed to save folder: ' + err.message, 'error');
-    }
-  };
-
-  // Move flow to folder
-  const handleOpenMoveMenu = (event, flow) => {
-    event.stopPropagation();
-    setMovingFlow(flow);
-    setMoveMenuAnchor(true); // Just use boolean for dialog
-  };
-
-  const handleCloseMoveMenu = () => {
-    setMoveMenuAnchor(false);
-    setMovingFlow(null);
-  };
-
-  const handleMoveFlow = async (folderId) => {
-    try {
-      await folderService.moveItemToFolder(
-        FOLDER_TYPES.FLOW,
-        movingFlow.id,
-        folderId,
-        0
-      );
-      await loadFlows();
-      handleCloseMoveMenu();
-    } catch (err) {
-      showSnackbar('Failed to move flow: ' + err.message, 'error');
-    }
-  };
-
-  // Filter flows by selected folder and view mode
-  const filteredFlows = (() => {
-    if (viewMode === 'shared') {
-      return sharedFlows;
-    }
-    if (viewMode === 'mine') {
-      return myFlows; // Show all my flows regardless of folder
-    }
-    // viewMode === 'all'
-    if (selectedFolderId === null) {
-      return myFlows.filter(f => f.folder_id === null || f.folder_id === undefined); // Show only root-level flows
-    }
-    return myFlows.filter(f => f.folder_id === selectedFolderId);
-  })();
-
-  // Flatten folders for move menu
-  const flattenFolders = (folders, level = 0) => {
-    let result = [];
-    for (const folder of folders) {
-      result.push({ ...folder, level });
-      if (folder.children && folder.children.length > 0) {
-        result = result.concat(flattenFolders(folder.children, level + 1));
-      }
+  // Wrap folder error handler to show snackbar
+  const handleFolderSaveWithSnackbar = async (folderData) => {
+    const result = await handleSaveFolder(folderData);
+    if (result.success) {
+      showSnackbar('Folder saved successfully', 'success');
+    } else {
+      showSnackbar(result.error || 'Failed to save folder', 'error');
     }
     return result;
   };
 
-  const flatFolders = flattenFolders(folders);
+  const handleFolderDeleteWithSnackbar = async () => {
+    const result = await confirmDeleteFolder();
+    if (result.success) {
+      showSnackbar('Folder deleted successfully', 'success');
+    } else {
+      showSnackbar(result.error || 'Failed to delete folder', 'error');
+    }
+  };
 
-  const FlowCard = ({ flow, isOwner }) => (
-    <Card 
-      sx={{ 
-        cursor: 'pointer',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        '&:hover': { 
-          boxShadow: 4,
-          transform: 'translateY(-2px)',
-          transition: 'all 0.2s'
-        }
-      }}
-    >
-      <CardContent 
-        onClick={() => navigate(`/flows/${flow.id}`)}
-        sx={{ flexGrow: 1, pb: 1 }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, gap: 0.5 }}>
-          <Typography 
-            variant="h6" 
-            sx={{ 
-              flexGrow: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              mr: 1
-            }}
-          >
-            {flow.name}
-          </Typography>
-          {flow.execution_mode === 'manual' ? (
-            <Chip 
-              icon={<RunIcon />} 
-              label="Manual" 
-              size="small" 
-              color="info"
-              title="On-demand execution"
-            />
-          ) : (
-            flow.deployed ? (
-              <Chip icon={<DeployedIcon />} label="Deployed" size="small" color="primary" />
-            ) : (
-              <Chip icon={<UndeployedIcon />} label="Not Deployed" size="small" />
-            )
-          )}
-        </Box>
-        
-        <Typography 
-          variant="body2" 
-          color="text.secondary" 
-          gutterBottom
-          sx={{
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            minHeight: '2.5em',
-          }}
-          title={flow.description || 'No description'}
-        >
-          {flow.description || 'No description'}
-        </Typography>
-        
-        {flow.shared && !isOwner && (
-          <Chip label="Shared" size="small" sx={{ mt: 1 }} />
-        )}
-      </CardContent>
-      
-      <CardActions sx={{ pt: 0, justifyContent: 'flex-end', px: 2, pb: 2 }}>
-        {flow.execution_mode === 'manual' && (
-          <Button
-            size="small"
-            variant="contained"
-            color="primary"
-            startIcon={<RunIcon />}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleExecuteFlow(flow);
-            }}
-          >
-            Execute
-          </Button>
-        )}
-        {flow.deployed && flow.execution_mode === 'continuous' && (
-          <IconButton 
-            size="small" 
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenResourceMonitor(flow);
-            }}
-            title="View Resource Monitor"
-          >
-            <ResourceIcon fontSize="small" />
-          </IconButton>
-        )}
-        {isOwner && viewMode !== 'shared' && (
-          <IconButton 
-            size="small" 
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenMoveMenu(e, flow);
-            }}
-            title="Move to folder"
-          >
-            <MoveIcon fontSize="small" />
-          </IconButton>
-        )}
-        {isOwner && (
-          <>
-            <IconButton 
-              size="small" 
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDuplicateFlow(flow);
-              }}
-              title="Duplicate"
-            >
-              <DuplicateIcon fontSize="small" />
-            </IconButton>
-            <IconButton 
-              size="small" 
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDeleteFlow(flow);
-              }}
-              title="Delete"
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </>
-        )}
-      </CardActions>
-    </Card>
-  );
+  const handleMoveFlowWithSnackbar = async (folderId) => {
+    const result = await handleMoveFlow(folderId);
+    if (result.success) {
+      await loadFlows();
+      showSnackbar('Flow moved successfully', 'success');
+    } else {
+      showSnackbar(result.error || 'Failed to move flow', 'error');
+    }
+  };
+
+  // Combine hook's filtered items with shared flows for "shared" view
+  const displayFlows = viewMode === 'shared' ? sharedFlows : filteredFlows;
 
   return (
     <Box sx={{ display: 'flex', height: '100%' }}>
@@ -571,14 +368,88 @@ const FlowBrowser = () => {
           )}
         </Box>
 
-        <Grid container spacing={2}>
-          {filteredFlows.map((flow) => (
+        {/* View Controls */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+          <Button
+            size="small"
+            variant={displayMode === 'card' ? 'contained' : 'outlined'}
+            startIcon={<CardViewIcon />}
+            onClick={handleToggleDisplayMode}
+          >
+            Card
+          </Button>
+          <Button
+            size="small"
+            variant={displayMode === 'table' ? 'contained' : 'outlined'}
+            startIcon={<TableViewIcon />}
+            onClick={handleToggleDisplayMode}
+          >
+            Table
+          </Button>
+          {displayMode === 'table' && (
+            <>
+              {/* Bulk mode always enabled in table view - toggle button removed but state kept for future use */}
+              <Button
+                size="small"
+                variant={flattenHierarchy ? 'contained' : 'outlined'}
+                startIcon={flattenHierarchy ? <FlattenIcon /> : <HierarchyIcon />}
+                onClick={handleToggleFlatten}
+              >
+                {flattenHierarchy ? 'Flattened' : 'Hierarchy'}
+              </Button>
+            </>
+          )}
+        </Box>
+
+        {/* Bulk Action Toolbar - always visible, greyed out when no selection */}
+        {bulkActionMode && (
+          <BulkActionToolbar
+            selectedCount={selectedItems.size}
+            onSelectAll={handleSelectAll}
+            onClearSelection={handleClearSelection}
+            onBulkMove={(e) => {
+              // Create a pseudo-item representing all selected flows
+              const selectedFlowItems = displayFlows.filter(f => selectedItems.has(f.id));
+              if (selectedFlowItems.length > 0) {
+                handleOpenMoveMenu(e, { id: 'bulk', name: 'Selected Flows', isBulk: true, items: selectedFlowItems });
+              }
+            }}
+            onBulkDelete={() => {
+              const selectedFlowItems = displayFlows.filter(f => selectedItems.has(f.id));
+              if (selectedFlowItems.length > 0 && confirm(`Delete ${selectedFlowItems.length} flow(s)?`)) {
+                Promise.all(selectedFlowItems.map(f => deleteFlow(f.id)))
+                  .then(() => {
+                    loadFlows();
+                    handleClearSelection();
+                    showSnackbar(`Deleted ${selectedFlowItems.length} flow(s)`, 'success');
+                  })
+                  .catch(err => showSnackbar('Error deleting flows: ' + err.message, 'error'));
+              }
+            }}
+          />
+        )}
+
+        {/* Card View */}
+        {displayMode === 'card' && (
+          <Grid container spacing={2}>
+          {displayFlows.map((flow) => (
             <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={flow.id}>
-              <FlowCard flow={flow} isOwner={viewMode !== 'shared'} />
+              <BrowserCard
+                item={flow}
+                type="flow"
+                isOwner={viewMode !== 'shared'}
+                viewMode={viewMode}
+                onNavigate={(flow) => navigate(`/flows/${flow.id}`)}
+                onMove={handleOpenMoveMenu}
+                onDuplicate={handleDuplicateFlow}
+                onDelete={handleDeleteFlow}
+                onExecute={handleExecuteFlow}
+                onResourceMonitor={handleOpenResourceMonitor}
+              />
             </Grid>
           ))}
           
-          {filteredFlows.length === 0 && (
+          {displayFlows.length === 0 && (
             <Grid item xs={12}>
               <Typography color="text.secondary" align="center">
                 {viewMode === 'shared' 
@@ -591,7 +462,31 @@ const FlowBrowser = () => {
               </Typography>
             </Grid>
           )}
-        </Grid>
+          </Grid>
+        )}
+
+        {/* Table View */}
+        {displayMode === 'table' && (
+          <BrowserTable
+            items={displayFlows}
+            type="flow"
+            selectedItems={selectedItems}
+            bulkActionMode={bulkActionMode}
+            flattenHierarchy={flattenHierarchy}
+            onToggleItem={handleToggleItem}
+            onNavigate={(flow) => navigate(`/flows/${flow.id}`)}
+            onMove={handleOpenMoveMenu}
+            onDuplicate={handleDuplicateFlow}
+            onDelete={handleDeleteFlow}
+            onExecute={handleExecuteFlow}
+            onResourceMonitor={handleOpenResourceMonitor}
+            isOwner={viewMode !== 'shared'}
+            viewMode={viewMode}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+          />
+        )}
 
         {/* Move Flow Dialog */}
         <Dialog
@@ -608,7 +503,7 @@ const FlowBrowser = () => {
         >
           <DialogTitle>Move "{movingFlow?.name}" to Folder</DialogTitle>
           <DialogContent>
-            <MenuItem onClick={() => handleMoveFlow(null)} sx={{ borderRadius: 1, mb: 0.5 }}>
+            <MenuItem onClick={() => handleMoveFlowWithSnackbar(null)} sx={{ borderRadius: 1, mb: 0.5 }}>
               <ListItemIcon>
                 <HomeIcon fontSize="small" />
               </ListItemIcon>
@@ -617,7 +512,7 @@ const FlowBrowser = () => {
             {flatFolders.map((folder) => (
               <MenuItem 
                 key={folder.id} 
-                onClick={() => handleMoveFlow(folder.id)}
+                onClick={() => handleMoveFlowWithSnackbar(folder.id)}
                 sx={{ borderRadius: 1, mb: 0.5 }}
               >
                 <ListItemIcon sx={{ pl: folder.level * 2 }}>
@@ -774,7 +669,7 @@ const FlowBrowser = () => {
         <FolderDialog
           open={folderDialogOpen}
           onClose={() => setFolderDialogOpen(false)}
-          onSave={handleSaveFolder}
+          onSave={handleFolderSaveWithSnackbar}
           allFolders={folders}
           folder={editingFolder}
           parentFolderId={parentFolderId}
@@ -788,7 +683,7 @@ const FlowBrowser = () => {
           message={`Are you sure you want to delete the folder "${folderToDelete?.name}"? The folder must be empty.`}
           confirmText="Delete"
           confirmColor="error"
-          onConfirm={confirmDeleteFolder}
+          onConfirm={handleFolderDeleteWithSnackbar}
           onCancel={cancelDeleteFolder}
           loading={deletingFolder}
         />

@@ -108,16 +108,16 @@ export class ComparisonNode extends BaseNode {
       {
         name: 'operation',
         displayName: 'Operation',
-        type: 'options',
+        type: 'select',
         default: 'gt',
         required: true,
         options: [
-          { value: 'gt', name: 'Greater Than (In1 > In2)' },
-          { value: 'lt', name: 'Less Than (In1 < In2)' },
-          { value: 'gte', name: 'Greater or Equal (In1 >= In2)' },
-          { value: 'lte', name: 'Less or Equal (In1 <= In2)' },
-          { value: 'eq', name: 'Equal (In1 == In2)' },
-          { value: 'neq', name: 'Not Equal (In1 != In2)' }
+          { label: 'Greater Than (In1 > In2)', value: 'gt' },
+          { label: 'Less Than (In1 < In2)', value: 'lt' },
+          { label: 'Greater or Equal (In1 >= In2)', value: 'gte' },
+          { label: 'Less or Equal (In1 <= In2)', value: 'lte' },
+          { label: 'Equal (In1 == In2)', value: 'eq' },
+          { label: 'Not Equal (In1 != In2)', value: 'neq' }
         ],
         description: 'Comparison operator to use'
       },
@@ -126,6 +126,7 @@ export class ComparisonNode extends BaseNode {
         displayName: 'Equality Tolerance',
         type: 'number',
         default: null,
+        userExposable: true,
         displayOptions: {
           show: {
             operation: ['eq', 'neq']
@@ -133,7 +134,17 @@ export class ComparisonNode extends BaseNode {
         },
         description: 'Tolerance for equality comparisons (leave empty for Number.EPSILON)'
       }
-    ]
+    ],
+
+    // Config UI structure
+    configUI: {
+      sections: [
+        {
+          type: 'property-group',
+          title: 'Configuration'
+        }
+      ]
+    }
   };
 
   /**
@@ -322,6 +333,45 @@ export class ComparisonNode extends BaseNode {
       operator: operation,
       inputs: [value0, value1],
       timestamp: new Date().toISOString()
+    };
+  }
+
+  static get help() {
+    return {
+      overview: "Compares two numeric values using standard comparison operators (>, <, >=, <=, ==, !=). Returns boolean result (true/false) for use in conditional logic and filtering.",
+      useCases: [
+        "Trigger alarms when temperature exceeds safety threshold",
+        "Filter production data by comparing batch size to minimum quantity",
+        "Validate sensor readings against expected ranges",
+        "Control equipment by comparing actual vs target values"
+      ],
+      examples: [
+        {
+          title: "Temperature Threshold",
+          config: { operation: "gt" },
+          input: { first: 85.2, second: 80 },
+          output: { value: true, operator: "gt" }
+        },
+        {
+          title: "Minimum Batch Check",
+          config: { operation: "gte" },
+          input: { first: 100, second: 100 },
+          output: { value: true, operator: "gte" }
+        },
+        {
+          title: "Quality Match",
+          config: { operation: "eq" },
+          input: { first: 0, second: 0 },
+          output: { value: true, operator: "eq" }
+        }
+      ],
+      tips: [
+        "Use >= or <= when boundary values should be included in condition",
+        "Comparison supports numeric values only - use type conversion for other types",
+        "Connect output to Gate node to conditionally pass values through",
+        "Quality uses 'worst' strategy - bad quality in either input produces bad output"
+      ],
+      relatedNodes: ["RangeCheckNode", "GateNode", "BooleanLogicNode"]
     };
   }
 }

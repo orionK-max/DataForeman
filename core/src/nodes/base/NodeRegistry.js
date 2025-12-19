@@ -173,6 +173,12 @@ class NodeRegistryClass {
     
     const description = { ...instance.description };
     
+    // Check for help from static getter if not in description
+    // This supports both old format (help in description) and new format (static help getter)
+    if (!description.help && instance.constructor.help) {
+      description.help = instance.constructor.help;
+    }
+    
     // Add library metadata if available
     const libraryMetadata = this._libraryMetadata.get(nodeType);
     if (libraryMetadata) {

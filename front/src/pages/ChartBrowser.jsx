@@ -32,34 +32,76 @@ import {
   FolderOpen as FolderOpenIcon,
   People as PeopleIcon,
   Person as PersonIcon,
+  ViewModule as CardViewIcon,
+  TableRows as TableViewIcon,
+  CheckBox as BulkModeIcon,
+  AccountTree as HierarchyIcon,
+  ViewList as FlattenIcon,
 } from '@mui/icons-material';
 import chartComposerService from '../services/chartComposerService';
-import folderService, { FOLDER_TYPES } from '../services/folderService';
+import { useBrowserFolders } from '../hooks/useBrowserFolders';
+import { FOLDER_TYPES } from '../services/folderService';
 import FolderTree from '../components/folders/FolderTree';
 import FolderDialog from '../components/folders/FolderDialog';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { usePageTitle } from '../contexts/PageTitleContext';
 import AddChartButton from '../components/chartComposer/AddChartButton';
+import BrowserCard from '../components/browser/BrowserCard';
+import BrowserTable from '../components/browser/BrowserTable';
+import BulkActionToolbar from '../components/browser/BulkActionToolbar';
 
 const ChartBrowser = () => {
   const { setPageTitle, setPageSubtitle } = usePageTitle();
   const navigate = useNavigate();
   const [charts, setCharts] = useState([]);
-  const [folders, setFolders] = useState([]);
-  const [selectedFolderId, setSelectedFolderId] = useState(null);
-  const [viewMode, setViewMode] = useState('all'); // 'all' | 'mine' | 'shared'
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [chartToDelete, setChartToDelete] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
-  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-  const [folderDialogMode, setFolderDialogMode] = useState('create');
-  const [editingFolder, setEditingFolder] = useState(null);
-  const [parentFolderId, setParentFolderId] = useState(null);
-  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
-  const [movingChart, setMovingChart] = useState(null);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [folderToDelete, setFolderToDelete] = useState(null);
-  const [deletingFolder, setDeletingFolder] = useState(false);
+
+  // Use universal folder management hook (pass null for onReload, we'll call it manually)
+  const folderState = useBrowserFolders(FOLDER_TYPES.CHART, charts, null);
+  const {
+    folders,
+    selectedFolderId,
+    viewMode,
+    displayMode,
+    flattenHierarchy,
+    filteredItems: filteredCharts,
+    flatFolders,
+    sortColumn,
+    sortDirection,
+    selectedItems,
+    bulkActionMode,
+    folderDialogOpen,
+    folderDialogMode,
+    editingFolder,
+    parentFolderId,
+    moveMenuAnchor,
+    movingItem: movingChart,
+    deleteConfirmOpen,
+    folderToDelete,
+    deletingFolder,
+    handleSelectFolder,
+    handleSelectShared,
+    handleSelectMine,
+    handleCreateFolder,
+    handleEditFolder,
+    handleDeleteFolder,
+    confirmDeleteFolder,
+    cancelDeleteFolder,
+    handleSaveFolder,
+    handleOpenMoveMenu,
+    handleCloseMoveMenu,
+    handleMoveItem: handleMoveChart,
+    handleToggleItem,
+    handleSelectAll,
+    handleClearSelection,
+    handleToggleBulkMode,
+    handleToggleDisplayMode,
+    handleToggleFlatten,
+    handleSort,
+    setFolderDialogOpen,
+  } = folderState;
 
   useEffect(() => {
     setPageTitle('Charts');
@@ -68,12 +110,7 @@ const ChartBrowser = () => {
 
   useEffect(() => {
     loadCharts();
-    loadFolders();
   }, []);
-
-  useEffect(() => {
-    loadCharts();
-  }, [viewMode]);
 
   const loadCharts = async () => {
     try {
@@ -81,15 +118,6 @@ const ChartBrowser = () => {
       setCharts(response.items || []);
     } catch (error) {
       showSnackbar('Failed to load charts: ' + error.message, 'error');
-    }
-  };
-
-  const loadFolders = async () => {
-    try {
-      const tree = await folderService.getFolderTree(FOLDER_TYPES.CHART);
-      setFolders(tree);
-    } catch (err) {
-      console.error('Error loading folders:', err);
     }
   };
 
@@ -125,141 +153,35 @@ const ChartBrowser = () => {
     }
   };
 
-  // Folder management handlers
-  const handleSelectFolder = (folderId) => {
-    setSelectedFolderId(folderId);
-    setViewMode('all');
-  };
-
-  const handleSelectShared = () => {
-    setSelectedFolderId(null);
-    setViewMode('shared');
-  };
-
-  const handleSelectMine = () => {
-    setSelectedFolderId(null);
-    setViewMode('mine');
-  };
-
-  const handleCreateFolder = (parentId = null) => {
-    setParentFolderId(parentId);
-    setEditingFolder(null);
-    setFolderDialogMode('create');
-    setFolderDialogOpen(true);
-  };
-
-  const handleEditFolder = (folder) => {
-    setEditingFolder(folder);
-    setFolderDialogMode('edit');
-    setFolderDialogOpen(true);
-  };
-
-  const handleDeleteFolder = async (folder) => {
-    setFolderToDelete(folder);
-    setDeleteConfirmOpen(true);
-  };
-
-  const confirmDeleteFolder = async () => {
-    if (!folderToDelete) return;
-    
-    try {
-      setDeletingFolder(true);
-      await folderService.deleteFolder(FOLDER_TYPES.CHART, folderToDelete.id);
-      await loadFolders();
-      if (selectedFolderId === folderToDelete.id) {
-        setSelectedFolderId(null);
-      }
-      setDeleteConfirmOpen(false);
-      setFolderToDelete(null);
-    } catch (err) {
-      showSnackbar('Failed to delete folder: ' + err.message, 'error');
-    } finally {
-      setDeletingFolder(false);
-    }
-  };
-
-  const cancelDeleteFolder = () => {
-    setDeleteConfirmOpen(false);
-    setFolderToDelete(null);
-  };
-
-  const handleSaveFolder = async (folderData) => {
-    try {
-      if (folderDialogMode === 'edit' && editingFolder) {
-        await folderService.updateFolder(FOLDER_TYPES.CHART, editingFolder.id, folderData);
-      } else {
-        await folderService.createFolder(FOLDER_TYPES.CHART, folderData);
-      }
-      await loadFolders();
-      setFolderDialogOpen(false);
-    } catch (err) {
-      showSnackbar('Failed to save folder: ' + err.message, 'error');
-    }
-  };
-
-  // Move chart to folder
-  const handleOpenMoveDialog = (event, chart) => {
-    event.stopPropagation();
-    setMovingChart(chart);
-    setMoveDialogOpen(true);
-  };
-
-  const handleCloseMoveDialog = () => {
-    setMoveDialogOpen(false);
-    setMovingChart(null);
-  };
-
-  const handleMoveChart = async (folderId) => {
-    try {
-      await folderService.moveItemToFolder(
-        FOLDER_TYPES.CHART,
-        movingChart.id,
-        folderId,
-        0
-      );
-      await loadCharts();
-      handleCloseMoveDialog();
-    } catch (err) {
-      showSnackbar('Failed to move chart: ' + err.message, 'error');
-    }
-  };
-
-  // Filter charts by selected folder and view mode
-  const filteredCharts = (() => {
-    let filtered = charts;
-
-    // Apply view mode filter
-    if (viewMode === 'mine') {
-      filtered = filtered.filter(c => c.is_owner);
-    } else if (viewMode === 'shared') {
-      filtered = filtered.filter(c => !c.is_owner);
-    }
-
-    // Apply folder filter
-    if (viewMode !== 'shared' && viewMode !== 'mine') {
-      if (selectedFolderId === null) {
-        filtered = filtered.filter(c => !c.options?.folder_id);
-      } else {
-        filtered = filtered.filter(c => c.options?.folder_id === selectedFolderId);
-      }
-    }
-
-    return filtered;
-  })();
-
-  // Flatten folders for move dialog
-  const flattenFolders = (folders, level = 0) => {
-    let result = [];
-    for (const folder of folders) {
-      result.push({ ...folder, level });
-      if (folder.children && folder.children.length > 0) {
-        result = result.concat(flattenFolders(folder.children, level + 1));
-      }
+  // Wrap folder handlers to show snackbar
+  const handleFolderSaveWithSnackbar = async (folderData) => {
+    const result = await handleSaveFolder(folderData);
+    if (result.success) {
+      showSnackbar('Folder saved successfully', 'success');
+    } else {
+      showSnackbar(result.error || 'Failed to save folder', 'error');
     }
     return result;
   };
 
-  const flatFolders = flattenFolders(folders);
+  const handleFolderDeleteWithSnackbar = async () => {
+    const result = await confirmDeleteFolder();
+    if (result.success) {
+      showSnackbar('Folder deleted successfully', 'success');
+    } else {
+      showSnackbar(result.error || 'Failed to delete folder', 'error');
+    }
+  };
+
+  const handleMoveChartWithSnackbar = async (folderId) => {
+    const result = await handleMoveChart(folderId);
+    if (result.success) {
+      await loadCharts();
+      showSnackbar('Chart moved successfully', 'success');
+    } else {
+      showSnackbar(result.error || 'Failed to move chart', 'error');
+    }
+  };
 
   const formatDate = (isoString) => {
     try {
@@ -270,105 +192,7 @@ const ChartBrowser = () => {
     }
   };
 
-  const ChartCard = ({ chart, isOwner }) => (
-    <Card 
-      sx={{ 
-        cursor: 'pointer',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        '&:hover': { 
-          boxShadow: 4,
-          transform: 'translateY(-2px)',
-          transition: 'all 0.2s'
-        }
-      }}
-    >
-      <CardContent 
-        onClick={() => navigate(`/charts/${chart.id}`)}
-        sx={{ flexGrow: 1, pb: 1 }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-          <ChartIcon sx={{ mr: 1, color: 'primary.main' }} />
-          <Typography 
-            variant="h6" 
-            sx={{ 
-              flexGrow: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              mr: 1
-            }}
-          >
-            {chart.name}
-          </Typography>
-          {chart.is_shared && (
-            <Chip label="Shared" size="small" color="info" />
-          )}
-        </Box>
-        
-        <Typography 
-          variant="body2" 
-          color="text.secondary" 
-          gutterBottom
-          sx={{
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            minHeight: '2.5em',
-          }}
-          title={chart.description || 'No description'}
-        >
-          {chart.description || 'No description'}
-        </Typography>
-        
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-          Updated: {formatDate(chart.updated_at)}
-        </Typography>
-      </CardContent>
-      
-      <CardActions sx={{ pt: 0, justifyContent: 'flex-end', px: 2, pb: 2 }}>
-        {isOwner && viewMode !== 'shared' && (
-          <IconButton 
-            size="small" 
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenMoveDialog(e, chart);
-            }}
-            title="Move to folder"
-          >
-            <MoveIcon fontSize="small" />
-          </IconButton>
-        )}
-        {isOwner && (
-          <>
-            <IconButton 
-              size="small" 
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDuplicateChart(chart);
-              }}
-              title="Duplicate"
-            >
-              <DuplicateIcon fontSize="small" />
-            </IconButton>
-            <IconButton 
-              size="small" 
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDeleteChart(chart);
-              }}
-              title="Delete"
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </>
-        )}
-      </CardActions>
-    </Card>
-  );
+
 
   return (
     <Box sx={{ display: 'flex', height: '100%' }}>
@@ -475,10 +299,81 @@ const ChartBrowser = () => {
           )}
         </Box>
 
-        <Grid container spacing={2}>
+        {/* View Controls */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+          <Button
+            size="small"
+            variant={displayMode === 'card' ? 'contained' : 'outlined'}
+            startIcon={<CardViewIcon />}
+            onClick={handleToggleDisplayMode}
+          >
+            Card
+          </Button>
+          <Button
+            size="small"
+            variant={displayMode === 'table' ? 'contained' : 'outlined'}
+            startIcon={<TableViewIcon />}
+            onClick={handleToggleDisplayMode}
+          >
+            Table
+          </Button>
+          {displayMode === 'table' && (
+            <>
+              {/* Bulk mode always enabled in table view - toggle button removed but state kept for future use */}
+              <Button
+                size="small"
+                variant={flattenHierarchy ? 'contained' : 'outlined'}
+                startIcon={flattenHierarchy ? <FlattenIcon /> : <HierarchyIcon />}
+                onClick={handleToggleFlatten}
+              >
+                {flattenHierarchy ? 'Flattened' : 'Hierarchy'}
+              </Button>
+            </>
+          )}
+        </Box>
+
+        {/* Bulk Action Toolbar - always visible, greyed out when no selection */}
+        {bulkActionMode && (
+          <BulkActionToolbar
+            selectedCount={selectedItems.size}
+            onSelectAll={handleSelectAll}
+            onClearSelection={handleClearSelection}
+            onBulkMove={(e) => {
+              const selectedChartItems = filteredCharts.filter(c => selectedItems.has(c.id));
+              if (selectedChartItems.length > 0) {
+                handleOpenMoveMenu(e, { id: 'bulk', name: 'Selected Charts', isBulk: true, items: selectedChartItems });
+              }
+            }}
+            onBulkDelete={() => {
+              const selectedChartItems = filteredCharts.filter(c => selectedItems.has(c.id));
+              if (selectedChartItems.length > 0 && confirm(`Delete ${selectedChartItems.length} chart(s)?`)) {
+                Promise.all(selectedChartItems.map(c => chartComposerService.deleteChart(c.id)))
+                  .then(() => {
+                    loadCharts();
+                    handleClearSelection();
+                    showSnackbar(`Deleted ${selectedChartItems.length} chart(s)`, 'success');
+                  })
+                  .catch(err => showSnackbar('Error deleting charts: ' + err.message, 'error'));
+              }
+            }}
+          />
+        )}
+
+        {/* Card View */}
+        {displayMode === 'card' && (
+          <Grid container spacing={2}>
           {filteredCharts.map((chart) => (
             <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={chart.id}>
-              <ChartCard chart={chart} isOwner={chart.is_owner} />
+              <BrowserCard
+                item={chart}
+                type="chart"
+                isOwner={chart.is_owner}
+                viewMode={viewMode}
+                onNavigate={(chart) => navigate(`/charts/${chart.id}`)}
+                onMove={handleOpenMoveMenu}
+                onDuplicate={handleDuplicateChart}
+                onDelete={handleDeleteChart}
+              />
             </Grid>
           ))}
           
@@ -495,12 +390,34 @@ const ChartBrowser = () => {
               </Typography>
             </Grid>
           )}
-        </Grid>
+          </Grid>
+        )}
+
+        {/* Table View */}
+        {displayMode === 'table' && (
+          <BrowserTable
+            items={filteredCharts}
+            type="chart"
+            selectedItems={selectedItems}
+            bulkActionMode={bulkActionMode}
+            flattenHierarchy={flattenHierarchy}
+            onToggleItem={handleToggleItem}
+            onNavigate={(chart) => navigate(`/charts/${chart.id}`)}
+            onMove={handleOpenMoveMenu}
+            onDuplicate={handleDuplicateChart}
+            onDelete={handleDeleteChart}
+            isOwner={true}
+            viewMode={viewMode}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+          />
+        )}
 
         {/* Move Chart Dialog */}
         <Dialog
-          open={moveDialogOpen && movingChart}
-          onClose={handleCloseMoveDialog}
+          open={Boolean(moveMenuAnchor && movingChart)}
+          onClose={handleCloseMoveMenu}
           maxWidth="xs"
           fullWidth
           PaperProps={{
@@ -512,16 +429,16 @@ const ChartBrowser = () => {
         >
           <DialogTitle>Move "{movingChart?.name}" to Folder</DialogTitle>
           <DialogContent>
-            <MenuItem onClick={() => handleMoveChart(null)} sx={{ borderRadius: 1, mb: 0.5 }}>
+            <MenuItem onClick={() => handleMoveChartWithSnackbar(null)} sx={{ borderRadius: 1, mb: 0.5 }}>
               <ListItemIcon>
                 <HomeIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText>Home (No Folder)</ListItemText>
+              <ListItemText>Root (No Folder)</ListItemText>
             </MenuItem>
             {flatFolders.map((folder) => (
               <MenuItem 
                 key={folder.id} 
-                onClick={() => handleMoveChart(folder.id)}
+                onClick={() => handleMoveChartWithSnackbar(folder.id)}
                 sx={{ borderRadius: 1, mb: 0.5 }}
               >
                 <ListItemIcon sx={{ pl: folder.level * 2 }}>
@@ -537,7 +454,7 @@ const ChartBrowser = () => {
             )}
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseMoveDialog}>Cancel</Button>
+            <Button onClick={handleCloseMoveMenu}>Cancel</Button>
           </DialogActions>
         </Dialog>
 
@@ -573,7 +490,7 @@ const ChartBrowser = () => {
         <FolderDialog
           open={folderDialogOpen}
           onClose={() => setFolderDialogOpen(false)}
-          onSave={handleSaveFolder}
+          onSave={handleFolderSaveWithSnackbar}
           allFolders={folders}
           folder={editingFolder}
           parentFolderId={parentFolderId}
@@ -587,7 +504,7 @@ const ChartBrowser = () => {
           message={`Are you sure you want to delete the folder "${folderToDelete?.name}"? The folder must be empty.`}
           confirmText="Delete"
           confirmColor="error"
-          onConfirm={confirmDeleteFolder}
+          onConfirm={handleFolderDeleteWithSnackbar}
           onCancel={cancelDeleteFolder}
           loading={deletingFolder}
         />

@@ -20,9 +20,25 @@ export class TagInputNode extends BaseNode {
     
     // No inputs - reads from database
     inputs: [],
+    outputs: [], // Output type defined by ioRules based on tag data type
     
-    // Single output with the tag value
-    outputs: [{ type: 'main', displayName: 'Output' }],
+    ioRules: [
+      {
+        when: { dataType: ['BOOL', 'bool'] },
+        inputs: { count: 0 },
+        outputs: { count: 1, types: ['boolean'] }
+      },
+      {
+        when: { dataType: ['DINT', 'Double', 'Int32', 'REAL', 'float', 'REAL8', 'INT', 'UINT', 'WORD', 'DWORD'] },
+        inputs: { count: 0 },
+        outputs: { count: 1, types: ['number'] }
+      },
+      {
+        // Default rule when no dataType or unknown type
+        inputs: { count: 0 },
+        outputs: { count: 1, types: ['main'] }
+      }
+    ],
     
     visual: {
       canvas: {
@@ -47,9 +63,7 @@ export class TagInputNode extends BaseNode {
       ],
       handles: {
         inputs: [],
-        outputs: [
-          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
-        ],
+        outputs: [], // Dynamic - defined by ioRules based on tag data type
         size: 12,
         borderWidth: 2,
         borderColor: '#ffffff'
@@ -92,7 +106,47 @@ export class TagInputNode extends BaseNode {
         description: 'Maximum age of data in seconds. -1 = any age (uses cached value), 0 = live data only (1s tolerance), >0 = custom max age.',
         placeholder: 'e.g., 5 for 5 seconds, 0 for live, -1 for any age'
       }
-    ]
+    ],
+    
+    // Config UI structure
+    configUI: {
+      sections: [
+        // Tag selection
+        {
+          type: 'tag-selector',
+          property: 'tagId',
+          label: 'Tag Selection',
+          required: true,
+          showInfo: true,
+          infoProperties: ['dataType', 'source', 'connectionName'],
+          onSelect: {
+            tagId: 'tag_id',
+            tagPath: 'tag_path',
+            tagName: 'tag_name',
+            dataType: 'data_type',
+            source: 'source',
+            driverType: 'driver_type',
+            connectionId: 'connectionId',
+            connectionName: 'connectionName'
+          }
+        },
+        
+        // Maximum data age configuration
+        {
+          type: 'conditional-group',
+          items: [
+            {
+              type: 'number',
+              property: 'maxDataAge',
+              label: 'Maximum Data Age (seconds)',
+              default: -1,
+              helperText: '-1 = any age (cached), 0 = live only (1s tolerance), >0 = custom max age',
+              placeholder: 'e.g., 5 for 5 seconds'
+            }
+          ]
+        }
+      ]
+    }
   };
 
   /**
@@ -299,6 +353,47 @@ export class TagInputNode extends BaseNode {
       tagPath,
       tagName,
       timestamp: row.ts
+    };
+  }
+
+  static get help() {
+    return {
+      overview: "Reads the latest value from a configured tag in the system. Automatically determines output type based on the tag's data type. Essential for bringing real-time data from devices and sensors into flows.",
+      useCases: [
+        "Read temperature sensor values for monitoring and control logic",
+        "Fetch equipment status flags from PLCs for alarm processing",
+        "Retrieve production counters for calculating efficiency metrics",
+        "Pull setpoint values from devices for comparison and validation"
+      ],
+      examples: [
+        {
+          title: "Temperature Sensor",
+          config: { tagId: "tag-123" },
+          input: {},
+          output: { value: 72.5, quality: 0, tagPath: "Temperature/Sensor01" }
+        },
+        {
+          title: "Motor Running Status",
+          config: { tagId: "tag-456" },
+          input: {},
+          output: { value: true, quality: 0, tagPath: "Motors/M001/Running" }
+        },
+        {
+          title: "Production Count",
+          config: { tagId: "tag-789" },
+          input: {},
+          output: { value: 1542, quality: 0, tagPath: "Production/Counter01" }
+        }
+      ],
+      tips: [
+        "Tag Input nodes have no inputs - they read directly from the database",
+        "Output type automatically matches tag data type (boolean, number, etc.)",
+        "Quality value follows OPC UA standard: 0 = Good, 192 = Bad",
+        "Use in continuous flows to read live values on each scan cycle",
+        "Check tag quality before using value in critical calculations",
+        "Connection and tag name shown in node subtitle for easy identification"
+      ],
+      relatedNodes: ["TagOutputNode", "GateNode", "ComparisonNode"]
     };
   }
 }

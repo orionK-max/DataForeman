@@ -134,15 +134,100 @@ export class JavaScriptNode extends BaseNode {
       {
         name: 'onError',
         displayName: 'On Error',
-        type: 'options',
+        type: 'select',
         default: 'stop',
         options: [
-          { value: 'stop', label: 'Stop Flow' },
-          { value: 'continue', label: 'Continue (return null)' }
+          { label: 'Stop Flow', value: 'stop' },
+          { label: 'Continue (return null)', value: 'continue' }
         ],
         description: 'How to handle script errors'
       }
-    ]
+    ],
+    
+    // Config UI structure
+    configUI: {
+      sections: [
+        // Code editor with autocomplete
+        {
+          type: 'code-editor',
+          property: 'code',
+          label: 'JavaScript Code',
+          language: 'javascript',
+          height: 300,
+          defaultValue: '// Write your code here\n// Access input via $input\n// Use console.log() for debugging\n\nreturn $input;',
+          autocomplete: [
+            {
+              label: '$input',
+              kind: 'Variable',
+              documentation: 'Input value from previous node',
+              insertText: '$input'
+            },
+            {
+              label: '$tags.get',
+              kind: 'Method',
+              documentation: 'Get current tag value: await $tags.get("tagPath") - Returns {value, quality, timestamp}',
+              insertText: 'await $tags.get("${1:tagPath}")',
+              isSnippet: true
+            },
+            {
+              label: '$tags.history',
+              kind: 'Method',
+              documentation: 'Get tag history: await $tags.history("tagPath", "1h") - Returns array of {value, quality, timestamp}',
+              insertText: 'await $tags.history("${1:tagPath}", "${2:1h}")',
+              isSnippet: true
+            },
+            {
+              label: '$flow.state.get',
+              kind: 'Method',
+              documentation: 'Get flow state: await $flow.state.get("key") - Returns stored value or entire state object',
+              insertText: 'await $flow.state.get("${1:key}")',
+              isSnippet: true
+            },
+            {
+              label: '$flow.state.set',
+              kind: 'Method',
+              documentation: 'Set flow state: await $flow.state.set("key", value) - Persists state to database',
+              insertText: 'await $flow.state.set("${1:key}", ${2:value})',
+              isSnippet: true
+            },
+            {
+              label: '$fs.readFile',
+              kind: 'Method',
+              documentation: 'Read file contents: await $fs.readFile("path", "utf8") - Max 10MB',
+              insertText: 'await $fs.readFile("${1:path}", "${2:utf8}")',
+              isSnippet: true
+            },
+            {
+              label: '$fs.writeFile',
+              kind: 'Method',
+              documentation: 'Write file contents: await $fs.writeFile("path", data, "utf8") - Max 10MB',
+              insertText: 'await $fs.writeFile("${1:path}", ${2:data}, "${3:utf8}")',
+              isSnippet: true
+            },
+            {
+              label: '$fs.exists',
+              kind: 'Method',
+              documentation: 'Check if file exists: await $fs.exists("path") - Returns boolean',
+              insertText: 'await $fs.exists("${1:path}")',
+              isSnippet: true
+            },
+            {
+              label: '$fs.readdir',
+              kind: 'Method',
+              documentation: 'List directory contents: await $fs.readdir("dirPath") - Returns array of filenames',
+              insertText: 'await $fs.readdir("${1:dirPath}")',
+              isSnippet: true
+            }
+          ]
+        },
+        
+        // Properties group for timeout and error handling
+        {
+          type: 'property-group',
+          properties: ['timeout', 'onError']
+        }
+      ]
+    }
   };
 
   /**
@@ -204,7 +289,7 @@ export class JavaScriptNode extends BaseNode {
 
     // Get input value and quality
     let inputValue = null;
-    let inputQuality = 192; // Good quality by default
+    let inputQuality = 0; // Good quality by default
 
     const inputData = context.getInputValue(0);
     if (inputData !== undefined && inputData !== null) {
@@ -230,6 +315,8 @@ export class JavaScriptNode extends BaseNode {
 
     // Get allowed filesystem paths
     const allowedPaths = getAllowedPaths();
+
+    const startTime = Date.now(); // Track execution start time
 
     try {
       // Execute script in sandbox
@@ -293,5 +380,48 @@ export class JavaScriptNode extends BaseNode {
         error: error.message
       };
     }
+  }
+
+  static get help() {
+    return {
+      overview: "Executes custom JavaScript code in a secure sandboxed environment with access to flow context, tags, and file system APIs. Supports async/await, console logging, and configurable error handling. Use for complex calculations and custom logic not available in standard nodes.",
+      useCases: [
+        "Implement custom mathematical formulas and statistical calculations",
+        "Parse complex data structures or proprietary message formats",
+        "Access external APIs or files using $fs API for advanced integrations",
+        "Perform conditional logic with multiple branches and edge cases"
+      ],
+      examples: [
+        {
+          title: "Custom Calculation",
+          config: { code: "return Math.sqrt($input * 2) + 10;" },
+          input: { value: 8 },
+          output: { value: 14, logs: [] }
+        },
+        {
+          title: "Conditional Logic",
+          config: { code: "if ($input > 100) return 'HIGH';\nelse if ($input > 50) return 'MEDIUM';\nelse return 'LOW';" },
+          input: { value: 75 },
+          output: { value: "MEDIUM", logs: [] }
+        },
+        {
+          title: "Array Processing",
+          config: { code: "const sum = $input.reduce((a,b) => a+b, 0);\nreturn sum / $input.length;" },
+          input: { value: [10, 20, 30] },
+          output: { value: 20, logs: [] }
+        }
+      ],
+      tips: [
+        "Use $input to access the input value from the connected node",
+        "Access flow context with $flow.getVariable('name') and $flow.setVariable('name', value)",
+        "Read tags using $tags.read('connectionName', 'tagPath')",
+        "Console.log() output appears in execution logs for debugging",
+        "Set timeout to prevent infinite loops (default: 5000ms)",
+        "Return value becomes the node output - can be any JSON-serializable type",
+        "Use async/await for asynchronous operations",
+        "Error handling: 'stop' halts flow, 'continue' passes null and continues"
+      ],
+      relatedNodes: ["MathNode", "StringOpsNode", "TypeConvertNode"]
+    };
   }
 }

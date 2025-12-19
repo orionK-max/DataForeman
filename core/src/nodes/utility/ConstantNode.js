@@ -25,14 +25,7 @@ export class ConstantNode extends BaseNode {
     color: '#607D8B',
     
     inputs: [], // No inputs - outputs constant value
-    
-    outputs: [
-      {
-        type: 'main', // Dynamic type - will output as configured type
-        displayName: 'Value',
-        description: 'Constant value output'
-      }
-    ],
+    outputs: [], // Outputs defined by ioRules based on valueType
     
     visual: {
       canvas: {
@@ -57,9 +50,7 @@ export class ConstantNode extends BaseNode {
       ],
       handles: {
         inputs: [],
-        outputs: [
-          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
-        ],
+        outputs: [], // Dynamic - defined by ioRules based on valueType
         size: 12,
         borderWidth: 2,
         borderColor: '#ffffff'
@@ -89,29 +80,25 @@ export class ConstantNode extends BaseNode {
       {
         name: 'valueType',
         displayName: 'Value Type',
-        type: 'options',
+        type: 'select',
         default: 'number',
         required: true,
         options: [
           {
-            name: 'Number',
-            value: 'number',
-            description: 'Numeric value (integer or decimal)'
+            label: 'Number',
+            value: 'number'
           },
           {
-            name: 'String',
-            value: 'string',
-            description: 'Text value'
+            label: 'String',
+            value: 'string'
           },
           {
-            name: 'Boolean',
-            value: 'boolean',
-            description: 'True or false'
+            label: 'Boolean',
+            value: 'boolean'
           },
           {
-            name: 'JSON',
-            value: 'json',
-            description: 'JSON object or array'
+            label: 'JSON',
+            value: 'json'
           }
         ],
         description: 'Type of constant value'
@@ -168,8 +155,54 @@ export class ConstantNode extends BaseNode {
       }
     ],
     
+    ioRules: [
+      {
+        when: { valueType: 'number' },
+        inputs: { count: 0 },
+        outputs: {
+          count: 1,
+          types: ['number']
+        }
+      },
+      {
+        when: { valueType: 'string' },
+        inputs: { count: 0 },
+        outputs: {
+          count: 1,
+          types: ['string']
+        }
+      },
+      {
+        when: { valueType: 'boolean' },
+        inputs: { count: 0 },
+        outputs: {
+          count: 1,
+          types: ['boolean']
+        }
+      },
+      {
+        when: { valueType: 'json' },
+        inputs: { count: 0 },
+        outputs: {
+          count: 1,
+          types: ['json']
+        }
+      }
+    ],
+    
     extensions: {
       notes: 'Constant nodes execute once per scan cycle and output the configured value'
+    },
+    
+    // Config UI structure
+    configUI: {
+      sections: [
+        {
+          type: 'property-group',
+          title: 'Configuration',
+          properties: ['valueType', 'numberValue', 'stringValue', 'booleanValue', 'jsonValue']
+        }
+      ]
     }
   };
 
@@ -217,57 +250,94 @@ export class ConstantNode extends BaseNode {
    * Execute constant node
    * Outputs the configured constant value with good quality
    */
-  async execute(node, nodeInputs, context) {
-    const valueType = this.getParameter(node, 'valueType') || 'number';
+  async execute(context) {
+    const valueType = this.getParameter(context.node, 'valueType') || 'number';
     let value;
     
-    try {
-      switch (valueType) {
-        case 'number':
-          value = this.getParameter(node, 'numberValue') ?? 0;
-          // Ensure it's a number
-          value = Number(value);
-          if (isNaN(value)) {
-            throw new Error('Invalid number value');
+    switch (valueType) {
+      case 'number':
+        value = this.getParameter(context.node, 'numberValue') ?? 0;
+        // Ensure it's a number
+        value = Number(value);
+        if (isNaN(value)) {
+          throw new Error('Invalid number value');
+        }
+        break;
+        
+      case 'string':
+        value = this.getParameter(context.node, 'stringValue') ?? '';
+        // Ensure it's a string
+        value = String(value);
+        break;
+        
+      case 'boolean':
+        value = this.getParameter(context.node, 'booleanValue') ?? false;
+        // The value is already stored as boolean in the database
+        // No need to convert - just ensure it's truly boolean
+        if (typeof value !== 'boolean') {
+          // Handle string representations if somehow stored as string
+          if (typeof value === 'string') {
+            value = value.toLowerCase() === 'true';
+          } else {
+            value = Boolean(value);
           }
-          break;
-          
-        case 'string':
-          value = this.getParameter(node, 'stringValue') ?? '';
-          // Ensure it's a string
-          value = String(value);
-          break;
-          
-        case 'boolean':
-          value = this.getParameter(node, 'booleanValue') ?? false;
-          // Ensure it's a boolean
-          value = Boolean(value);
-          break;
-          
-        case 'json':
-          const jsonStr = this.getParameter(node, 'jsonValue') ?? '{}';
-          value = JSON.parse(jsonStr);
-          break;
-          
-        default:
-          throw new Error(`Unknown value type: ${valueType}`);
-      }
-      
-      // Output constant value with good quality
-      return {
-        value,
-        quality: 0, // Good quality
-        valueType
-      };
-      
-    } catch (error) {
-      context.logger.error({
-        nodeId: node.id,
-        nodeType: node.type,
-        error: error.message
-      }, 'Constant node execution failed');
-      
-      throw error;
+        }
+        break;
+        
+      case 'json':
+        const jsonStr = this.getParameter(context.node, 'jsonValue') ?? '{}';
+        value = JSON.parse(jsonStr);
+        break;
+        
+      default:
+        throw new Error(`Unknown value type: ${valueType}`);
     }
+    
+    // Output constant value with good quality
+    return {
+      value,
+      quality: 0, // Good quality
+      valueType
+    };
+  }
+
+  static get help() {
+    return {
+      overview: "Outputs a constant value that remains unchanged during flow execution. Supports number, string, boolean, and JSON object types. Essential for providing fixed values as inputs to other nodes.",
+      useCases: [
+        "Supply threshold values for comparison operations (e.g., temperature limit of 75°C)",
+        "Provide default values or fallback constants for calculations",
+        "Define configuration objects as JSON for use across the flow",
+        "Generate boolean flags for conditional logic and testing"
+      ],
+      examples: [
+        {
+          title: "Temperature Threshold",
+          config: { valueType: "number", numberValue: 75 },
+          input: {},
+          output: { value: 75, valueType: "number" }
+        },
+        {
+          title: "Device Name",
+          config: { valueType: "string", stringValue: "MOTOR-001" },
+          input: {},
+          output: { value: "MOTOR-001", valueType: "string" }
+        },
+        {
+          title: "Configuration Object",
+          config: { valueType: "json", jsonValue: '{"min":20,"max":80}' },
+          input: {},
+          output: { value: { min: 20, max: 80 }, valueType: "json" }
+        }
+      ],
+      tips: [
+        "Use Constant nodes instead of hardcoding values - easier to update and test",
+        "JSON constants can store complex configuration objects for scripts",
+        "Boolean constants useful for enabling/disabling parts of flows during testing",
+        "Number values support decimals for precise thresholds and coefficients",
+        "Constant nodes have no inputs - they always output the same value"
+      ],
+      relatedNodes: ["ComparisonNode", "MathNode", "GateNode"]
+    };
   }
 }

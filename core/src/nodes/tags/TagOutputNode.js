@@ -28,11 +28,26 @@ export class TagOutputNode extends BaseNode {
     icon: '📤',
     color: '#FF9800',
     
-    // Single input from upstream node
-    inputs: [{ type: 'main', displayName: 'Input' }],
+    inputs: [], // Dynamic - type matches selected tag's data type via ioRules
+    outputs: [], // No outputs - sink node writes to tag only
     
-    // Single output (passes through the written value)
-    outputs: [{ type: 'main', displayName: 'Output' }],
+    ioRules: [
+      {
+        when: { dataType: ['BOOL', 'bool'] },
+        inputs: { count: 1, types: ['boolean'] },
+        outputs: { count: 0 }
+      },
+      {
+        when: { dataType: ['DINT', 'Double', 'Int32', 'REAL', 'float', 'REAL8', 'INT', 'UINT', 'WORD', 'DWORD'] },
+        inputs: { count: 1, types: ['number'] },
+        outputs: { count: 0 }
+      },
+      {
+        // Default rule when no dataType or unknown type
+        inputs: { count: 1, types: ['main'] },
+        outputs: { count: 0 }
+      }
+    ],
     
     visual: {
       canvas: {
@@ -64,12 +79,8 @@ export class TagOutputNode extends BaseNode {
         }
       ],
       handles: {
-        inputs: [
-          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
-        ],
-        outputs: [
-          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
-        ],
+        inputs: [], // Dynamic - defined by ioRules based on tag data type
+        outputs: [], // No outputs - sink node
         size: 12,
         borderWidth: 2,
         borderColor: '#ffffff'
@@ -114,12 +125,12 @@ export class TagOutputNode extends BaseNode {
       {
         displayName: 'Save Strategy',
         name: 'saveStrategy',
-        type: 'options',
+        type: 'select',
         default: 'on-change',
         options: [
-          { name: 'Always (every execution)', value: 'always' },
-          { name: 'On Change Only', value: 'on-change' },
-          { name: 'Never (flow-local only)', value: 'never' }
+          { label: 'Always (every execution)', value: 'always' },
+          { label: 'On Change Only', value: 'on-change' },
+          { label: 'Never (flow-local only)', value: 'never' }
         ],
         description: 'Control when values are saved to database',
         displayOptions: {
@@ -144,11 +155,11 @@ export class TagOutputNode extends BaseNode {
       {
         displayName: 'Deadband Type',
         name: 'deadbandType',
-        type: 'options',
+        type: 'select',
         default: 'absolute',
         options: [
-          { name: 'Absolute', value: 'absolute' },
-          { name: 'Percent', value: 'percent' }
+          { label: 'Absolute', value: 'absolute' },
+          { label: 'Percent', value: 'percent' }
         ],
         description: 'Absolute: fixed value difference. Percent: percentage of previous value',
         displayOptions: {
@@ -171,7 +182,103 @@ export class TagOutputNode extends BaseNode {
           }
         }
       }
-    ]
+    ],
+    
+    // Config UI structure
+    configUI: {
+      sections: [
+        // Tag selection
+        {
+          type: 'tag-selector',
+          property: 'tagId',
+          label: 'Tag Selection',
+          required: true,
+          showInfo: true,
+          infoProperties: ['dataType', 'source', 'connectionName'],
+          onSelect: {
+            tagId: 'tag_id',
+            tagPath: 'tag_path',
+            tagName: 'tag_name',
+            dataType: 'data_type',
+            source: 'source',
+            driverType: 'driver_type',
+            connectionId: 'connectionId',
+            connectionName: 'connectionName'
+          }
+        },
+        
+        // Database saving configuration (only for internal tags)
+        {
+          type: 'conditional-group',
+          title: 'Database Saving',
+          showWhen: { source: ['internal'] },
+          items: [
+            {
+              type: 'switch',
+              property: 'saveToDatabase',
+              label: 'Save to Database',
+              default: true,
+              helperText: 'Enable saving tag values to database for historical data'
+            },
+            {
+              type: 'conditional-group',
+              showWhen: { saveToDatabase: [true] },
+              items: [
+                {
+                  type: 'select',
+                  property: 'saveStrategy',
+                  label: 'Save Strategy',
+                  default: 'on-change',
+                  options: [
+                    { value: 'always', label: 'Always (every execution)' },
+                    { value: 'on-change', label: 'On Change Only' },
+                    { value: 'never', label: 'Never (flow-local only)' }
+                  ],
+                  helperText: 'Control when values are saved to database'
+                },
+                {
+                  type: 'conditional-group',
+                  showWhen: { saveStrategy: ['on-change'] },
+                  nested: true,
+                  title: 'On-Change Settings',
+                  items: [
+                    {
+                      type: 'number',
+                      property: 'deadband',
+                      label: 'Deadband',
+                      default: 0,
+                      min: 0,
+                      step: 0.1,
+                      helperText: 'Minimum change required to save (0 = any change)'
+                    },
+                    {
+                      type: 'select',
+                      property: 'deadbandType',
+                      label: 'Deadband Type',
+                      default: 'absolute',
+                      options: [
+                        { value: 'absolute', label: 'Absolute' },
+                        { value: 'percent', label: 'Percent' }
+                      ],
+                      helperText: 'Absolute: fixed value difference. Percent: percentage of previous value'
+                    },
+                    {
+                      type: 'number',
+                      property: 'heartbeatMs',
+                      label: 'Heartbeat Interval (ms)',
+                      default: 60000,
+                      min: 0,
+                      step: 1000,
+                      helperText: 'Force save after this interval even if unchanged (0 = disabled)'
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
   };
 
   /**
@@ -416,6 +523,48 @@ export class TagOutputNode extends BaseNode {
       quality: inputValue.quality,
       tagPath,
       writeSkipped: false
+    };
+  }
+
+  static get help() {
+    return {
+      overview: "Writes values to INTERNAL tags via NATS messaging. Only works with tags that have driver_type = 'INTERNAL'. Supports write-on-change mode to minimize unnecessary writes. Sink node with no outputs.",
+      useCases: [
+        "Write calculated setpoints back to control system",
+        "Store computed metrics and KPIs for dashboards",
+        "Update status flags based on complex logic conditions",
+        "Record alarm states and acknowledgments"
+      ],
+      examples: [
+        {
+          title: "Write Calculated Setpoint",
+          config: { tagId: "tag-setpoint-123", writeOnChange: true },
+          input: { value: 75.5, quality: 0 },
+          output: { writeSkipped: false, tagPath: "Setpoints/Temperature" }
+        },
+        {
+          title: "Update Status Flag",
+          config: { tagId: "tag-status-456", writeOnChange: false },
+          input: { value: true, quality: 0 },
+          output: { writeSkipped: false, tagPath: "Status/AlarmActive" }
+        },
+        {
+          title: "Skip Duplicate Write",
+          config: { tagId: "tag-count-789", writeOnChange: true },
+          input: { value: 100, quality: 0 },
+          output: { writeSkipped: true, tagPath: "Counters/Production" }
+        }
+      ],
+      tips: [
+        "Only works with INTERNAL tags - cannot write to device tags directly",
+        "Enable 'Write on Change' to avoid unnecessary writes when value hasn't changed",
+        "Input type automatically matches tag data type (boolean, number, etc.)",
+        "Tag Output nodes are sink nodes - they have no outputs",
+        "Writes are published via NATS and handled asynchronously by ingestor service",
+        "Quality value is passed through from input to maintain data integrity",
+        "Use after calculations to store results or update virtual tags"
+      ],
+      relatedNodes: ["TagInputNode", "MathNode", "GateNode"]
     };
   }
 }

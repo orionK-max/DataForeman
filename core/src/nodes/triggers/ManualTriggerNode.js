@@ -25,7 +25,17 @@ export class ManualTriggerNode extends BaseNode {
     outputs: [{ type: 'trigger', displayName: 'Trigger' }],
     
     // No configuration parameters needed
-    properties: []
+    properties: [],
+
+    // Config UI structure
+    configUI: {
+      sections: [
+        {
+          type: 'property-group',
+          title: 'Configuration'
+        }
+      ]
+    }
   };
 
   /**
@@ -85,5 +95,46 @@ export class ManualTriggerNode extends BaseNode {
     }
     
     return result;
+  }
+
+  static get help() {
+    return {
+      overview: "Controls downstream execution with a button trigger. In continuous flows, outputs false by default and true when button pressed (for one scan). In manual flows, always outputs true when flow executes. Use for manual control and testing.",
+      useCases: [
+        "Manually trigger data writes or calculations on demand in continuous flows",
+        "Test downstream logic by controlling when values are processed",
+        "Implement manual override buttons for automated processes",
+        "Create user-initiated actions in monitoring dashboards"
+      ],
+      examples: [
+        {
+          title: "Continuous Mode - Button Not Pressed",
+          config: {},
+          input: {},
+          output: { value: false, triggerType: "manual", mode: "continuous" }
+        },
+        {
+          title: "Continuous Mode - Button Pressed",
+          config: {},
+          input: {},
+          output: { value: true, triggerType: "manual", mode: "continuous" }
+        },
+        {
+          title: "Manual Mode - Flow Executed",
+          config: {},
+          input: {},
+          output: { value: true, triggerType: "manual", mode: "manual" }
+        }
+      ],
+      tips: [
+        "In continuous flows: trigger fires only when button pressed, then auto-clears",
+        "In manual flows: trigger always outputs true since entire flow is manually executed",
+        "Connect to Gate node condition input to enable/disable downstream processing",
+        "Use with Boolean Logic (NOT) to create 'stop' buttons",
+        "Trigger state is temporary - not saved between flow restarts",
+        "No configuration needed - just press the button in the UI"
+      ],
+      relatedNodes: ["GateNode", "BooleanLogicNode", "SwitchNode"]
+    };
   }
 }

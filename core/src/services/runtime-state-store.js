@@ -30,7 +30,8 @@ export class RuntimeStateStore {
       this.flows.set(flowId, {
         triggers: new Map(),
         tags: new Map(), // For Phase 2
-        outputs: new Map() // Node execution outputs
+        outputs: new Map(), // Node execution outputs
+        jumps: new Map() // Jump node value cache
       });
     }
   }
@@ -201,6 +202,49 @@ export class RuntimeStateStore {
       ...runtimeData,
       timestamp: Date.now()
     });
+  }
+
+  /**
+   * Store jump node payload by label for a flow
+   * @param {string} flowId - Flow UUID
+   * @param {string} label - Jump label
+   * @param {object|null} payload - Stored payload (null clears value)
+   */
+  setJumpValue(flowId, label, payload) {
+    this.initFlow(flowId);
+    const flowState = this.flows.get(flowId);
+    if (payload === null) {
+      flowState.jumps.delete(label);
+    } else {
+      flowState.jumps.set(label, {
+        ...payload,
+        timestamp: payload.timestamp ?? Date.now()
+      });
+    }
+  }
+
+  /**
+   * Retrieve jump node payload by label for a flow
+   * @param {string} flowId - Flow UUID
+   * @param {string} label - Jump label
+   * @returns {object|undefined}
+   */
+  getJumpValue(flowId, label) {
+    const flowState = this.flows.get(flowId);
+    if (!flowState) return undefined;
+    return flowState.jumps.get(label);
+  }
+
+  /**
+   * Clear stored jump payload for a flow/label
+   * @param {string} flowId - Flow UUID
+   * @param {string} label - Jump label
+   */
+  clearJumpValue(flowId, label) {
+    const flowState = this.flows.get(flowId);
+    if (flowState) {
+      flowState.jumps.delete(label);
+    }
   }
 
   /**

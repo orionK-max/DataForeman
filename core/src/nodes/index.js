@@ -14,12 +14,24 @@ import { TagOutputNode } from './tags/TagOutputNode.js';
 
 // Math nodes
 import { MathNode } from './math/MathNode.js';
+import { ClampNode } from './math/ClampNode.js';
+import { RoundNode } from './math/RoundNode.js';
 
 // Logic nodes
 import { GateNode } from './logic/GateNode.js';
+import { BooleanLogicNode } from './logic/BooleanLogicNode.js';
+import { SwitchNode } from './logic/SwitchNode.js';
+import { RangeCheckNode } from './logic/RangeCheckNode.js';
+import { MergeNode } from './logic/MergeNode.js';
 
 // Comparison nodes
 import { ComparisonNode } from './comparison/ComparisonNode.js';
+
+// Data transformation nodes
+import { TypeConvertNode } from './data/TypeConvertNode.js';
+import { StringOpsNode } from './data/StringOpsNode.js';
+import { ArrayOpsNode } from './data/ArrayOpsNode.js';
+import { JSONOpsNode } from './data/JSONOpsNode.js';
 
 // Script nodes
 import { JavaScriptNode } from './scripts/JavaScriptNode.js';
@@ -27,6 +39,10 @@ import { JavaScriptNode } from './scripts/JavaScriptNode.js';
 // Utility nodes
 import { ConstantNode } from './utility/ConstantNode.js';
 import { CommentNode } from './utility/CommentNode.js';
+import { DelayNode } from './utility/DelayNode.js';
+import { DebugLogNode } from './utility/DebugLogNode.js';
+import { JumpOutNode } from './utility/JumpOutNode.js';
+import { JumpInNode } from './utility/JumpInNode.js';
 
 /**
  * Register all node types
@@ -57,12 +73,24 @@ export async function registerAllNodes(options = {}) {
   
   // Math operations
   NodeRegistry.register('math', MathNode);
+  NodeRegistry.register('clamp', ClampNode);
+  NodeRegistry.register('round', RoundNode);
   
   // Logic operations
   NodeRegistry.register('gate', GateNode);
+  NodeRegistry.register('boolean-logic', BooleanLogicNode);
+  NodeRegistry.register('switch', SwitchNode);
+  NodeRegistry.register('range-check', RangeCheckNode);
+  NodeRegistry.register('merge', MergeNode);
   
   // Comparison operations
   NodeRegistry.register('comparison', ComparisonNode);
+  
+  // Data transformation operations
+  NodeRegistry.register('type-convert', TypeConvertNode);
+  NodeRegistry.register('string-ops', StringOpsNode);
+  NodeRegistry.register('array-ops', ArrayOpsNode);
+  NodeRegistry.register('json-ops', JSONOpsNode);
   
   // Script operations (legacy - skip validation until Phase 4 refactor)
   NodeRegistry.register('script-js', JavaScriptNode, { skipValidation: true });
@@ -70,6 +98,10 @@ export async function registerAllNodes(options = {}) {
   // Utility nodes
   NodeRegistry.register('constant', ConstantNode);
   NodeRegistry.register('comment', CommentNode);
+  NodeRegistry.register('delay', DelayNode);
+  NodeRegistry.register('debug-log', DebugLogNode);
+  NodeRegistry.register('jump-out', JumpOutNode);
+  NodeRegistry.register('jump-in', JumpInNode);
   
   console.log(`[NodeRegistry] Registered ${NodeRegistry.count()} built-in node types`);
   

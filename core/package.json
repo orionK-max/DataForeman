@@ -9,7 +9,11 @@
     "start": "./start.sh",
     "migrate": "node -e \"process.exit(0)\" && node-pg-migrate -m migrations -d postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE up",
     "migrate:generate": "node-pg-migrate --migrations-dir migrations --create",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
@@ -32,5 +36,9 @@
     "pino-pretty": "^11.2.2",
     "pino-roll": "^2.2.0",
     "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@vitest/ui": "^4.0.15",
+    "vitest": "^4.0.15"
   }
 }

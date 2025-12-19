@@ -253,11 +253,6 @@ export async function dashboardRoutes(app) {
     const userId = req.user.sub;
     await checkPermission(userId, 'create', reply);
     const id = req.params.id;
-    const newName = String(req.body?.name || '').trim();
-    
-    if (!newName || newName.length > 120) {
-      return reply.code(400).send({ error: 'validation_failed', details: ['name is required and must be <= 120 characters'] });
-    }
     
     // Check access to source dashboard
     const source = await fetchVisible(id, userId);
@@ -266,16 +261,21 @@ export async function dashboardRoutes(app) {
       return reply.code(404).send({ error: 'dashboard_not_found' });
     }
     
+    // Use provided name or default to source name + " (Copy)"
+    const body = req.body || {};
+    const newName = String(body.name || (source.name + ' (Copy)')).slice(0, 120);
+    
     try {
-      const q = `INSERT INTO dashboard_configs (user_id, name, description, is_shared, layout)
-                 VALUES ($1, $2, $3, $4, $5)
+      const q = `INSERT INTO dashboard_configs (user_id, name, description, is_shared, layout, options)
+                 VALUES ($1, $2, $3, $4, $5, $6)
                  RETURNING *`;
       const { rows } = await app.db.query(q, [
         userId,
         newName,
         source.description,
         false, // New dashboard is private by default
-        source.layout
+        source.layout,
+        source.options || {}
       ]);
       const row = rows[0];
       

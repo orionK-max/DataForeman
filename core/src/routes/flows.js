@@ -3,7 +3,7 @@
  * CRUD operations for workflow definitions
  */
 
-import { updateFlowResourceTagNames } from '../services/flow-resource-metrics.js';
+import { ensureFlowResourceTags, updateFlowResourceTagNames } from '../services/flow-resource-metrics.js';
 import { getFlowNodeSchema } from '../schemas/FlowNodeSchema.js';
 
 export default async function flowRoutes(app) {
@@ -80,9 +80,12 @@ export default async function flowRoutes(app) {
         inputs: desc.inputs || [],
         outputs: desc.outputs || [],
         inputConfiguration: desc.inputConfiguration || null,
+        ioRules: desc.ioRules || null, // Parameter-driven dynamic I/O configuration
         properties: desc.properties || [],
         visual: desc.visual || null,
         extensions: desc.extensions || {},
+        configUI: desc.configUI || null, // UI configuration for node config panel
+        help: desc.help || null, // Help documentation for the node
         library: desc.library // Include library metadata if node is from a library
       }));
       
@@ -127,9 +130,13 @@ export default async function flowRoutes(app) {
         schemaVersion: description.schemaVersion || 1,
         inputs: description.inputs || [],
         outputs: description.outputs || [],
+        inputConfiguration: description.inputConfiguration || null,
+        ioRules: description.ioRules || null, // Parameter-driven dynamic I/O configuration
         properties: description.properties || [],
         visual: description.visual || null,
-        extensions: description.extensions || {}
+        extensions: description.extensions || {},
+        configUI: description.configUI || null, // UI configuration for node config panel
+        library: description.library // Include library metadata if node is from a library
       });
     } catch (error) {
       req.log.error({ err: error, nodeType: req.params.type }, 'Failed to get node type details');
@@ -252,6 +259,223 @@ export default async function flowRoutes(app) {
     reply.send({ flow });
   });
 
+  // POST /api/flows/:id/resource-chart - Get or create the resource monitor chart for a flow
+  // Idempotent: if flows.resource_chart_id is already set, returns it without creating anything.
+  // If missing, only the flow owner can create it (requires flows:update + dashboards:create).
+  app.post('/api/flows/:id/resource-chart', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+
+    try {
+      await db.query('BEGIN');
+
+      // Lock row to avoid duplicate chart creation if multiple clients open the monitor at once
+      const flowRes = await db.query(
+        `SELECT id, name, owner_user_id, shared, resource_chart_id
+         FROM flows
+         WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+         FOR UPDATE`,
+        [id, userId]
+      );
+
+      if (flowRes.rows.length === 0) {
+        await db.query('ROLLBACK');
+        return reply.code(404).send({ error: 'flow not found' });
+      }
+
+      const flow = flowRes.rows[0];
+
+      // If already set, verify chart still exists before returning
+      if (flow.resource_chart_id) {
+        const chartExists = await db.query(
+          'SELECT id FROM chart_configs WHERE id = $1',
+          [flow.resource_chart_id]
+        );
+        
+        if (chartExists.rows.length > 0) {
+          await db.query('COMMIT');
+          return reply.send({ chart_id: flow.resource_chart_id });
+        }
+        
+        // Chart was deleted, clear stale reference and continue to create new one
+        req.log.warn({ flowId: flow.id, chartId: flow.resource_chart_id }, 'Stored chart no longer exists, will create new one');
+        await db.query(
+          'UPDATE flows SET resource_chart_id = NULL WHERE id = $1',
+          [flow.id]
+        );
+      }
+
+      // Only owner can create/store the chart
+      if (flow.owner_user_id !== userId) {
+        await db.query('ROLLBACK');
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+
+      // Route-specific permission checks (modifies DB + creates a chart config)
+      if (!(await app.permissions.can(userId, 'flows', 'update'))) {
+        await db.query('ROLLBACK');
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+      if (!(await app.permissions.can(userId, 'dashboards', 'create'))) {
+        await db.query('ROLLBACK');
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+
+      // Ensure the System connection exists
+      const sysConnRes = await db.query(
+        `SELECT id FROM connections WHERE name = 'System' AND is_system_connection = true LIMIT 1`
+      );
+      if (sysConnRes.rows.length === 0) {
+        await db.query('ROLLBACK');
+        req.log.error({ flowId: id }, 'System connection not found for resource chart creation');
+        return reply.code(500).send({ error: 'system_connection_not_found' });
+      }
+      const systemConnId = sysConnRes.rows[0].id;
+
+      // Ensure tags exist (or are re-activated) so chart can start populating immediately
+      let tagIds;
+      try {
+        tagIds = (await ensureFlowResourceTags(app, { id: flow.id, name: flow.name })) || {};
+      } catch (tagError) {
+        await db.query('ROLLBACK');
+        req.log.error({ err: tagError, flowId: id }, 'Failed to initialize flow resource tags');
+        return reply.code(500).send({ error: 'tag_initialization_failed' });
+      }
+
+      const flowTagBase = `flow.${flow.id}`;
+      const options = {
+        version: 1,
+        smartCompression: true,
+        maxDataPoints: 500,
+        tags: [
+          {
+            tag_id: tagIds.scan_efficiency_pct || null,
+            connection_id: systemConnId,
+            tag_path: `${flowTagBase}.scan_efficiency_pct`,
+            tag_name: `${flow.name} - Scan Efficiency (%)`,
+            data_type: 'REAL',
+            name: 'Scan Efficiency (%)',
+            alias: 'Scan Efficiency (%)',
+            color: '#1976d2',
+            thickness: 2,
+            strokeType: 'solid',
+            yAxisId: 'efficiency',
+            interpolation: 'linear',
+            hidden: false
+          },
+          {
+            tag_id: tagIds.cycles_per_second || null,
+            connection_id: systemConnId,
+            tag_path: `${flowTagBase}.cycles_per_second`,
+            tag_name: `${flow.name} - Cycles/Second`,
+            data_type: 'REAL',
+            name: 'Cycles/Second',
+            alias: 'Cycles/Second',
+            color: '#2e7d32',
+            thickness: 2,
+            strokeType: 'solid',
+            yAxisId: 'cycles',
+            interpolation: 'linear',
+            hidden: false
+          },
+          {
+            tag_id: tagIds.memory_avg_mb || null,
+            connection_id: systemConnId,
+            tag_path: `${flowTagBase}.memory_avg_mb`,
+            tag_name: `${flow.name} - Memory Avg (MB)`,
+            data_type: 'REAL',
+            name: 'Memory Avg (MB)',
+            alias: 'Memory Avg (MB)',
+            color: '#dc004e',
+            thickness: 2,
+            strokeType: 'solid',
+            yAxisId: 'memory',
+            interpolation: 'linear',
+            hidden: false
+          },
+          {
+            tag_id: tagIds.scan_duration_ms || null,
+            connection_id: systemConnId,
+            tag_path: `${flowTagBase}.scan_duration_ms`,
+            tag_name: `${flow.name} - Scan Duration (ms)`,
+            data_type: 'REAL',
+            name: 'Scan Duration (ms)',
+            alias: 'Scan Duration (ms)',
+            color: '#ff9800',
+            thickness: 2,
+            strokeType: 'solid',
+            yAxisId: 'scan',
+            interpolation: 'linear',
+            hidden: false
+          }
+        ],
+        axes: [
+          {
+            id: 'efficiency',
+            orientation: 'right',
+            label: 'Scan Efficiency (%)',
+            domain: ['auto', 'auto'],
+            offset: 0,
+            nameLocation: 'inside',
+            nameGap: 25
+          },
+          {
+            id: 'cycles',
+            orientation: 'right',
+            label: 'Cycles/Second',
+            domain: ['auto', 'auto'],
+            offset: 80,
+            nameLocation: 'inside',
+            nameGap: 25
+          },
+          {
+            id: 'memory',
+            orientation: 'left',
+            label: 'Memory Avg (MB)',
+            domain: ['auto', 'auto'],
+            offset: 0,
+            nameLocation: 'inside',
+            nameGap: 25
+          },
+          {
+            id: 'scan',
+            orientation: 'left',
+            label: 'Scan Duration (ms)',
+            domain: ['auto', 'auto'],
+            offset: 80,
+            nameLocation: 'inside',
+            nameGap: 25
+          }
+        ]
+      };
+
+      const chartName = `Flow Resources: ${flow.name}`;
+      const chartRes = await db.query(
+        `INSERT INTO chart_configs (
+          user_id, name, time_mode, time_duration, is_shared, is_system_chart, live_enabled, show_time_badge, options
+        ) VALUES (
+          $1, $2, 'rolling', $3, false, true, true, true, $4
+        ) RETURNING id`,
+        [userId, chartName, 600000, options]
+      );
+
+      const chartId = chartRes.rows[0].id;
+      await db.query(
+        `UPDATE flows SET resource_chart_id = $1, updated_at = now() WHERE id = $2`,
+        [chartId, flow.id]
+      );
+
+      await db.query('COMMIT');
+      return reply.send({ chart_id: chartId });
+    } catch (error) {
+      try { await db.query('ROLLBACK'); } catch {}
+      req.log.error({ err: error, flowId: id, userId }, 'Failed to get-or-create flow resource chart');
+      return reply.code(500).send({ error: 'chart_creation_failed' });
+    }
+  });
+
   // PUT /api/flows/:id - Update flow
   app.put('/api/flows/:id', async (req, reply) => {
     const userId = req.user?.sub;
@@ -369,6 +593,10 @@ export default async function flowRoutes(app) {
       }
       updates.push(`scan_rate_ms = $${paramCount++}`);
       values.push(rate);
+    }
+    if (req.body.resource_chart_id !== undefined) {
+      updates.push(`resource_chart_id = $${paramCount++}`);
+      values.push(req.body.resource_chart_id);
     }
     if (live_values_use_scan_rate !== undefined) {
       updates.push(`live_values_use_scan_rate = $${paramCount++}`);
@@ -1321,6 +1549,75 @@ export default async function flowRoutes(app) {
         error: error.message,
         status: 'error',
         executionTime: 0
+      });
+    }
+  });
+
+  // POST /api/flows/:id/nodes/:nodeId/action - Execute node action (Regen, Create sibling, etc.)
+  app.post('/api/flows/:id/nodes/:nodeId/action', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    const { id, nodeId } = req.params;
+    const { actionName, nodeData } = req.body;
+
+    try {
+      // Get flow
+      const flowResult = await db.query(
+        'SELECT id, definition FROM flows WHERE id = $1',
+        [id]
+      );
+
+      if (flowResult.rows.length === 0) {
+        return reply.code(404).send({ error: 'Flow not found' });
+      }
+
+      const flow = flowResult.rows[0];
+      const definition = flow.definition;
+
+      // Find node
+      const node = definition.nodes.find(n => n.id === nodeId);
+      if (!node) {
+        return reply.code(404).send({ error: 'Node not found' });
+      }
+
+      // Get node instance from registry
+      const { NodeRegistry } = await import('../nodes/base/NodeRegistry.js');
+      if (!NodeRegistry.has(node.type)) {
+        return reply.code(400).send({ error: `Unknown node type: ${node.type}` });
+      }
+
+      const nodeInstance = NodeRegistry.getInstance(node.type);
+
+      // Check if node supports actions
+      if (!nodeInstance.handleAction || typeof nodeInstance.handleAction !== 'function') {
+        return reply.code(400).send({ error: `Node type ${node.type} does not support actions` });
+      }
+
+      // Create action context
+      const actionContext = {
+        node: { ...node, data: nodeData },
+        flow: definition,
+        nodePosition: node.position
+      };
+
+      // Execute action
+      const result = await nodeInstance.handleAction(actionName, actionContext);
+
+      if (!result) {
+        return reply.code(400).send({ error: `Action ${actionName} returned no result` });
+      }
+
+      req.log.info({ nodeId, actionName, result }, 'Node action executed');
+
+      // Return result
+      reply.send(result);
+
+    } catch (error) {
+      req.log.error({ err: error, flowId: id, nodeId, actionName }, 'Node action execution failed');
+      
+      return reply.code(500).send({
+        error: error.message
       });
     }
   });

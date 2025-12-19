@@ -69,19 +69,19 @@ export class CommentNode extends BaseNode {
       {
         name: 'fontSize',
         displayName: 'Font Size',
-        type: 'options',
+        type: 'select',
         default: 'medium',
         options: [
           {
-            name: 'Small',
+            label: 'Small',
             value: 'small'
           },
           {
-            name: 'Medium',
+            label: 'Medium',
             value: 'medium'
           },
           {
-            name: 'Large',
+            label: 'Large',
             value: 'large'
           }
         ],
@@ -90,31 +90,31 @@ export class CommentNode extends BaseNode {
       {
         name: 'backgroundColor',
         displayName: 'Background Color',
-        type: 'options',
+        type: 'select',
         default: 'yellow',
         options: [
           {
-            name: 'Yellow',
+            label: 'Yellow',
             value: 'yellow'
           },
           {
-            name: 'Blue',
+            label: 'Blue',
             value: 'blue'
           },
           {
-            name: 'Green',
+            label: 'Green',
             value: 'green'
           },
           {
-            name: 'Orange',
+            label: 'Orange',
             value: 'orange'
           },
           {
-            name: 'Pink',
+            label: 'Pink',
             value: 'pink'
           },
           {
-            name: 'Gray',
+            label: 'Gray',
             value: 'gray'
           }
         ],
@@ -125,6 +125,16 @@ export class CommentNode extends BaseNode {
     extensions: {
       passive: true, // This node does not execute - it's for display only
       notes: 'Comment nodes are not executed and do not affect flow behavior'
+    },
+
+    // Config UI structure
+    configUI: {
+      sections: [
+        {
+          type: 'property-group',
+          title: 'Configuration'
+        }
+      ]
     }
   };
 
@@ -161,13 +171,53 @@ export class CommentNode extends BaseNode {
    * Execute method - should never be called since comment nodes are passive
    * If called, just return null to indicate no processing
    */
-  async execute(node, nodeInputs, context) {
+  async execute(context) {
     // Comment nodes are passive and should be skipped during execution
     context.logger.debug({
-      nodeId: node.id,
-      nodeType: node.type
+      nodeId: context.node.id,
+      nodeType: 'comment'
     }, 'Comment node skipped (passive)');
     
     return null;
+  }
+
+  static get help() {
+    return {
+      overview: "A passive documentation node that displays text comments in the flow editor. Does not execute or process data. Use for adding notes, explanations, and documentation directly in your flows.",
+      useCases: [
+        "Document complex calculation logic and business rules for team members",
+        "Add TODO reminders for incomplete sections or future enhancements",
+        "Mark different sections of large flows (e.g., 'Data Validation', 'Calculations')",
+        "Explain unusual configurations or workarounds for future reference"
+      ],
+      examples: [
+        {
+          title: "Section Header",
+          config: { text: "=== Temperature Monitoring ===", fontSize: "large" },
+          input: {},
+          output: {}
+        },
+        {
+          title: "Calculation Note",
+          config: { text: "Formula: (inlet + outlet) / 2\nUsed for average temp calculation", fontSize: "medium" },
+          input: {},
+          output: {}
+        },
+        {
+          title: "TODO Reminder",
+          config: { text: "TODO: Add alarm threshold when sensor is installed", backgroundColor: "yellow" },
+          input: {},
+          output: {}
+        }
+      ],
+      tips: [
+        "Comment nodes have no inputs or outputs - they are purely visual",
+        "Resize comment nodes to fit your text content",
+        "Use different background colors to categorize comments (warnings, info, etc.)",
+        "Large flows benefit from section comments to improve navigation",
+        "Comments are visible to all users viewing the flow - great for team collaboration"
+      ],
+      relatedNodes: []
+    };
   }
 }

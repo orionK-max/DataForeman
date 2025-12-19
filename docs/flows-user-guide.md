@@ -14,14 +14,21 @@ Flows are visual workflows that process data from tags, perform calculations, an
 
 ### Execution Mode
 
-All flows use **Continuous Mode**: Flows run in a continuous loop at a configured scan rate (default: 1 second).
+Flows can run in two modes:
 
-**Features:**
-- Configurable scan rate (100ms to 60 seconds)
-- Real-time monitoring with scan count
+**Continuous Mode** (default for tag-based flows):
+- Runs in a loop at configured scan rate (100ms-60s, default: 1s)
+- Requires deployment to start
+- Real-time monitoring with live values
 - Automatic session management
-- Input values update between scans
-- Manual triggers work within the continuous loop
+
+**Manual Mode** (for on-demand execution):
+- Runs once per execution request
+- No deployment needed - execute directly from Flow Browser or Dashboard
+- Ideal for report generation, data processing, batch operations
+- Supports parameterized execution (configurable inputs/outputs)
+
+**Configure in:** Flow Settings → Execution Mode toggle
 
 ### Node Types
 
@@ -42,9 +49,11 @@ All flows use **Continuous Mode**: Flows run in a continuous loop at a configure
 1. **Add Nodes**: Click + button or press `/`
 2. **Connect Nodes**: Drag from right (output) to left (input)
 3. **Configure Nodes**: Click node to open config panel
-4. **Configure Scan Rate**: Settings → Scan Rate (100-60000ms)
-5. **Test**: Click "Test Run" to test with optional write protection
-6. **Deploy**: Click "Deploy" to start continuous execution
+4. **Set Execution Mode**: Settings → Choose Manual or Continuous
+5. **Configure Scan Rate** (continuous only): Settings → Scan Rate (100-60000ms)
+6. **Expose Parameters** (optional): In node config, toggle "Expose to user" for runtime configuration
+7. **Test**: Click "Test Run" (continuous) or "Execute" (manual)
+8. **Deploy**: Click "Deploy" (continuous only - manual flows run on-demand)
 
 ### Execution Order
 
@@ -180,23 +189,41 @@ Toggle the eye icon to see real-time tag values on nodes:
 - **Shared**: Others can view/execute (not edit)
 - Internal tags from shared flows are also shared
 
+## Parameterized Execution
+
+**Expose node parameters for runtime configuration:**
+
+1. **In Node Config Panel**: Toggle "Expose to user" for any parameter
+2. **Configure Display**: Set label, help text, and required flag
+3. **Execute with Parameters**:
+   - Flow Browser: Click "Execute" button → parameter dialog
+   - Dashboard: Add flow widget with inline parameter controls
+4. **View History**: Execution history shows parameters used
+5. **Output Parameters**: Expose node outputs to display results after execution
+
+**Use Cases:**
+- Report generation with date ranges
+- File processing with configurable paths
+- Data exports with format selection
+- Batch operations with input/output directories
+
 ## Best Practices
 
-1. **Test Before Deploy**: Use test mode with write protection
-2. **Configure Scan Rate**: Match to your monitoring needs (faster = more CPU)
-3. **Document Nodes**: Use descriptive labels
-4. **Check Logs**: Monitor execution with log panel
+1. **Choose Right Mode**: Continuous for real-time monitoring, Manual for on-demand tasks
+2. **Expose Parameters**: Make flows reusable by exposing key inputs
+3. **Test Before Deploy**: Use test mode with write protection (continuous flows)
+4. **Configure Scan Rate**: Match to your monitoring needs (continuous flows)
+5. **Document Nodes**: Use descriptive labels and parameter descriptions
+6. **Check Logs**: Monitor execution with log panel
 
 ## Data Quality
 
-> **Note**: To be updated - Data quality system will be globalized across the application.
+Quality codes propagate through flows:
+- **0** = Good quality (standard across all drivers)
+- **1+** = Bad/uncertain quality
+- **OPC UA**: Native statusCode values (0 = Good, higher values = various statuses)
 
-OPC UA quality codes propagate through flows:
-- **Good (192)**: Valid data
-- **Uncertain**: Stale/estimated
-- **Bad**: Invalid/unavailable
-
-Bad inputs produce bad outputs.
+Nodes inherit input quality and pass it to outputs. Bad inputs produce bad outputs.
 
 ## Keyboard Shortcuts
 

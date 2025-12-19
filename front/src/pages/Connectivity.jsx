@@ -4,8 +4,6 @@ import {
   Box,
   Tabs,
   Tab,
-  Card,
-  CardContent,
   Alert,
   CircularProgress,
   Snackbar,
@@ -18,7 +16,6 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
-import CableIcon from '@mui/icons-material/Cable';
 import useSetPageTitle from '../hooks/useSetPageTitle';
 import { usePermissions } from '../contexts/PermissionsContext';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -26,12 +23,9 @@ import LabelIcon from '@mui/icons-material/Label';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import connectivityService from '../services/connectivityService';
 import OpcUaConnectionForm from '../components/connectivity/OpcUaConnectionForm';
-import SavedConnectionsList from '../components/connectivity/SavedConnectionsList';
 import LiveStatusSidebar from '../components/connectivity/LiveStatusSidebar';
 import S7ConnectionForm from '../components/connectivity/S7ConnectionForm';
-import S7SavedConnectionsList from '../components/connectivity/S7SavedConnectionsList';
 import EIPConnectionForm from '../components/connectivity/EIPConnectionForm';
-import EIPSavedConnectionsList from '../components/connectivity/EIPSavedConnectionsList';
 import DeviceDiscovery from '../components/connectivity/DeviceDiscovery';
 import OpcUaTagBrowser from '../components/connectivity/OpcUaTagBrowser';
 import S7TagEntry from '../components/connectivity/S7TagEntry';
@@ -39,6 +33,8 @@ import EIPTagBrowser from '../components/connectivity/EIPTagBrowser';
 import PollGroupsManager from '../components/connectivity/PollGroupsManager';
 import UnitsOfMeasure from '../components/connectivity/UnitsOfMeasure';
 import InternalTagsManager from '../components/connectivity/InternalTagsManager';
+import ConnectionBrowser from '../components/connectivity/ConnectionBrowser';
+import FolderTree from '../components/folders/FolderTree';
 
 // Tab panel component
 function TabPanel({ children, value, index, ...other }) {
@@ -73,7 +69,7 @@ const Connectivity = () => {
   
   // Status data with auto-refresh
   const [status, setStatus] = useState([]);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const autoRefresh = true;
   
   // Saved connections
   const [savedConnections, setSavedConnections] = useState([]);
@@ -110,17 +106,14 @@ const Connectivity = () => {
   useEffect(() => {
     loadStatus();
     
-    let intervalId;
-    if (autoRefresh) {
-      intervalId = setInterval(() => {
-        loadStatus();
-      }, 10000); // Refresh every 10 seconds (reduced from 3s to prevent slowness)
-    }
+    const intervalId = setInterval(() => {
+      loadStatus();
+    }, 10000); // Refresh every 10 seconds (reduced from 3s to prevent slowness)
     
     return () => {
-      if (intervalId) clearInterval(intervalId);
+      clearInterval(intervalId);
     };
-  }, [autoRefresh, loadStatus]);
+  }, [loadStatus]);
   
   // Load saved connections
   useEffect(() => {
@@ -225,10 +218,6 @@ const Connectivity = () => {
     }
   };
   
-  const handleToggleAutoRefresh = (enabled) => {
-    setAutoRefresh(enabled);
-  };
-  
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
   };
@@ -265,10 +254,13 @@ const Connectivity = () => {
   const handleSectionChange = (event, newValue) => {
     setSection(newValue);
   };
-  
-  const handleProtocolTabChange = (event, newValue) => {
-    setProtocolTab(newValue);
-  };
+
+  // Keep selected driver valid for the current section
+  useEffect(() => {
+    if (section === 'devices' && protocolTab === 'internal') {
+      setProtocolTab('opcua');
+    }
+  }, [section, protocolTab]);
   
   // Filter connections by protocol (hide system connections)
   const opcuaConnections = savedConnections
@@ -280,6 +272,20 @@ const Connectivity = () => {
   const eipConnections = savedConnections
     .filter((c) => !c.is_system_connection)
     .filter((c) => c?.type === 'eip');
+
+  // Virtual “driver folders” for Connectivity
+  const driverFolders = (section === 'tags')
+    ? [
+        { id: 'opcua', name: 'OPC UA', children: [] },
+        { id: 's7', name: 'Siemens S7', children: [] },
+        { id: 'eip', name: 'EtherNet/IP', children: [] },
+        { id: 'internal', name: 'Internal', children: [] },
+      ]
+    : [
+        { id: 'opcua', name: 'OPC UA', children: [] },
+        { id: 's7', name: 'Siemens S7', children: [] },
+        { id: 'eip', name: 'EtherNet/IP', children: [] },
+      ];
   
   if (loading) {
     return (
@@ -333,274 +339,303 @@ const Connectivity = () => {
       
         {/* Devices Section */}
         {section === 'devices' && (
-          <Box>
-            {/* Protocol Tabs */}
-            <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-              <Tabs value={protocolTab} onChange={handleProtocolTabChange}>
-                <Tab label="OPC UA" value="opcua" />
-                <Tab label="Siemens S7" value="s7" />
-                <Tab label="EtherNet/IP" value="eip" />
-              </Tabs>
-            </Box>
-          
-          {/* OPC UA Tab */}
-          <TabPanel value={protocolTab} index="opcua">
-            {/* Setup New Connection Button */}
-            <Box sx={{ mb: 3 }}>
-              {can('connectivity.devices', 'create') && (
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => {
-                    setEditingOpcuaConnection(null);
-                    setShowOpcuaForm(!showOpcuaForm);
-                  }}
-                  sx={{ mb: showOpcuaForm ? 2 : 0 }}
-                >
-                  {showOpcuaForm ? 'Hide Form' : 'Setup New Connection'}
-                </Button>
-              )}
-              
-              {/* Collapsible Form */}
-              {showOpcuaForm && (
-                <Box sx={{ mt: 2 }}>
-                  <OpcUaConnectionForm 
-                    initialConnection={editingOpcuaConnection}
-                    onSave={(result) => {
-                      handleConnectionSaved(result);
-                      setShowOpcuaForm(false);
-                      setEditingOpcuaConnection(null);
-                    }}
-                    onTest={handleConnectionTested}
-                  />
-                </Box>
-              )}
-            </Box>
-            
-            {/* Saved Connections List */}
-            <SavedConnectionsList
-              connections={opcuaConnections}
-              statuses={status}
-              onStart={handleStartConnection}
-              onStop={handleStopConnection}
-              onDelete={can('connectivity.devices', 'delete') ? handleDeleteConnection : null}
-              onEdit={can('connectivity.devices', 'update') ? handleEditOpcuaConnection : null}
-            />
-          </TabPanel>
-          
-          {/* S7 Tab */}
-          <TabPanel value={protocolTab} index="s7">
-            {/* Setup New Connection Button */}
-            <Box sx={{ mb: 3 }}>
-              {can('connectivity.devices', 'create') && (
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => {
-                    setEditingS7Connection(null);
-                    setShowS7Form(!showS7Form);
-                  }}
-                  sx={{ mb: showS7Form ? 2 : 0 }}
-                >
-                  {showS7Form ? 'Hide Form' : 'Setup New Connection'}
-                </Button>
-              )}
-              
-              {/* S7 Connection Form */}
-              {showS7Form && (
-                <Box sx={{ mt: 2 }}>
-                  <S7ConnectionForm 
-                    initialConnection={editingS7Connection}
-                    onSave={(result) => {
-                      handleConnectionSaved(result);
-                      setShowS7Form(false);
-                      setEditingS7Connection(null);
-                    }}
-                    onTest={handleConnectionTested}
-                  />
-                </Box>
-              )}
-            </Box>
-            
-            {/* Saved S7 Connections List */}
-            <S7SavedConnectionsList
-              connections={s7Connections}
-              statuses={status}
-              onStart={handleStartConnection}
-              onStop={handleStopConnection}
-              onDelete={can('connectivity.devices', 'delete') ? handleDeleteConnection : null}
-              onEdit={can('connectivity.devices', 'update') ? handleEditS7Connection : null}
-            />
-          </TabPanel>
-          
-          {/* EIP Tab */}
-          <TabPanel value={protocolTab} index="eip">
-            {/* Action Buttons */}
-            <Box sx={{ mb: 3, display: 'flex', gap: 2 }}>
-              {can('connectivity.devices', 'create') && (
-                <>
-                  <Button
-                    variant={showDiscovery ? 'outlined' : 'contained'}
-                    startIcon={<SearchIcon />}
-                    onClick={() => {
-                      setShowDiscovery(!showDiscovery);
-                      if (showEipForm) setShowEipForm(false);
-                    }}
-                  >
-                    {showDiscovery ? 'Hide Discovery' : 'Discover Devices'}
-                  </Button>
-                  
-                  <Button
-                    variant={showEipForm ? 'outlined' : 'contained'}
-                    startIcon={<AddIcon />}
-                    onClick={() => {
-                      setEditingEipConnection(null);
-                      setShowEipForm(!showEipForm);
-                      if (showDiscovery) setShowDiscovery(false);
-                    }}
-                  >
-                    {showEipForm ? 'Hide Form' : 'Setup New Connection'}
-                  </Button>
-                </>
-              )}
+          <Box sx={{ display: 'flex', minHeight: 400 }}>
+            {/* Virtual Driver Sidebar */}
+            <Box
+              sx={{
+                width: 280,
+                borderRight: 1,
+                borderColor: 'divider',
+                overflowY: 'auto',
+                flexShrink: 0,
+              }}
+            >
+              <FolderTree
+                folders={driverFolders}
+                selectedFolderId={protocolTab}
+                onSelectFolder={(driverId) => setProtocolTab(driverId)}
+                showRootOption={false}
+                showSharedOption={false}
+                enableFolderActions={false}
+                emptyMessage="No drivers"
+              />
             </Box>
 
-            {/* Device Discovery Panel */}
-            {showDiscovery && (
-              <Box sx={{ mb: 3 }}>
-                <DeviceDiscovery
-                  onAddDevice={(deviceInfo) => {
-                    // Pre-fill connection form with discovered device info
-                    setEditingEipConnection({
-                      type: 'eip',
-                      name: deviceInfo.name,
-                      host: deviceInfo.host,
-                      slot: deviceInfo.slot,
-                      port: 44818,
-                      timeout_ms: 3000,
-                      enabled: false,
-                      // Store additional metadata for reference
-                      _metadata: {
-                        product_name: deviceInfo.productName,
-                        vendor: deviceInfo.vendor,
-                        serial: deviceInfo.serial,
-                        revision: deviceInfo.revision,
-                      }
-                    });
-                    setShowDiscovery(false);
-                    setShowEipForm(true);
-                  }}
+            {/* Driver Content */}
+            <Box sx={{ flexGrow: 1, pl: 3, overflowY: 'auto' }}>
+              {/* OPC UA Tab */}
+              <TabPanel value={protocolTab} index="opcua">
+                {/* Setup New Connection Button */}
+                <Box sx={{ mb: 3 }}>
+                  {can('connectivity.devices', 'create') && (
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        setEditingOpcuaConnection(null);
+                        setShowOpcuaForm(!showOpcuaForm);
+                      }}
+                      sx={{ mb: showOpcuaForm ? 2 : 0 }}
+                    >
+                      {showOpcuaForm ? 'Hide Form' : 'Setup New Connection'}
+                    </Button>
+                  )}
+                  
+                  {/* Collapsible Form */}
+                  {showOpcuaForm && (
+                    <Box sx={{ mt: 2 }}>
+                      <OpcUaConnectionForm 
+                        initialConnection={editingOpcuaConnection}
+                        onSave={(result) => {
+                          handleConnectionSaved(result);
+                          setShowOpcuaForm(false);
+                          setEditingOpcuaConnection(null);
+                        }}
+                        onTest={handleConnectionTested}
+                      />
+                    </Box>
+                  )}
+                </Box>
+                
+                <ConnectionBrowser
+                  driver="opcua"
+                  connections={opcuaConnections}
+                  statuses={status}
+                  onStart={handleStartConnection}
+                  onStop={handleStopConnection}
+                  onDelete={can('connectivity.devices', 'delete') ? handleDeleteConnection : null}
+                  onEdit={can('connectivity.devices', 'update') ? handleEditOpcuaConnection : null}
                 />
-              </Box>
-            )}
-            
-            {/* EIP Connection Form */}
-            {showEipForm && (
-              <Box sx={{ mb: 3 }}>
-                <EIPConnectionForm 
-                  initialConnection={editingEipConnection}
-                  onSave={(result) => {
-                    handleConnectionSaved(result);
-                    setShowEipForm(false);
-                    setEditingEipConnection(null);
-                  }}
-                  onTest={handleConnectionTested}
+              </TabPanel>
+              
+              {/* S7 Tab */}
+              <TabPanel value={protocolTab} index="s7">
+                {/* Setup New Connection Button */}
+                <Box sx={{ mb: 3 }}>
+                  {can('connectivity.devices', 'create') && (
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        setEditingS7Connection(null);
+                        setShowS7Form(!showS7Form);
+                      }}
+                      sx={{ mb: showS7Form ? 2 : 0 }}
+                    >
+                      {showS7Form ? 'Hide Form' : 'Setup New Connection'}
+                    </Button>
+                  )}
+                  
+                  {/* S7 Connection Form */}
+                  {showS7Form && (
+                    <Box sx={{ mt: 2 }}>
+                      <S7ConnectionForm 
+                        initialConnection={editingS7Connection}
+                        onSave={(result) => {
+                          handleConnectionSaved(result);
+                          setShowS7Form(false);
+                          setEditingS7Connection(null);
+                        }}
+                        onTest={handleConnectionTested}
+                      />
+                    </Box>
+                  )}
+                </Box>
+                
+                <ConnectionBrowser
+                  driver="s7"
+                  connections={s7Connections}
+                  statuses={status}
+                  onStart={handleStartConnection}
+                  onStop={handleStopConnection}
+                  onDelete={can('connectivity.devices', 'delete') ? handleDeleteConnection : null}
+                  onEdit={can('connectivity.devices', 'update') ? handleEditS7Connection : null}
                 />
-              </Box>
-            )}
-            
-            {/* Saved EIP Connections List */}
-            <EIPSavedConnectionsList
-              connections={eipConnections}
-              statuses={status}
-              onStart={handleStartConnection}
-              onStop={handleStopConnection}
-              onDelete={can('connectivity.devices', 'delete') ? handleDeleteConnection : null}
-              onEdit={can('connectivity.devices', 'update') ? handleEditEipConnection : null}
-            />
-          </TabPanel>
-        </Box>
+              </TabPanel>
+              
+              {/* EIP Tab */}
+              <TabPanel value={protocolTab} index="eip">
+                {/* Action Buttons */}
+                <Box sx={{ mb: 3, display: 'flex', gap: 2 }}>
+                  {can('connectivity.devices', 'create') && (
+                    <>
+                      <Button
+                        variant={showDiscovery ? 'outlined' : 'contained'}
+                        startIcon={<SearchIcon />}
+                        onClick={() => {
+                          setShowDiscovery(!showDiscovery);
+                          if (showEipForm) setShowEipForm(false);
+                        }}
+                      >
+                        {showDiscovery ? 'Hide Discovery' : 'Discover Devices'}
+                      </Button>
+                      
+                      <Button
+                        variant={showEipForm ? 'outlined' : 'contained'}
+                        startIcon={<AddIcon />}
+                        onClick={() => {
+                          setEditingEipConnection(null);
+                          setShowEipForm(!showEipForm);
+                          if (showDiscovery) setShowDiscovery(false);
+                        }}
+                      >
+                        {showEipForm ? 'Hide Form' : 'Setup New Connection'}
+                      </Button>
+                    </>
+                  )}
+                </Box>
+
+                {/* Device Discovery Panel */}
+                {showDiscovery && (
+                  <Box sx={{ mb: 3 }}>
+                    <DeviceDiscovery
+                      onAddDevice={(deviceInfo) => {
+                        // Pre-fill connection form with discovered device info
+                        setEditingEipConnection({
+                          type: 'eip',
+                          name: deviceInfo.name,
+                          host: deviceInfo.host,
+                          slot: deviceInfo.slot,
+                          port: 44818,
+                          timeout_ms: 3000,
+                          enabled: false,
+                          // Store additional metadata for reference
+                          _metadata: {
+                            product_name: deviceInfo.productName,
+                            vendor: deviceInfo.vendor,
+                            serial: deviceInfo.serial,
+                            revision: deviceInfo.revision,
+                          }
+                        });
+                        setShowDiscovery(false);
+                        setShowEipForm(true);
+                      }}
+                    />
+                  </Box>
+                )}
+                
+                {/* EIP Connection Form */}
+                {showEipForm && (
+                  <Box sx={{ mb: 3 }}>
+                    <EIPConnectionForm 
+                      initialConnection={editingEipConnection}
+                      onSave={(result) => {
+                        handleConnectionSaved(result);
+                        setShowEipForm(false);
+                        setEditingEipConnection(null);
+                      }}
+                      onTest={handleConnectionTested}
+                    />
+                  </Box>
+                )}
+                
+                <ConnectionBrowser
+                  driver="eip"
+                  connections={eipConnections}
+                  statuses={status}
+                  onStart={handleStartConnection}
+                  onStop={handleStopConnection}
+                  onDelete={can('connectivity.devices', 'delete') ? handleDeleteConnection : null}
+                  onEdit={can('connectivity.devices', 'update') ? handleEditEipConnection : null}
+                />
+              </TabPanel>
+            </Box>
+          </Box>
       )}
       
       {/* Tags Section */}
       {section === 'tags' && (
-        <Box>
-          {/* Protocol Tabs for Tags */}
-          <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-            <Tabs value={protocolTab} onChange={handleProtocolTabChange}>
-              <Tab label="OPC UA" value="opcua" />
-              <Tab label="Siemens S7" value="s7" />
-              <Tab label="EtherNet/IP" value="eip" />
-              <Tab label="Internal" value="internal" />
-            </Tabs>
+        <Box sx={{ display: 'flex', minHeight: 400 }}>
+          {/* Virtual Driver Sidebar */}
+          <Box
+            sx={{
+              width: 280,
+              borderRight: 1,
+              borderColor: 'divider',
+              overflowY: 'auto',
+              flexShrink: 0,
+            }}
+          >
+            <FolderTree
+              folders={driverFolders}
+              selectedFolderId={protocolTab}
+              onSelectFolder={(driverId) => setProtocolTab(driverId)}
+              showRootOption={false}
+              showSharedOption={false}
+              enableFolderActions={false}
+              emptyMessage="No drivers"
+            />
           </Box>
 
-          {/* OPC UA Tags */}
-          {protocolTab === 'opcua' && (
-            <Box>
-              <OpcUaTagBrowser 
-                connectionId={null}
-                connections={opcuaConnections}
-                onTagsSaved={() => {
-                  showSnackbar('Tags saved successfully!', 'success');
-                }}
-              />
-            </Box>
-          )}
-          
-          {protocolTab === 'opcua' && opcuaConnections.length === 0 && (
-            <Alert severity="info">
-              No OPC UA connections configured. Go to the Devices tab to create a connection first.
-            </Alert>
-          )}
+          {/* Driver Content */}
+          <Box sx={{ flexGrow: 1, pl: 3, overflowY: 'auto' }}>
+            {/* OPC UA Tags */}
+            {protocolTab === 'opcua' && (
+              <Box>
+                <OpcUaTagBrowser 
+                  connectionId={null}
+                  connections={opcuaConnections}
+                  onTagsSaved={() => {
+                    showSnackbar('Tags saved successfully!', 'success');
+                  }}
+                />
+              </Box>
+            )}
+            
+            {protocolTab === 'opcua' && opcuaConnections.length === 0 && (
+              <Alert severity="info">
+                No OPC UA connections configured. Go to the Devices tab to create a connection first.
+              </Alert>
+            )}
 
-          {/* S7 Tags */}
-          {protocolTab === 's7' && s7Connections.length > 0 && (
-            <Box>
-              <S7TagEntry 
-                connectionId={s7Connections[0]?.id}
-                connections={s7Connections}
-                onTagsSaved={() => {
-                  showSnackbar('Tags saved successfully!', 'success');
-                }}
-              />
-            </Box>
-          )}
-          
-          {protocolTab === 's7' && s7Connections.length === 0 && (
-            <Alert severity="info">
-              No S7 connections configured. Go to the Devices tab to create a connection first.
-            </Alert>
-          )}
+            {/* S7 Tags */}
+            {protocolTab === 's7' && s7Connections.length > 0 && (
+              <Box>
+                <S7TagEntry 
+                  connectionId={s7Connections[0]?.id}
+                  connections={s7Connections}
+                  onTagsSaved={() => {
+                    showSnackbar('Tags saved successfully!', 'success');
+                  }}
+                />
+              </Box>
+            )}
+            
+            {protocolTab === 's7' && s7Connections.length === 0 && (
+              <Alert severity="info">
+                No S7 connections configured. Go to the Devices tab to create a connection first.
+              </Alert>
+            )}
 
-          {/* EIP Tags */}
-          {protocolTab === 'eip' && eipConnections.length > 0 && (
-            <Box>
-              <EIPTagBrowser 
-                connections={eipConnections}
-                onTagsSaved={() => {
-                  showSnackbar('Tags saved successfully!', 'success');
-                }}
-              />
-            </Box>
-          )}
-          
-          {protocolTab === 'eip' && eipConnections.length === 0 && (
-            <Alert severity="info">
-              No EtherNet/IP connections configured. Go to the Devices tab to create a connection first.
-            </Alert>
-          )}
+            {/* EIP Tags */}
+            {protocolTab === 'eip' && eipConnections.length > 0 && (
+              <Box>
+                <EIPTagBrowser 
+                  connections={eipConnections}
+                  onTagsSaved={() => {
+                    showSnackbar('Tags saved successfully!', 'success');
+                  }}
+                />
+              </Box>
+            )}
+            
+            {protocolTab === 'eip' && eipConnections.length === 0 && (
+              <Alert severity="info">
+                No EtherNet/IP connections configured. Go to the Devices tab to create a connection first.
+              </Alert>
+            )}
 
-          {/* Internal Tags */}
-          {protocolTab === 'internal' && (
-            <Box>
-              <InternalTagsManager 
-                onSnackbar={(message, severity) => {
-                  showSnackbar(message, severity);
-                }}
-              />
-            </Box>
-          )}
+            {/* Internal Tags */}
+            {protocolTab === 'internal' && (
+              <Box>
+                <InternalTagsManager 
+                  onSnackbar={(message, severity) => {
+                    showSnackbar(message, severity);
+                  }}
+                />
+              </Box>
+            )}
+          </Box>
         </Box>
       )}
 

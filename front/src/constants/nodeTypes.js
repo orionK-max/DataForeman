@@ -132,9 +132,12 @@ export function getNodeMetadata(nodeType) {
     inputs: backendMeta.inputs || [],
     outputs: backendMeta.outputs || [],
     inputConfiguration: backendMeta.inputConfiguration || null,
+    ioRules: backendMeta.ioRules || null,  // Parameter-driven I/O rules
     properties: backendMeta.properties || [],
     schemaVersion: backendMeta.schemaVersion || 1,
     visual: backendMeta.visual || null,
+    configUI: backendMeta.configUI || null,  // UI configuration for node config panel
+    help: backendMeta.help || null,  // Help documentation
     // Convenience flags
     hasInput: backendMeta.inputs?.length > 0,
     hasOutput: backendMeta.outputs?.length > 0,

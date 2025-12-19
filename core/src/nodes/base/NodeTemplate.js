@@ -106,7 +106,7 @@ export class NodeTemplate extends BaseNode {
          * Label shown in UI for this input
          */
         displayName: 'First Value',
-        
+      {
         /**
          * Is this input required for execution?
          * If true, node won't execute without this input connected
@@ -116,13 +116,21 @@ export class NodeTemplate extends BaseNode {
         /**
          * Help text shown in UI (optional but recommended)
          */
-        description: 'First operand for the operation'
+        description: 'First operand for the operation',
+        
+        /**
+         * Is the input type fixed and unchangeable? (optional)
+         * If true, user cannot change the type from UI (default: false)
+         * Use for inputs that MUST be a specific type (e.g., boolean reset)
+         */
+        typeFixed: false
       },
       {
         type: 'number',
         displayName: 'Second Value',
         required: true,
-        description: 'Second operand for the operation'
+        description: 'Second operand for the operation',
+        typeFixed: false
       }
     ],
     
@@ -141,11 +149,11 @@ export class NodeTemplate extends BaseNode {
      * - Concatenation nodes
      */
     inputConfiguration: {
-      minInputs: 2,          // Minimum number of inputs
-      maxInputs: 10,         // Maximum number of inputs  
-      defaultInputs: 2,      // Initial number of inputs shown
-      canAddInputs: true,    // Can user add more inputs?
-      canRemoveInputs: true  // Can user remove inputs?
+      minInputs: 2,           // Minimum number of inputs
+      maxInputs: 10,          // Maximum number of inputs  
+      defaultInputs: 2,       // Initial number of inputs shown
+      canAddInputs: true,     // Can user add more inputs?
+      canRemoveInputs: true   // Can user remove inputs?
     },
     
     // ============================================
@@ -175,6 +183,163 @@ export class NodeTemplate extends BaseNode {
          * Help text explaining what this output provides
          */
         description: 'Result of the operation'
+      }
+    ],
+    
+    // ============================================
+    // I/O RULES (Optional - NEW!)
+    // Parameter-driven dynamic I/O configuration
+    // ============================================
+    
+    /**
+     * I/O Rules - Define how inputs/outputs change based on parameter values
+     * 
+     * This is the NEW recommended way to handle dynamic I/O.
+     * Use when node I/O depends on parameter values (like operation type).
+     * 
+     * Rules are evaluated in order. First matching rule is used.
+     * Falls back to inputConfiguration/outputs if no rules match.
+     */
+    ioRules: [
+      // ========== Rule 1: Simple homogeneous inputs ==========
+      {
+        /**
+         * Condition for this rule to apply
+         * Check parameter values to determine if rule matches
+         * Can be single value or array of values
+         */
+        when: { 
+          operation: 'not'  // Single value
+        },
+        
+        /**
+         * Input configuration for this rule
+         */
+        inputs: {
+          count: 1,              // Fixed count (implies min=1, max=1, canAdd=false)
+          type: 'boolean',       // All inputs are this type
+          typeFixed: true,       // Cannot change type in UI
+          required: true         // Inputs are required
+        },
+        
+        outputs: {
+          count: 1,              // Fixed output count
+          type: 'boolean'        // Output type
+        }
+      },
+      
+      // ========== Rule 2: Dynamic homogeneous inputs ==========
+      {
+        when: { 
+          operation: ['and', 'or', 'xor']  // Array of values (OR condition)
+        },
+        
+        inputs: {
+          min: 2,                // Minimum inputs
+          max: 10,               // Maximum inputs
+          default: 2,            // Initial count
+          canAdd: true,          // User can add inputs
+          canRemove: true,       // User can remove inputs
+          type: 'boolean',       // Type for all inputs
+          typeFixed: true,       // Type is locked
+          required: true         // Inputs are required
+        },
+        
+        outputs: {
+          count: 1,
+          type: 'boolean'
+        }
+      },
+      
+      // ========== Rule 3: Heterogeneous inputs (mixed types) ==========
+      {
+        when: { 
+          mode: 'compare'
+        },
+        
+        inputs: {
+          /**
+           * Explicit list of inputs with different types
+           * Use when inputs are NOT all the same
+           */
+          definitions: [
+            { 
+              type: 'number', 
+              displayName: 'Value A', 
+              typeFixed: false,      // This one can change type
+              required: true 
+            },
+            { 
+              type: 'number', 
+              displayName: 'Value B', 
+              typeFixed: false,
+              required: true 
+            },
+            { 
+              type: 'boolean', 
+              displayName: 'Reset', 
+              typeFixed: true,       // This one is locked to boolean
+              required: false 
+            }
+          ]
+        },
+        
+        outputs: {
+          count: 1,
+          type: 'boolean'
+        }
+      },
+      
+      // ========== Rule 4: Hybrid (fixed + dynamic) ==========
+      {
+        when: { 
+          operation: 'formula'
+        },
+        
+        inputs: {
+          /**
+           * Hybrid mode: Some fixed inputs + dynamic additional inputs
+           */
+          definitions: [
+            { type: 'string', displayName: 'Formula', typeFixed: true, required: true }
+          ],
+          dynamic: {
+            min: 1,
+            max: 10,
+            default: 2,
+            type: 'number',
+            typeFixed: false,
+            canAdd: true,
+            canRemove: true,
+            template: {
+              displayName: 'Variable {n}'  // {n} replaced with index
+            }
+          }
+        },
+        
+        outputs: {
+          count: 1,
+          type: 'number'
+        }
+      },
+      
+      // ========== Default Rule (no 'when' clause) ==========
+      {
+        // No 'when' means this is the default/fallback rule
+        inputs: {
+          min: 1,
+          max: 5,
+          default: 2,
+          type: 'main',
+          typeFixed: false,
+          canAdd: true,
+          canRemove: true
+        },
+        
+        outputs: {
+          count: 1,
+          type: 'main'
+        }
       }
     ],
     
@@ -481,7 +646,7 @@ export class NodeTemplate extends BaseNode {
    * @param {NodeExecutionContext} context - Execution context with helpers
    * @returns {Promise<Object>} Execution result
    * @returns {*} result.value - Output value
-   * @returns {number} result.quality - Quality code (0=bad, 192=good)
+   * @returns {number} result.quality - Quality code (0=good, 1+=bad)
    * @returns {Object} [result.metadata] - Optional metadata
    */
   async execute(context) {
@@ -517,8 +682,8 @@ export class NodeTemplate extends BaseNode {
     // Extract values and quality
     const value0 = input0.value;
     const value1 = input1.value;
-    const quality0 = input0.quality || 192;
-    const quality1 = input1.quality || 192;
+    const quality0 = input0.quality ?? 0;
+    const quality1 = input1.quality ?? 0;
     
     // ========== STEP 3: Validate Input Data ==========
     
@@ -579,7 +744,7 @@ export class NodeTemplate extends BaseNode {
     // ========== STEP 6: Calculate Output Quality ==========
     
     // Output quality is minimum of input qualities
-    // OPC UA quality codes: 0=bad, 64=uncertain, 192=good
+    // Quality codes: 0=good, 1+=bad/uncertain (lower is better)
     const outputQuality = Math.min(quality0, quality1);
     
     // ========== STEP 7: Return Result ==========
@@ -685,7 +850,7 @@ export class NodeTemplate extends BaseNode {
  * - Check flow_execution_logs table
  * - Test with simple flows first
  * - Verify input connections in UI
- * - Check quality codes (0=bad, 192=good)
+ * - Check quality codes (0=good, 1+=bad)
  * - Look for validation errors in console
  */
 

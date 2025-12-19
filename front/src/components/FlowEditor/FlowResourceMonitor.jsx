@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect } from 'react';
+import React, { memo, useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -82,171 +82,27 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
   const hasWarnings = resourceData?.warnings?.length > 0;
   const [chartId, setChartId] = useState(null);
   const [loadingChart, setLoadingChart] = useState(false);
+  const setupInProgressRef = useRef(false);
 
-  // Create or fetch chart for flow resource metrics
+  // Fetch (or create, once) the chart for flow resource metrics
   useEffect(() => {
-    if (!open || !flowId || !flowName) return;
+    if (!open || !flowId || !flowName || setupInProgressRef.current) return;
 
     const setupChart = async () => {
+      setupInProgressRef.current = true;
       setLoadingChart(true);
       try {
-        // First, get the System connection ID
-        const connectionsResponse = await apiClient.get('/connectivity/connections');
-        const systemConnection = connectionsResponse?.items?.find(
-          c => c.name === 'System' && c.type === 'system'
-        );
-
-        if (!systemConnection) {
-          console.error('System connection not found', connectionsResponse);
-          setLoadingChart(false);
-          return;
-        }
-
-        // Check if chart already exists
-        const chartsResponse = await apiClient.get('/charts');
-        const existingChart = chartsResponse?.items?.find(
-          c => c.name === `Flow Resources: ${flowName}`
-        );
-
-        if (existingChart) {
-          setChartId(existingChart.id);
-        } else {
-          // Get tag IDs for the flow metrics
-          const tagsResponse = await apiClient.get(`/connectivity/tags/${systemConnection.id}`);
-          const flowTags = tagsResponse?.tags || [];
-          
-          const efficiencyTag = flowTags.find(t => t.tag_path === `flow.${flowId}.scan_efficiency_pct`);
-          const cyclesTag = flowTags.find(t => t.tag_path === `flow.${flowId}.cycles_per_second`);
-          const memTag = flowTags.find(t => t.tag_path === `flow.${flowId}.memory_peak_mb`);
-          const scanTag = flowTags.find(t => t.tag_path === `flow.${flowId}.scan_duration_ms`);
-
-          // Only create chart if at least one tag exists
-          if (!efficiencyTag && !cyclesTag && !memTag && !scanTag) {
-            console.log('No flow metric tags found yet - they will be created when the flow runs');
-            setLoadingChart(false);
-            return;
-          }
-
-          // Create new chart for this flow (marked as system chart to hide from user list)
-          const newChart = await apiClient.post('/charts', {
-            name: `Flow Resources: ${flowName}`,
-            is_system_chart: true, // Hide from regular chart list
-            time_mode: 'rolling',
-            time_duration: 600000, // 10 minutes in milliseconds
-            live_enabled: true,
-            show_time_badge: true,
-            options: {
-              version: 1,
-              smartCompression: true,
-              maxDataPoints: 500,
-              tags: [
-                efficiencyTag ? {
-                  tag_id: efficiencyTag.tag_id,
-                  connection_id: systemConnection.id,
-                  tag_path: efficiencyTag.tag_path || `flow.${flowId}.scan_efficiency_pct`,
-                  tag_name: efficiencyTag.tag_name || 'Scan Efficiency',
-                  data_type: efficiencyTag.data_type || 'Double',
-                  name: 'Scan Efficiency (%)',
-                  alias: 'Scan Efficiency (%)',
-                  color: '#1976d2',
-                  thickness: 2,
-                  strokeType: 'solid',
-                  yAxisId: 'efficiency',
-                  interpolation: 'linear',
-                  hidden: false
-                } : null,
-                cyclesTag ? {
-                  tag_id: cyclesTag.tag_id,
-                  connection_id: systemConnection.id,
-                  tag_path: cyclesTag.tag_path || `flow.${flowId}.cycles_per_second`,
-                  tag_name: cyclesTag.tag_name || 'Cycles Per Second',
-                  data_type: cyclesTag.data_type || 'Double',
-                  name: 'Cycles/Second',
-                  alias: 'Cycles/Second',
-                  color: '#2e7d32',
-                  thickness: 2,
-                  strokeType: 'solid',
-                  yAxisId: 'cycles',
-                  interpolation: 'linear',
-                  hidden: false
-                } : null,
-                memTag ? {
-                  tag_id: memTag.tag_id,
-                  connection_id: systemConnection.id,
-                  tag_path: memTag.tag_path || `flow.${flowId}.memory_peak_mb`,
-                  tag_name: memTag.tag_name || 'Memory Peak',
-                  data_type: memTag.data_type || 'Double',
-                  name: 'Memory Peak (MB)',
-                  alias: 'Memory Peak (MB)',
-                  color: '#dc004e',
-                  thickness: 2,
-                  strokeType: 'solid',
-                  yAxisId: 'memory',
-                  interpolation: 'linear',
-                  hidden: false
-                } : null,
-                scanTag ? {
-                  tag_id: scanTag.tag_id,
-                  connection_id: systemConnection.id,
-                  tag_path: scanTag.tag_path || `flow.${flowId}.scan_duration_ms`,
-                  tag_name: scanTag.tag_name || 'Scan Duration',
-                  data_type: scanTag.data_type || 'Double',
-                  name: 'Scan Duration (ms)',
-                  alias: 'Scan Duration (ms)',
-                  color: '#ff9800',
-                  thickness: 2,
-                  strokeType: 'solid',
-                  yAxisId: 'scan',
-                  interpolation: 'linear',
-                  hidden: false
-                } : null
-              ].filter(Boolean),
-              axes: [
-                {
-                  id: 'efficiency',
-                  orientation: 'right',
-                  label: 'Scan Efficiency (%)',
-                  domain: [0, 100],
-                  offset: 0,
-                  nameLocation: 'inside',
-                  nameGap: 25,
-                },
-                {
-                  id: 'cycles',
-                  orientation: 'right',
-                  label: 'Cycles/Second',
-                  domain: [0, 'auto'],
-                  offset: 80,
-                  nameLocation: 'inside',
-                  nameGap: 25,
-                },
-                {
-                  id: 'memory',
-                  orientation: 'left',
-                  label: 'Memory (MB)',
-                  domain: [0, 'auto'],
-                  offset: 0,
-                  nameLocation: 'inside',
-                  nameGap: 25,
-                },
-                {
-                  id: 'scan',
-                  orientation: 'left',
-                  label: 'Scan Duration (ms)',
-                  domain: [0, 'auto'],
-                  offset: 80,
-                  nameLocation: 'inside',
-                  nameGap: 25,
-                }
-              ]
-            }
-          });
-          setChartId(newChart.id);
+        // Backend handles idempotent get-or-create and persists flows.resource_chart_id
+        const res = await apiClient.post(`/flows/${flowId}/resource-chart`, {});
+        const id = res?.chart_id;
+        if (id) {
+          setChartId(id);
         }
       } catch (err) {
         console.error('Failed to setup resource chart:', err);
       } finally {
         setLoadingChart(false);
+        setupInProgressRef.current = false;
       }
     };
 

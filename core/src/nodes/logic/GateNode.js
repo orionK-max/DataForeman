@@ -106,19 +106,17 @@ export class GateNode extends BaseNode {
       {
         name: 'falseOutputMode',
         displayName: 'Output When False',
-        type: 'options',
+        type: 'select',
         default: 'null',
         required: true,
         options: [
           {
-            name: 'Output Null',
-            value: 'null',
-            description: 'Output null (downstream nodes skip if configured)'
+            label: 'Output Null',
+            value: 'null'
           },
           {
-            name: 'Output Previous Value',
-            value: 'previous',
-            description: 'Hold last valid value'
+            label: 'Output Previous Value',
+            value: 'previous'
           }
         ],
         description: 'What to output when condition is false'
@@ -127,6 +125,16 @@ export class GateNode extends BaseNode {
     
     extensions: {
       // Future: Add timeout for previous mode (revert to null after X seconds)
+    },
+
+    // Config UI structure
+    configUI: {
+      sections: [
+        {
+          type: 'property-group',
+          title: 'Configuration'
+        }
+      ]
     }
   };
 
@@ -254,5 +262,45 @@ export class GateNode extends BaseNode {
         };
       }
     }
+  }
+
+  static get help() {
+    return {
+      overview: "Controls data flow based on a boolean condition. When condition is true, input passes through unchanged. When false, outputs either null or previous value depending on configuration. Essential for conditional execution and value holding.",
+      useCases: [
+        "Process sensor data only when quality is good - stop calculations during sensor failures",
+        "Hold last good temperature value during brief communication outages",
+        "Execute downstream calculations only when temperature exceeds threshold",
+        "Implement conditional logging - write values only when specific conditions are met"
+      ],
+      examples: [
+        {
+          title: "Quality Filter (null mode)",
+          config: { falseOutputMode: "null" },
+          input: { condition: false, input: 45.2 },
+          output: { value: null, conditionMet: false }
+        },
+        {
+          title: "Value Holder (previous mode)",
+          config: { falseOutputMode: "previous" },
+          input: { condition: false, input: 30.5, previousOutput: 28.3 },
+          output: { value: 28.3, conditionMet: false, heldPrevious: true }
+        },
+        {
+          title: "Pass Through",
+          config: { falseOutputMode: "null" },
+          input: { condition: true, input: 67.8 },
+          output: { value: 67.8, conditionMet: true }
+        }
+      ],
+      tips: [
+        "Use 'null' mode to stop downstream execution when condition is false",
+        "Use 'previous' mode to hold last good value during brief outages or invalid conditions",
+        "Connect Comparison or RangeCheck node output to condition input",
+        "Downstream nodes with 'skipNodeOnNull' will not execute when gate outputs null",
+        "Previous mode stores last output - first execution with false condition outputs input value"
+      ],
+      relatedNodes: ["SwitchNode", "ComparisonNode", "BooleanLogicNode"]
+    };
   }
 }

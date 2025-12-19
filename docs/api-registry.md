@@ -306,9 +306,13 @@ Permissions follow the pattern: `feature:operation`
 | POST | `/api/flows/:id/duplicate` | Yes | *Check required* | API endpoint |
 | GET | `/api/flows/:id/dependencies` | Yes | *Check required* | Get single resource |
 | PUT | `/api/flows/:id/static-data` | Yes | *Check required* | Update resource |
-| POST | `/api/flows/:id/execute` | Yes | `flows:read` | API endpoint |
+| POST | `/api/flows/:id/execute` | Yes | `flows:read` | Execute flow (supports runtime parameters) |
 | POST | `/api/flows/:id/trigger/:nodeId` | Yes | `flows:read` | API endpoint |
 | POST | `/api/flows/:id/execute-from/:nodeId` | Yes | `flows:read` | API endpoint |
+| GET | `/api/flows/:id/parameters` | Yes | *Check required* | Get flow parameter schema (inputs/outputs) |
+| PUT | `/api/flows/:id/parameters` | Yes | *Check required* | Update exposed parameters |
+| GET | `/api/flows/:id/last-execution` | Yes | *Check required* | Get last execution with output values |
+| GET | `/api/flows/:id/parameter-history` | Yes | *Check required* | Get parameter execution history |
 | GET | `/api/flows/:id/history` | Yes | *Check required* | Get single resource |
 | POST | `/api/flows/:id/nodes/:nodeId/test` | Yes | `flows:read` | API endpoint |
 | GET | `/api/flows/:id/logs` | Yes | *Check required* | Get single resource |

@@ -329,6 +329,19 @@ export async function executeFromNode(flowId, nodeId) {
 }
 
 /**
+ * Execute node action (e.g., regen ID, create sibling)
+ */
+export async function executeNodeAction(flowId, nodeId, actionName, nodeData) {
+  const response = await fetch(`${API_BASE}/flows/${flowId}/nodes/${nodeId}/action`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ actionName, nodeData })
+  });
+  if (!response.ok) throw new Error(`Failed to execute action: ${actionName}`);
+  return response.json();
+}
+
+/**
  * Get logs for a flow
  */
 export async function getFlowLogs(flowId, filters = {}) {

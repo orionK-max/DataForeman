@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Handle, Position, NodeResizer } from 'reactflow';
 import { Box, Tooltip, useTheme } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -28,10 +28,9 @@ const CustomNodeV2 = ({ data, type, selected, id }) => {
   const metadata = getNodeMetadata(type);
   const visual = metadata?.visual;
   
-  // Get configurations
-  const canvasConfig = getCanvasConfig(visual);
-  const statusConfig = getStatusConfig(visual);
-  const runtimeConfig = getRuntimeConfig(visual);
+  // Get runtime config early (needed for useNodeRuntimeData hook)
+  // Memoize to prevent unnecessary re-renders and infinite loops
+  const runtimeConfig = useMemo(() => getRuntimeConfig(visual), [visual]);
   
   // Poll for runtime data if enabled
   const isExecuting = data?.executionStatus === 'running';
@@ -96,6 +95,14 @@ const CustomNodeV2 = ({ data, type, selected, id }) => {
     enhancedData,
     metadata
   );
+  
+  // Get configurations (pass handle counts for automatic height calculation)
+  const canvasConfig = getCanvasConfig(
+    visual,
+    handles.inputs.filter(h => h.visible).length,
+    handles.outputs.filter(h => h.visible).length
+  );
+  const statusConfig = getStatusConfig(visual);
   
   // Theme-aware colors
   const isDark = theme.palette.mode === 'dark';
