@@ -51,7 +51,7 @@ function buildHealthRows(summary, servicesStatus) {
     label: 'Backend (Core)',
     ok: summary?.core?.health?.status === 'ok' && !!summary?.core?.ready?.ready,
     text: summary?.core?.health?.status === 'ok' ? 'OK' : 'DOWN',
-    desc: 'Main Fastify server and API logic.',
+    desc: 'Backend and API logic.',
     restartable: false,
   });
 
@@ -61,7 +61,7 @@ function buildHealthRows(summary, servicesStatus) {
     label: 'Postgres',
     ok: summary?.db === 'up',
     text: summary?.db === 'up' ? 'UP' : 'DOWN',
-    desc: 'Primary PostgreSQL database for configuration.',
+    desc: 'Primary database for configuration.',
     restartable: false,
   });
 
@@ -81,7 +81,7 @@ function buildHealthRows(summary, servicesStatus) {
     label: 'TimescaleDB',
     ok: summary?.tsdb === 'up',
     text: summary?.tsdb === 'up' ? 'UP' : 'DOWN',
-    desc: 'TimescaleDB for time-series telemetry data.',
+    desc: 'Time-series DB for telemetry data.',
     restartable: false,
   });
 
@@ -104,7 +104,7 @@ function buildHealthRows(summary, servicesStatus) {
     label: 'Frontend',
     ok: !!summary?.front?.ok,
     text: summary?.front?.ok ? 'OK' : 'DOWN',
-    desc: 'Web UI (Nginx)',
+    desc: 'User Interface',
     restartable: false,
   });
 
@@ -125,7 +125,7 @@ function buildHealthRows(summary, servicesStatus) {
     label: 'Telemetry Ingestion',
     ok: coreIngestionActive,
     text: coreIngestionActive ? 'ACTIVE' : 'IDLE',
-    desc: 'Core service telemetry ingestion (standalone ingestor deprecated)',
+    desc: 'Core service telemetry ingestion',
     restartable: false,
   });
 

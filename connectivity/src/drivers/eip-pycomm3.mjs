@@ -716,24 +716,52 @@ export class EIPPyComm3Driver {
       throw new Error('No snapshots available. Call createSnapshot() first.');
     }
     
-    const snapshot = this._snapshots.get(opts.snapshot_id);
-    if (!snapshot) {
-      throw new Error(`Snapshot not found: ${opts.snapshot_id}`);
+    // Support both snapshot_id and snapshotId for compatibility
+    const snapshotId = opts.snapshot_id || opts.snapshotId;
+    if (!snapshotId) {
+      throw new Error('Missing snapshot_id or snapshotId parameter');
     }
     
-    const { page = 1, limit = 100 } = opts;
+    const snapshot = this._snapshots.get(snapshotId);
+    if (!snapshot) {
+      throw new Error(`Snapshot not found: ${snapshotId}`);
+    }
+    
+    const { page = 1, limit = 100, scope = 'controller', search = '' } = opts;
     const startIdx = (page - 1) * limit;
     const endIdx = startIdx + limit;
     
-    const items = snapshot.tags.slice(startIdx, endIdx);
+    // Filter tags by scope if specified (similar to listTags behavior)
+    let filteredTags = snapshot.tags;
+    if (scope && scope !== '*') {
+      if (scope === 'controller') {
+        // Show only controller-scoped tags (program is null or undefined)
+        filteredTags = snapshot.tags.filter(tag => !tag.program);
+      } else {
+        // Show only tags from the specified program
+        filteredTags = snapshot.tags.filter(tag => tag.program === scope);
+      }
+    }
+    
+    // Apply search filter if provided
+    if (search && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      filteredTags = filteredTags.filter(tag => 
+        (tag.tag_name || tag.name || '').toLowerCase().includes(searchLower)
+      );
+    }
+    
+    const items = filteredTags.slice(startIdx, endIdx);
     
     return {
       ok: true,
       items,
-      total: snapshot.tags.length,
+      total: filteredTags.length, // Total after filtering
+      totalUnfiltered: snapshot.tags.length, // Total before filtering
       page,
       limit,
-      has_more: endIdx < snapshot.tags.length
+      has_more: endIdx < filteredTags.length,
+      programs: snapshot.programs || [] // Include programs in response
     };
   }
   
@@ -865,7 +893,7 @@ export class EIPPyComm3Driver {
   async browseControllerTags(options = {}) {
     const { program = null, refresh = false } = options;
     
-    log.info({ host: this.host, program, refresh }, 'Browsing controller tags');
+    log.info({ host: this.host, slot: this.slot, program, refresh }, 'Browsing controller tags');
     
     if (!this._connected) {
       await this.connect();
@@ -873,6 +901,8 @@ export class EIPPyComm3Driver {
     
     try {
       const result = await this._client.request('browse_tags', {
+        ip_address: this.host,
+        slot: this.slot || 0,
         program
       }, 30000); // 30s timeout for large tag lists
       

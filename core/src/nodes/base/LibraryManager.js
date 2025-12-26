@@ -185,16 +185,22 @@ class LibraryManagerClass {
       throw new Error(`Invalid manifest: ${validation.errors.join(', ')}`);
     }
 
+    const isExtension = manifest.type === 'extension';
+
     // Check if already loaded
     if (this._libraries.has(manifest.libraryId)) {
       return { success: false, reason: 'Library already loaded' };
     }
 
-    // Check if index.js exists
+    // Check if index.js exists (required for node-library, optional for extension)
+    let hasIndex = false;
     try {
       await fs.access(indexPath);
+      hasIndex = true;
     } catch {
-      throw new Error('Missing index.js entry point');
+      if (!isExtension) {
+        throw new Error('Missing index.js entry point');
+      }
     }
 
     // Check version compatibility
@@ -204,37 +210,67 @@ class LibraryManagerClass {
       console.log(`[LibraryManager] ${manifest.libraryId} requires DataForeman ${manifest.requirements.dataforemanVersion}`);
     }
 
-    // Dynamic import of library (with cache busting to handle updates)
-    const cacheBuster = `?t=${Date.now()}`;
-    const indexUrl = `file://${indexPath}${cacheBuster}`;
-    const library = await import(indexUrl);
+    // Load nodes if index.js exists
+    if (hasIndex) {
+      // Dynamic import of library (with cache busting to handle updates)
+      const cacheBuster = `?t=${Date.now()}`;
+      const indexUrl = `file://${indexPath}${cacheBuster}`;
+      const library = await import(indexUrl);
 
-    if (typeof library.registerNodes !== 'function') {
-      throw new Error('Library must export a registerNodes function');
+      if (typeof library.registerNodes !== 'function') {
+        throw new Error('Library must export a registerNodes function');
+      }
+
+      // Register nodes
+      const registrationOptions = {
+        library: manifest,
+        ...options
+      };
+
+      await library.registerNodes(NodeRegistry, registrationOptions);
+
+      // Register categories/sections from library nodes (if db is available)
+      if (options.db) {
+        const { CategoryService } = await import('../../services/CategoryService.js');
+        const libraryNodes = NodeRegistry.getNodesByLibrary(manifest.libraryId);
+        
+        for (const node of libraryNodes) {
+          const description = NodeRegistry.getDescription(node.type);
+          if (description && description.category && description.section) {
+            await CategoryService.registerCategorySection(
+              options.db,
+              description.category,
+              description.section,
+              description
+            );
+          }
+        }
+      }
     }
 
-    // Register nodes
-    const registrationOptions = {
-      library: manifest,
-      ...options
-    };
-
-    await library.registerNodes(NodeRegistry, registrationOptions);
-
-    // Register categories/sections from library nodes (if db is available)
-    if (options.db) {
-      const { CategoryService } = await import('../../services/CategoryService.js');
-      const libraryNodes = NodeRegistry.getNodesByLibrary(manifest.libraryId);
-      
-      for (const node of libraryNodes) {
-        const description = NodeRegistry.getDescription(node.type);
-        if (description && description.category && description.section) {
-          await CategoryService.registerCategorySection(
-            options.db,
-            description.category,
-            description.section,
-            description
-          );
+    // Load extension routes if it's an extension
+    if (isExtension && options.app) {
+      const routesPath = path.join(libraryPath, 'extension', 'routes.js');
+      try {
+        await fs.access(routesPath);
+        const cacheBuster = `?t=${Date.now()}`;
+        const routesUrl = `file://${routesPath}${cacheBuster}`;
+        const extensionModule = await import(routesUrl);
+        
+        if (typeof extensionModule.default === 'function') {
+          console.log(`[LibraryManager] Registering extension routes for: ${manifest.libraryId}`);
+          await options.app.register(extensionModule.default, { 
+            prefix: `/api/extensions/${manifest.libraryId}`,
+            library: manifest,
+            db: options.db
+          });
+        } else {
+          console.warn(`[LibraryManager] Extension ${manifest.libraryId} has routes.js but no default export function`);
+        }
+      } catch (err) {
+        // routes.js is optional even for extensions
+        if (err.code !== 'ENOENT') {
+          console.error(`[LibraryManager] Failed to load extension routes for ${manifest.libraryId}:`, err.message);
         }
       }
     }
@@ -246,7 +282,9 @@ class LibraryManagerClass {
       loadedAt: new Date()
     });
 
-    console.log(`[LibraryManager] Loaded library: ${manifest.name} v${manifest.version} (${manifest.provides?.nodeTypes?.length || 0} nodes)`);
+    const typeStr = isExtension ? 'extension' : 'library';
+    const nodeCount = manifest.provides?.nodeTypes?.length || 0;
+    console.log(`[LibraryManager] Loaded ${typeStr}: ${manifest.name} v${manifest.version} (${nodeCount} nodes)`);
 
     return { 
       success: true, 
@@ -345,6 +383,11 @@ class LibraryManagerClass {
       errors.push('Only schemaVersion 1 is currently supported');
     }
 
+    // Optional type field (defaults to node-library)
+    if (manifest.type && !['node-library', 'extension'].includes(manifest.type)) {
+      errors.push('type must be either "node-library" or "extension"');
+    }
+
     // Validate provides section
     if (manifest.provides) {
       if (manifest.provides.nodeTypes && !Array.isArray(manifest.provides.nodeTypes)) {
@@ -384,9 +427,11 @@ class LibraryManagerClass {
         libraryId: id,
         name: data.manifest.name,
         version: data.manifest.version,
+        type: data.manifest.type || 'node-library',
         description: data.manifest.description,
         author: data.manifest.author,
         nodeTypes: nodeTypes.map(nt => nt.type),
+        uiExtensions: data.manifest.uiExtensions || [],
         loadedAt: data.loadedAt,
         path: data.path
       };

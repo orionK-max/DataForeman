@@ -17,8 +17,10 @@ import CableIcon from '@mui/icons-material/Cable';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import ExtensionIcon from '@mui/icons-material/Extension';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { PluginRegistry } from '../utils/PluginRegistry';
 
 const drawerWidth = 240;
 
@@ -35,14 +37,29 @@ const Sidebar = () => {
   const location = useLocation();
   const { can } = usePermissions();
   const theme = useMuiTheme();
+  const [extensions, setExtensions] = React.useState([]);
+
+  // Subscribe to plugin registry changes
+  React.useEffect(() => {
+    return PluginRegistry.subscribe(setExtensions);
+  }, []);
 
   // Choose logo based on theme mode
   const logoSrc = theme.palette.mode === 'dark' ? '/logo-dark.png' : '/logo-light.png';
 
-  // Filter menu items based on permissions
+  // Filter menu items based on permissions and add extensions
   const menuItems = useMemo(() => {
-    return allMenuItems.filter(item => can(item.feature, 'read'));
-  }, [can]);
+    const baseItems = allMenuItems.filter(item => can(item.feature, 'read'));
+    
+    // Add extension items
+    const extensionItems = PluginRegistry.getSidebarItems().map(item => ({
+      ...item,
+      // Map icon string to component if needed, for now use ExtensionIcon as fallback
+      icon: <ExtensionIcon /> 
+    }));
+
+    return [...baseItems, ...extensionItems];
+  }, [can, extensions]);
 
   return (
     <Drawer

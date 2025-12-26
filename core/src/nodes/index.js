@@ -51,10 +51,11 @@ import { JumpInNode } from './utility/JumpInNode.js';
  * @param {Object} options - Registration options
  * @param {boolean} options.loadLibraries - Whether to load external libraries (default: true)
  * @param {Object} options.db - Database connection (required for library loading)
+ * @param {Object} options.app - Fastify app instance (required for extension loading)
  * @returns {Promise<void>}
  */
 export async function registerAllNodes(options = {}) {
-  const { loadLibraries = true, db } = options;
+  const { loadLibraries = true, db, app } = options;
   
   // Initialize category service with core categories
   if (db) {
@@ -108,7 +109,7 @@ export async function registerAllNodes(options = {}) {
   // Load external node libraries
   if (loadLibraries) {
     try {
-      await LibraryManager.loadAllLibraries(NodeRegistry, { db });
+      await LibraryManager.loadAllLibraries(NodeRegistry, { db, app });
       
       const libraryCount = LibraryManager.getAllLibraries().length;
       const totalNodes = NodeRegistry.count();

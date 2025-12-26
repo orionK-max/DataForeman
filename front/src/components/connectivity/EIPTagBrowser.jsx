@@ -64,6 +64,7 @@ const EIPTagBrowser = ({ connectionId: initialConnectionId, connections = [], on
   const [programs, setPrograms] = useState([]); // Available programs from PLC
   const [selectedProgram, setSelectedProgram] = useState('Controller'); // Selected program filter ('Controller' or program name)
   const [csvDialogOpen, setCsvDialogOpen] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, message: '' }); // Progress for paginated loading
   
   // For multi-select support (Shift+Click, Ctrl+Click)
   const lastAnchorRef = useRef(null);
@@ -435,33 +436,39 @@ const EIPTagBrowser = ({ connectionId: initialConnectionId, connections = [], on
     setLoading(true);
     setError(null);
     setSelectedTags([]); // Clear selection when loading new tags
+    setLoadingProgress({ current: 0, total: 0, message: 'Creating snapshot...' });
 
     try {
-      // First, create a snapshot
+      // Step 1: Create a snapshot
       const createResult = await connectivityService.getEipTags(selectedConnection, {
         action: 'create'
       });
 
-      const snapshotResult = createResult;
-      if (snapshotResult.error) {
-        throw new Error(snapshotResult.error);
+      if (createResult.error) {
+        throw new Error(createResult.error);
       }
 
-      const snapshotId = snapshotResult.snapshot;
+      const snapshotId = createResult.snapshot;
       setSnapshot(snapshotId);
 
-      // Get the tag list from the snapshot with raw data (includes templates)
-      const tagsResult = await connectivityService.getEipTags(selectedConnection, {
+      // Step 2: Fetch first page to get total count and programs
+      setLoadingProgress({ current: 0, total: 0, message: 'Loading tags...' });
+      const PAGE_SIZE = 500; // Fetch 500 tags per page
+      const firstPageResult = await connectivityService.getEipTags(selectedConnection, {
+        action: 'snapshot.page',
         snapshot: snapshotId,
         scope: 'controller',
-        raw: true // Get templates for structure expansion
+        page: 1,
+        limit: PAGE_SIZE,
+        raw: false // Don't fetch templates with tag data
       });
 
-      // Store templates for structure expansion
-      setTemplates(tagsResult.raw?.templates || {});
+      if (firstPageResult.error) {
+        throw new Error(firstPageResult.error);
+      }
 
       // Extract available programs from the response
-      const availablePrograms = tagsResult.programs || [];
+      const availablePrograms = firstPageResult.programs || [];
       setPrograms(availablePrograms);
       
       // Set default to Controller scope if not already set to a specific program
@@ -469,8 +476,50 @@ const EIPTagBrowser = ({ connectionId: initialConnectionId, connections = [], on
         setSelectedProgram('Controller');
       }
 
+      const totalTags = firstPageResult.total || 0;
+      const totalPages = Math.ceil(totalTags / PAGE_SIZE);
+      let allTags = firstPageResult.items || [];
+
+      setLoadingProgress({ 
+        current: 1, 
+        total: totalPages, 
+        message: `Loading tags: page 1 of ${totalPages} (${allTags.length}/${totalTags})` 
+      });
+
+      // Step 3: Fetch remaining pages
+      for (let page = 2; page <= totalPages; page++) {
+        const pageResult = await connectivityService.getEipTags(selectedConnection, {
+          action: 'snapshot.page',
+          snapshot: snapshotId,
+          scope: 'controller',
+          page: page,
+          limit: PAGE_SIZE,
+          raw: false
+        });
+
+        if (pageResult.error) {
+          throw new Error(pageResult.error);
+        }
+
+        allTags = allTags.concat(pageResult.items || []);
+        
+        setLoadingProgress({ 
+          current: page, 
+          total: totalPages, 
+          message: `Loading tags: page ${page} of ${totalPages} (${allTags.length}/${totalTags})` 
+        });
+      }
+
+      // Step 4: Fetch structure templates separately (if needed)
+      // This is done as a separate request to avoid including large template data with each page
+      setLoadingProgress({ 
+        current: totalPages, 
+        total: totalPages, 
+        message: 'Processing tags...' 
+      });
+
       // Normalize PyComm3 format to expected format
-      const processedTags = (tagsResult.items || []).map(tag => ({
+      const processedTags = allTags.map(tag => ({
         ...tag,
         name: tag.tag_name || tag.name, // PyComm3 uses tag_name
         displayType: formatDataType(tag.data_type || tag.type), // Pre-format type for display
@@ -505,16 +554,21 @@ const EIPTagBrowser = ({ connectionId: initialConnectionId, connections = [], on
         }
       }
 
-      // Build tree structure from deduplicated tags with children pre-loaded
+      // Build tree structure from deduplicated tags
+      // Note: Structure members will be loaded on-demand when user expands nodes
       const tree = uniqueTags.map(tag => {
         const node = buildTreeFromTag(tag);
         node.rawTag = tag; // Store raw tag for expansion
         
-        // Pre-load children for structures and arrays
-        if (node.structure) {
-          node.children = expandStructure(node);
-        } else if (node.arrayDims && node.arrayDims.length > 0) {
+        // For arrays, pre-load children (lightweight operation)
+        if (node.arrayDims && node.arrayDims.length > 0) {
           node.children = expandArray(node);
+        } else if (node.structure) {
+          // For structures, children will be loaded on-demand
+          // Set a placeholder to indicate this node is expandable
+          node.children = node.rawTag.members && node.rawTag.members.length > 0 
+            ? expandStructure(node) 
+            : [];
         }
         
         return node;
@@ -523,6 +577,8 @@ const EIPTagBrowser = ({ connectionId: initialConnectionId, connections = [], on
       setTags(uniqueTags);
       setFilteredTags(uniqueTags);
       setTreeData(tree);
+      setLoadingProgress({ current: totalPages, total: totalPages, message: `Loaded ${uniqueTags.length} tags` });
+      
       // selectableNodesRef is now updated via useEffect when treeData changes
     } catch (err) {
       setError(err.message || 'Failed to load tags');
@@ -1078,8 +1134,13 @@ const EIPTagBrowser = ({ connectionId: initialConnectionId, connections = [], on
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', p: 4 }}>
                       <CircularProgress />
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                        Loading tags from PLC...
+                        {loadingProgress.message || 'Loading tags from PLC...'}
                       </Typography>
+                      {loadingProgress.total > 0 && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                          Page {loadingProgress.current} of {loadingProgress.total}
+                        </Typography>
+                      )}
                     </Box>
                   ) : treeData.length === 0 ? (
                     <Paper sx={{ p: 3, mb: 2, textAlign: 'center' }}>

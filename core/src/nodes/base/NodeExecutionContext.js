@@ -104,10 +104,10 @@ export class NodeExecutionContext {
   }
 
   /**
-   * Get input data in N8n-style format: array of arrays of items
+   * Get input data in structured format: array of arrays of items
    * Each input handle returns an array of items (usually 1 item with { json: data })
    * 
-   * Compatible with library nodes that expect N8n-style input format.
+   * Compatible with library nodes that expect this structured input format.
    * 
    * @returns {Array<Array<Object>>} Array where each element is an array of items for that input
    * @example
@@ -126,7 +126,7 @@ export class NodeExecutionContext {
           return [{ json: { value: null, quality: 0 } }];
         }
         
-        // Wrap in N8n format: array of items with json property
+        // Wrap in structured format: array of items with json property
         return [{ json: inputData }];
       });
     }
@@ -141,7 +141,7 @@ export class NodeExecutionContext {
         return [{ json: { value: null, quality: 0 } }];
       }
       
-      // Wrap in N8n format
+      // Wrap in structured format
       return [{ json: output }];
     });
   }

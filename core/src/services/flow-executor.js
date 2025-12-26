@@ -310,7 +310,7 @@ export async function executeNode(node, nodeOutputs, context) {
     // Capture output values after execution (for automatic live values)
     const capturedOutputs = {};
     if (result.outputs) {
-      // Extract values from N8n-style outputs format
+      // Extract values from structured outputs format
       result.outputs.forEach((outputArray, idx) => {
         if (outputArray && outputArray[0] && outputArray[0].json) {
           capturedOutputs[`output-${idx}`] = outputArray[0].json;

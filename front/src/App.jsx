@@ -19,19 +19,33 @@ import Profile from './pages/Profile';
 import FlowBrowser from './pages/FlowBrowser';
 import FlowEditor from './pages/FlowEditor';
 import LibraryManager from './pages/LibraryManager';
+import RemoteExtensionPage from './components/RemoteExtensionPage';
+import libraryApi from './services/libraryApi';
+import { PluginRegistry } from './utils/PluginRegistry';
 
 // Protected wrapper that redirects to login if not authenticated
 const ProtectedApp = () => {
   const { isAuthenticated } = useAuth();
   const [nodeMetadataLoaded, setNodeMetadataLoaded] = React.useState(false);
+  const [extensions, setExtensions] = React.useState([]);
 
-  // Fetch node metadata from backend when app initializes
+  // Subscribe to plugin registry changes
+  React.useEffect(() => {
+    return PluginRegistry.subscribe(setExtensions);
+  }, []);
+
+  // Fetch node metadata and extensions from backend when app initializes
   useEffect(() => {
     if (isAuthenticated) {
       setNodeMetadataLoaded(false);
       Promise.all([
         fetchCategories(),
-        fetchBackendNodeMetadata()
+        fetchBackendNodeMetadata(),
+        libraryApi.list().then(data => {
+          if (data.libraries) {
+            PluginRegistry.setExtensionsFromLibraries(data.libraries);
+          }
+        }).catch(err => console.error('Failed to load extensions:', err))
       ])
         .then(() => {
           setNodeMetadataLoaded(true);
@@ -73,6 +87,21 @@ const ProtectedApp = () => {
           <Route path="/profile" element={<Profile />} />
           <Route path="/admin/users" element={<Users />} />
           <Route path="/admin/libraries" element={<LibraryManager />} />
+          
+          {/* Dynamic Extension Routes */}
+          {PluginRegistry.getRoutes().map(route => (
+            <Route 
+              key={route.path} 
+              path={route.path} 
+              element={
+                <RemoteExtensionPage 
+                  componentUrl={route.componentUrl} 
+                  libraryId={route.libraryId} 
+                />
+              } 
+            />
+          ))}
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </MainLayout>

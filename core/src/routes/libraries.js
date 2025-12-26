@@ -40,6 +40,8 @@ export default async function libraryRoutes(app) {
         version: lib.version,
         description: lib.description,
         author: lib.author,
+        type: lib.type,
+        uiExtensions: lib.uiExtensions || [],
         nodeCount: lib.nodeTypes?.length || 0,
         nodeTypes: lib.nodeTypes || [],
         loaded: true,
@@ -48,7 +50,7 @@ export default async function libraryRoutes(app) {
 
       // Get library metadata from database for install info
       const dbLibraries = await db.query(
-        `SELECT library_id, installed_at, installed_by, enabled, load_errors
+        `SELECT library_id, name, version, manifest, installed_at, installed_by, enabled, load_errors, last_loaded_at
          FROM node_libraries
          ORDER BY installed_at DESC`
       );
@@ -64,6 +66,32 @@ export default async function libraryRoutes(app) {
           loadErrors: dbInfo?.load_errors
         };
       });
+
+      // Include DB-installed libraries that are not currently loaded
+      // (e.g., extensions that require restart to activate)
+      for (const row of dbLibraries.rows) {
+        const alreadyIncluded = enrichedLibraries.some(l => l.libraryId === row.library_id);
+        if (alreadyIncluded) continue;
+
+        const manifest = row.manifest || {};
+        enrichedLibraries.push({
+          libraryId: row.library_id,
+          name: row.name || manifest.name,
+          version: row.version || manifest.version,
+          description: manifest.description,
+          author: manifest.author,
+          type: manifest.type,
+          uiExtensions: manifest.uiExtensions || [],
+          nodeCount: Array.isArray(manifest.nodeTypes) ? manifest.nodeTypes.length : 0,
+          nodeTypes: manifest.nodeTypes || [],
+          loaded: false,
+          lastLoadedAt: row.last_loaded_at,
+          installedAt: row.installed_at,
+          installedBy: row.installed_by,
+          enabled: row.enabled ?? true,
+          loadErrors: row.load_errors
+        });
+      }
 
       reply.send({ libraries: enrichedLibraries });
     } catch (error) {
@@ -210,7 +238,21 @@ export default async function libraryRoutes(app) {
           [libraryId, manifest.name, manifest.version, manifest, userId]
         );
 
-        // Load library immediately
+        // Extensions are installed immediately, but activated on restart.
+        // Reason: Fastify route registration is safest during startup registration.
+        if (manifest.type === 'extension') {
+          req.log.info({ libraryId, version: manifest.version }, 'Extension installed; restart required to activate');
+          return reply.code(201).send({
+            message: 'Extension installed. Restart core to activate it.',
+            libraryId,
+            name: manifest.name,
+            version: manifest.version,
+            hotReload: false,
+            requiresRestart: true
+          });
+        }
+
+        // Node libraries: load immediately
         try {
           await LibraryManager.loadLibrary(libraryDir, NodeRegistry, { db });
           
@@ -289,6 +331,20 @@ export default async function libraryRoutes(app) {
 
       // Hot-load the library (add to NodeRegistry)
       try {
+        const { rows: metaRows } = await db.query(
+          'SELECT manifest FROM node_libraries WHERE library_id = $1',
+          [libraryId]
+        );
+        const manifest = metaRows?.[0]?.manifest;
+        if (manifest?.type === 'extension') {
+          return reply.send({
+            message: 'Extension enabled. Restart core to activate it.',
+            libraryId,
+            hotReload: false,
+            requiresRestart: true
+          });
+        }
+
         const { NodeRegistry } = await import('../nodes/base/NodeRegistry.js');
         const { LibraryManager } = await import('../nodes/base/LibraryManager.js');
         const libraryPath = path.join(__dirname, '../nodes/libraries', libraryId);
@@ -345,6 +401,20 @@ export default async function libraryRoutes(app) {
 
       // Hot-unload the library (remove from NodeRegistry)
       try {
+        const { rows: metaRows } = await db.query(
+          'SELECT manifest FROM node_libraries WHERE library_id = $1',
+          [libraryId]
+        );
+        const manifest = metaRows?.[0]?.manifest;
+        if (manifest?.type === 'extension') {
+          return reply.send({
+            message: 'Extension disabled. Restart core to fully unload it.',
+            libraryId,
+            hotReload: false,
+            requiresRestart: true
+          });
+        }
+
         const { NodeRegistry } = await import('../nodes/base/NodeRegistry.js');
         const { LibraryManager } = await import('../nodes/base/LibraryManager.js');
         await LibraryManager.unloadLibrary(libraryId, NodeRegistry, { db });
@@ -531,6 +601,76 @@ export default async function libraryRoutes(app) {
     } catch (error) {
       req.log.error({ err: error, libraryId: req.params.libraryId }, 'Failed to get library usage');
       reply.code(500).send({ error: 'Failed to get library usage' });
+    }
+  });
+
+  /**
+   * GET /api/extensions/:libraryId/assets/*
+   * Serve static assets from an extension's dist folder
+   * Requires authentication (assets may include paid feature code)
+   */
+  app.get('/api/extensions/:libraryId/assets/*', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId) {
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
+
+    const { libraryId } = req.params;
+    const assetPath = req.params['*'];
+    const normalizedAssetPath = assetPath?.replace(/^dist[\\/]/, '');
+    
+    if (!LibraryManager.hasLibrary(libraryId)) {
+      return reply.code(404).send({ error: 'Extension not found' });
+    }
+
+    const library = LibraryManager.getLibrary(libraryId);
+    const fullPath = path.join(library.path, 'dist', normalizedAssetPath);
+
+    // Security check: ensure the path is within the library's dist folder
+    const distDir = path.join(library.path, 'dist');
+    const relative = path.relative(distDir, fullPath);
+    const isSafe = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+    
+    if (!isSafe) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+
+    try {
+      const content = await fs.readFile(fullPath);
+      const ext = path.extname(fullPath).toLowerCase();
+
+      // Cache behavior:
+      // - If caller provides a version query param (e.g. ?v=1.2.3), treat as immutable.
+      // - Otherwise, disable caching to avoid stale extension bundles in browsers.
+      const hasVersionParam = typeof req.query?.v === 'string' && req.query.v.length > 0;
+      if (hasVersionParam) {
+        reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        reply.header('Cache-Control', 'no-store');
+      }
+
+      const mimeTypes = {
+        '.js': 'application/javascript',
+        '.mjs': 'application/javascript',
+        '.css': 'text/css',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.svg': 'image/svg+xml',
+        '.json': 'application/json',
+        '.html': 'text/html',
+        '.woff': 'font/woff',
+        '.woff2': 'font/woff2',
+        '.ttf': 'font/ttf'
+      };
+      
+      if (mimeTypes[ext]) {
+        reply.type(mimeTypes[ext]);
+      }
+      
+      return content;
+    } catch (err) {
+      return reply.code(404).send({ error: 'Asset not found' });
     }
   });
 }

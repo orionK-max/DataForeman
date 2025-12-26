@@ -40,6 +40,7 @@ import { startRetentionScheduler } from './services/log-retention.js';
 import { startFlowLogCleanupScheduler } from './services/flow-log-cleanup.js';
 import { ensureAdminPassword } from './services/bootstrap.js';
 import { connectivityBootstrap } from './services/connectivity-bootstrap.js';
+import { flowBootstrap } from './services/flow-bootstrap.js';
 import { initDemoMode } from './services/demo-mode.js';
 import { systemMetricsSampler } from './services/system-metrics-sampler.js';
 import { tsdbPoliciesPlugin } from './services/tsdb-policies.js';
@@ -133,7 +134,7 @@ export async function buildServer() {
   
   // Register all flow node types (including external libraries)
   // Must be after dbPlugin so we can query enabled libraries
-  await registerAllNodes({ db: app.db });
+  await registerAllNodes({ db: app.db, app });
   
   // Start flow log cleanup scheduler after db is available (daily at 2 AM)
   startFlowLogCleanupScheduler(app.log, app.db);
@@ -141,6 +142,7 @@ export async function buildServer() {
   await app.register(telemetryIngestPlugin);
   await app.register(tsdbPoliciesPlugin);
   await app.register(connectivityBootstrap);
+  await app.register(flowBootstrap);
   await app.register(systemMetricsSampler);
   await ensureAdminPassword(app);
   // Initialize demo mode (creates read-only demo user if DEMO_MODE=1)

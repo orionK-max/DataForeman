@@ -978,11 +978,15 @@ async function main() {
         const started = Date.now();
         let resp;
   // Do not change connection status during tag list/snapshot operations; keep real driver status
-        if (opts.action === 'snapshot.create') {
+        if (opts.action === 'snapshot.create' || opts.action === 'create') {
           // ensure fresh tag cache if requested
           const listRes = await c.driver.listTags({ refresh: !!opts.refresh, returnRaw: true, program: opts.program || '*' });
-          const snap = c.driver.createSnapshot();
-          resp = { snapshot: snap };
+          const snapResult = await c.driver.createSnapshot();
+          resp = { 
+            snapshot: snapResult.snapshot_id,
+            total: snapResult.total,
+            programs: snapResult.programs
+          };
         } else if (opts.action === 'snapshot.page') {
           resp = c.driver.pageSnapshot({ snapshotId: opts.snapshot, scope: opts.scope || opts.program || 'controller', page: opts.page || 1, limit: opts.limit, search: opts.search || '' });
         } else if (opts.action === 'snapshot.delete') {
