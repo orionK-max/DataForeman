@@ -1250,7 +1250,7 @@ This implementation integrates flow engine cleanly into DataForeman's existing a
 
 ### Configuration
 
-**Environment Variables** (docker-compose.yml):
+**Environment Variables** (docker compose.yml):
 ```yaml
 MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-20}  # Job concurrency limit
 FLOW_ALLOWED_PATHS: ${FLOW_ALLOWED_PATHS:-/data/files:/var/dataforeman}  # Filesystem access

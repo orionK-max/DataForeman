@@ -163,7 +163,7 @@ These directories are excluded to keep the installer small:
 
 ### Services won't start
 - Check Docker Desktop is running
-- View logs: `docker-compose logs`
+- View logs: `docker compose logs`
 - Check ports 3000, 8080 are not in use
 
 ## Support

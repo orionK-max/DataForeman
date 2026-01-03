@@ -54,9 +54,9 @@ Write-Host ""
 # Stop DataForeman services and remove containers
 Write-ColorOutput "Stopping DataForeman services..." "Yellow"
 
-# Check if docker-compose.yml exists
-if (-not (Test-Path "docker-compose.yml")) {
-    Write-ColorOutput "? docker-compose.yml not found in: $(Get-Location)" "Yellow"
+# Check if docker compose.yml exists
+if (-not (Test-Path "docker compose.yml")) {
+    Write-ColorOutput "? docker compose.yml not found in: $(Get-Location)" "Yellow"
     Write-ColorOutput "Attempting to stop containers manually..." "Yellow"
     
     # Try to stop containers by name pattern
@@ -75,12 +75,12 @@ if (-not (Test-Path "docker-compose.yml")) {
         Write-ColorOutput "No running containers found" "Gray"
     }
 } else {
-    Write-ColorOutput "Running docker-compose down..." "Gray"
-    $dcOutput = docker-compose down --remove-orphans 2>&1
+    Write-ColorOutput "Running docker compose down..." "Gray"
+    $dcOutput = docker compose down --remove-orphans 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-ColorOutput "? Services stopped and containers removed" "Green"
     } else {
-        Write-ColorOutput "? docker-compose down failed:" "Yellow"
+        Write-ColorOutput "? docker compose down failed:" "Yellow"
         Write-Host $dcOutput
         
         # Fallback to manual container removal

@@ -145,7 +145,7 @@ if (-not $SkipBackup) {
 # Step 4: Stop DataForeman
 Write-Step 4 7 "Stopping DataForeman services..."
 try {
-    docker-compose down 2>&1 | Out-Null
+    docker compose down 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Services stopped successfully"
     } else {
@@ -196,7 +196,7 @@ Write-Host ""
 Write-Step 6 7 "Building updated containers..."
 Write-ColorOutput "  This may take several minutes..." "Gray"
 try {
-    docker-compose build 2>&1 | Out-Null
+    docker compose build 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Containers built successfully"
     } else {
@@ -211,7 +211,7 @@ Write-Host ""
 # Step 7: Start updated version
 Write-Step 7 7 "Starting DataForeman $Version..."
 try {
-    docker-compose up -d 2>&1 | Out-Null
+    docker compose up -d 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to start services"
     }
@@ -222,7 +222,7 @@ try {
     Start-Sleep -Seconds 3
     
     # Check service status
-    $runningServices = docker-compose ps --services --filter "status=running"
+    $runningServices = docker compose ps --services --filter "status=running"
     if ($runningServices) {
         Write-Success "Running services:"
         foreach ($service in $runningServices) {
@@ -232,7 +232,7 @@ try {
 } catch {
     Write-ErrorMsg "Failed to start services: $_"
     Write-Host ""
-    Write-Host "Check logs with: docker-compose logs"
+    Write-Host "Check logs with: docker compose logs"
     exit 1
 }
 
@@ -251,6 +251,6 @@ Write-ColorOutput "  • Configurations and settings" "White"
 Write-ColorOutput "  • User accounts and permissions" "White"
 Write-ColorOutput "  • Dashboards and devices" "White"
 Write-Host ""
-Write-ColorOutput "To view logs: docker-compose logs -f" "Gray"
-Write-ColorOutput "To check status: docker-compose ps" "Gray"
+Write-ColorOutput "To view logs: docker compose logs -f" "Gray"
+Write-ColorOutput "To check status: docker compose ps" "Gray"
 Write-Host ""

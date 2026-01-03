@@ -22,7 +22,7 @@ if errorlevel 1 (
 )
 
 echo Stopping all DataForeman services...
-docker-compose down
+docker compose down
 
 if errorlevel 1 (
     echo.

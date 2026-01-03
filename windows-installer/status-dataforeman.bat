@@ -24,14 +24,14 @@ if errorlevel 1 (
 
 echo Current status of DataForeman services:
 echo.
-docker-compose ps
+docker compose ps
 
 echo.
 echo ========================================
 echo.
 
 REM Check if services are running
-docker-compose ps | findstr "Up" >nul
+docker compose ps | findstr "Up" >nul
 if errorlevel 1 (
     echo Status: STOPPED
     echo.

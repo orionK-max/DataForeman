@@ -80,7 +80,7 @@ export default async function adminFlowsRoutes(app, options) {
 
       return reply.code(501).send({
         error: 'Not implemented - FLOW_ALLOWED_PATHS is currently environment-based',
-        message: 'To add this path, update FLOW_ALLOWED_PATHS in docker-compose.yml or .env file',
+        message: 'To add this path, update FLOW_ALLOWED_PATHS in docker compose.yml or .env file',
         suggestedPath: newPath,
         pathExists: exists,
         note: 'Runtime path management will be implemented in a future version'
@@ -101,7 +101,7 @@ export default async function adminFlowsRoutes(app, options) {
 
       return reply.code(501).send({
         error: 'Not implemented - FLOW_ALLOWED_PATHS is currently environment-based',
-        message: 'To remove this path, update FLOW_ALLOWED_PATHS in docker-compose.yml or .env file',
+        message: 'To remove this path, update FLOW_ALLOWED_PATHS in docker compose.yml or .env file',
         pathToRemove,
         note: 'Runtime path management will be implemented in a future version'
       });

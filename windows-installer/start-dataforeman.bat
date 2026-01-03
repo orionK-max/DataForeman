@@ -89,7 +89,7 @@ if errorlevel 1 (
     echo Building container images from source...
     echo This will take several minutes. Please wait - the window will stay open until complete.
     echo.
-    docker-compose build
+    docker compose build
     if errorlevel 1 (
         echo.
         echo [ERROR] Failed to build images.
@@ -100,7 +100,7 @@ if errorlevel 1 (
 )
 
 echo Starting services...
-docker-compose up -d
+docker compose up -d
 
 if errorlevel 1 (
     echo.
@@ -117,7 +117,7 @@ if errorlevel 1 (
     
     echo.
     echo Retrying startup...
-    docker-compose up -d
+    docker compose up -d
     
     if errorlevel 1 (
         echo.
@@ -137,7 +137,7 @@ if errorlevel 1 (
 echo.
 echo [3/3] Waiting for services to be ready...
 timeout /t 5 /nobreak >nul
-docker-compose ps
+docker compose ps
 
 echo.
 echo ========================================

@@ -176,7 +176,7 @@ Use the administrator credentials you set during installation:
 Check that all services are running:
 ```powershell
 cd "C:\Program Files\DataForeman"
-docker-compose ps
+docker compose ps
 ```
 
 You should see:
@@ -238,15 +238,15 @@ For advanced users:
 
 ```powershell
 # Stop services
-docker-compose down
+docker compose down
 
 # Update code
 git fetch --tags
 git checkout v1.2.0
 
 # Rebuild and start
-docker-compose build
-docker-compose up -d
+docker compose build
+docker compose up -d
 ```
 
 ### What Gets Preserved During Updates
@@ -296,7 +296,7 @@ cd "C:\Program Files\DataForeman"
 **Option 3: Docker Command**
 ```powershell
 cd "C:\Program Files\DataForeman"
-docker-compose down
+docker compose down
 ```
 
 ### Checking Status
@@ -310,7 +310,7 @@ cd "C:\Program Files\DataForeman"
 **Option 2: Docker Command**
 ```powershell
 cd "C:\Program Files\DataForeman"
-docker-compose ps
+docker compose ps
 ```
 
 ### Viewing Logs
@@ -318,19 +318,19 @@ docker-compose ps
 **All Services:**
 ```powershell
 cd "C:\Program Files\DataForeman"
-docker-compose logs
+docker compose logs
 ```
 
 **Specific Service:**
 ```powershell
-docker-compose logs core
-docker-compose logs connectivity
-docker-compose logs front
+docker compose logs core
+docker compose logs connectivity
+docker compose logs front
 ```
 
 **Follow Logs in Real-Time:**
 ```powershell
-docker-compose logs -f
+docker compose logs -f
 ```
 
 **Log Files on Disk:**
@@ -395,14 +395,14 @@ If ports are in use, either stop the conflicting service or change DataForeman p
 **Check Docker Logs:**
 ```powershell
 cd "C:\Program Files\DataForeman"
-docker-compose logs
+docker compose logs
 ```
 
 ### Services Keep Restarting
 
 **Check for Errors:**
 ```powershell
-docker-compose logs core
+docker compose logs core
 ```
 
 **Common Issues:**
@@ -466,8 +466,8 @@ You can fix permissions through Windows File Explorer:
    - Or manually:
      ```powershell
      cd "C:\Program Files\DataForeman"
-     docker-compose down
-     docker-compose up -d
+     docker compose down
+     docker compose up -d
      ```
 
 **Important Notes:**
@@ -495,7 +495,7 @@ cd "C:\Program Files\DataForeman"
 
 Then restart services:
 ```powershell
-docker-compose restart
+docker compose restart
 ```
 
 **Solution 3: Manual Fix via WSL**
@@ -514,8 +514,8 @@ wsl -e bash -c "cd '/mnt/c/Program Files/DataForeman' && chmod -R 755 var"
 
 Then restart:
 ```powershell
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d
 ```
 
 **Solution 4: Clean Restart**
@@ -526,13 +526,13 @@ If permission errors persist, completely remove containers and volumes, then sta
 cd "C:\Program Files\DataForeman"
 
 # Stop and remove everything
-docker-compose down -v
+docker compose down -v
 
 # Fix permissions
 .\windows-installer\fix-permissions.bat
 
 # Start fresh
-docker-compose up -d
+docker compose up -d
 ```
 
 **⚠️ Note:** Using `-v` flag removes volumes, which will delete your data. Only use if you don't have important data or have a backup.
@@ -541,30 +541,30 @@ docker-compose up -d
 
 **Verify Database Containers:**
 ```powershell
-docker-compose ps db tsdb
+docker compose ps db tsdb
 ```
 
 **Restart Database Services:**
 ```powershell
-docker-compose restart db tsdb
+docker compose restart db tsdb
 ```
 
 **Check Database Logs:**
 ```powershell
-docker-compose logs db
-docker-compose logs tsdb
+docker compose logs db
+docker compose logs tsdb
 ```
 
 ### Web Interface Not Loading
 
 1. **Verify Frontend Container:**
    ```powershell
-   docker-compose ps front
+   docker compose ps front
    ```
 
 2. **Check Frontend Logs:**
    ```powershell
-   docker-compose logs front
+   docker compose logs front
    ```
 
 3. **Try Different Browser:**
@@ -582,9 +582,9 @@ docker-compose logs tsdb
 **Rollback to Previous Version:**
 ```powershell
 cd "C:\Program Files\DataForeman"
-docker-compose down
+docker compose down
 git checkout v1.0.0  # Replace with previous working version
-docker-compose up -d
+docker compose up -d
 ```
 
 **Check Update Logs:**
@@ -631,7 +631,7 @@ docker system prune
 ### Using Control Panel
 
 1. **Stop DataForeman First**
-   - Use Stop script or `docker-compose down`
+   - Use Stop script or `docker compose down`
 
 2. **Open Control Panel**
    - Windows Settings → Apps → Installed Apps
@@ -652,7 +652,7 @@ docker system prune
 1. **Stop and Remove Containers:**
    ```powershell
    cd "C:\Program Files\DataForeman"
-   docker-compose down
+   docker compose down
    ```
 
 2. **Remove Data Volumes** (Optional):
@@ -709,16 +709,16 @@ docker system prune
 .\windows-installer\update.ps1 -Version v1.2.0
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Restart a specific service
-docker-compose restart core
+docker compose restart core
 
 # Access PostgreSQL
-docker-compose exec db psql -U postgres -d dataforeman
+docker compose exec db psql -U postgres -d dataforeman
 
 # Access TimescaleDB
-docker-compose exec tsdb psql -U tsdb -d telemetry
+docker compose exec tsdb psql -U tsdb -d telemetry
 ```
 
 ### Default URLs

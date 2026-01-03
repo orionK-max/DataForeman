@@ -553,7 +553,7 @@ relation "tag_values" does not existAfter migrations run, you should see these t
 
 - eip_tag_cache### Issue: connectivity service fails with "relation does not exist" errors
 
-2. Verify environment variables in `docker-compose.yml` or `.env` file:
+2. Verify environment variables in `docker compose.yml` or `.env` file:
 
    - jobs
 
@@ -767,7 +767,7 @@ Both databases are migrated automatically by `core/start.sh`:**Solution**:
 
      -d postgres://$TSDB_USER:$TSDB_PASSWORD@$TSDB_HOST:$TSDB_PORT/$TSDB_DATABASE up
 
-   ```2. Verify environment variables in `docker-compose.yml` or `.env` file:001_init.cjs (MUST RUN FIRST)
+   ```2. Verify environment variables in `docker compose.yml` or `.env` file:001_init.cjs (MUST RUN FIRST)
 
 
 

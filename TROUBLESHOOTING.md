@@ -54,7 +54,7 @@ sudo lsof -i :8080
 
 If another program is using port 8080, either:
 - Stop that program, or
-- Edit `docker-compose.yml` to change the front service port from `8080:80` to `8081:80`
+- Edit `docker compose.yml` to change the front service port from `8080:80` to `8081:80`
 
 **Solution 3: Check frontend logs**
 ```bash

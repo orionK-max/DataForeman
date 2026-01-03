@@ -637,7 +637,7 @@ export async function diagRoutes(app) {
       const { promisify } = await import('util');
       const execAsync = promisify(exec);
 
-      // Restart the service using docker-compose
+      // Restart the service using docker compose
       const containerName = `dataforeman-${serviceName}-1`;
       app.log.info({ serviceName, containerName, userId }, 'Restarting service');
 
