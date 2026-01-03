@@ -64,8 +64,7 @@ const FlowBrowser = () => {
   const { setPageTitle, setPageSubtitle } = usePageTitle();
   const navigate = useNavigate();
   const [tab, setTab] = useState(0);
-  const [myFlows, setMyFlows] = useState([]);
-  const [sharedFlows, setSharedFlows] = useState([]);
+  const [flows, setFlows] = useState([]);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
@@ -81,7 +80,7 @@ const FlowBrowser = () => {
   const [flowToExecute, setFlowToExecute] = useState(null);
 
   // Use universal folder management hook (pass null for onReload, we'll call it manually)
-  const folderState = useBrowserFolders(FOLDER_TYPES.FLOW, myFlows, null);
+  const folderState = useBrowserFolders(FOLDER_TYPES.FLOW, flows, null);
   const {
     folders,
     selectedFolderId,
@@ -143,12 +142,8 @@ const FlowBrowser = () => {
 
   const loadFlows = async () => {
     try {
-      const [myData, sharedData] = await Promise.all([
-        listFlows(),
-        listSharedFlows()
-      ]);
-      setMyFlows(myData.flows || []);
-      setSharedFlows(sharedData.flows || []);
+      const response = await listFlows('all');
+      setFlows(response.flows || []);
     } catch (error) {
       showSnackbar('Failed to load flows: ' + error.message, 'error');
     }
@@ -260,8 +255,8 @@ const FlowBrowser = () => {
     }
   };
 
-  // Combine hook's filtered items with shared flows for "shared" view
-  const displayFlows = viewMode === 'shared' ? sharedFlows : filteredFlows;
+  // The hook's filteredFlows already handles viewMode (all/mine/shared)
+  const displayFlows = filteredFlows;
 
   return (
     <Box sx={{ display: 'flex', height: '100%' }}>

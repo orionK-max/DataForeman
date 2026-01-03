@@ -23,11 +23,12 @@ const DEMO_MODE_ENABLED = process.env.DEMO_MODE === '1' || process.env.DEMO_MODE
 const DEMO_INACTIVE_MINUTES = parseInt(process.env.DEMO_INACTIVE_MINUTES || '60', 10);
 const DEMO_PASSWORD_PREFIX = process.env.DEMO_PASSWORD_PREFIX || 'Demo';
 
-// Demo user permissions: can create/manage their own dashboards and charts
+// Demo user permissions: can create/manage their own dashboards, charts, and flows
 // but only read access to connections
 const DEMO_PERMISSIONS = {
   [FEATURES.DASHBOARDS]: { create: true, read: true, update: true, delete: true },
   [FEATURES.CHART_COMPOSER]: { create: true, read: true, update: true, delete: true },
+  [FEATURES.FLOWS]: { create: true, read: true, update: true, delete: true },
   [FEATURES.CONNECTIVITY_DEVICES]: { create: false, read: true, update: false, delete: false },
   [FEATURES.CONNECTIVITY_TAGS]: { create: false, read: true, update: false, delete: false },
   [FEATURES.CONNECTIVITY_POLL_GROUPS]: { create: false, read: true, update: false, delete: false },

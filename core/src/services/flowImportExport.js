@@ -451,7 +451,8 @@ export async function validateImport(importData, db, connectionMappings = {}) {
 
     // Validate connection name matches (in case connection was renamed)
     // Skip validation for internal tags - they're always in System connection
-    if (!isInternalTag && found.connection_name !== tagInfo.connection_name) {
+    // Skip validation if connection was remapped - remapping means connection name changed
+    if (!isInternalTag && !isConnectionRemapped && found.connection_name !== tagInfo.connection_name) {
       invalidTags.push({
         ...tagInfo,
         reason: 'connection_name_mismatch',

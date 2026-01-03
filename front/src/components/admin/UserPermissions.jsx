@@ -32,6 +32,7 @@ const FEATURES = {
   // Core Features
   DASHBOARDS: 'dashboards',
   CHART_COMPOSER: 'chart_composer',
+  FLOWS: 'flows',
   
   // Connectivity Features
   CONNECTIVITY_DEVICES: 'connectivity.devices',
@@ -58,6 +59,7 @@ const FEATURE_METADATA = {
   // Core
   [FEATURES.DASHBOARDS]: { label: 'Dashboards', category: 'Core', description: 'Dashboard and chart management' },
   [FEATURES.CHART_COMPOSER]: { label: 'Chart Composer', category: 'Core', description: 'Time-series data visualization' },
+  [FEATURES.FLOWS]: { label: 'Flow Studio', category: 'Core', description: 'Create and manage automation flows' },
   
   // Connectivity
   [FEATURES.CONNECTIVITY_DEVICES]: { label: 'Devices', category: 'Connectivity', description: 'Device connections (OPC UA, EIP, etc.)' },

@@ -16,10 +16,11 @@ function getHeaders() {
 }
 
 /**
- * List flows (owned + shared)
+ * List flows based on scope
+ * @param {string} scope - 'all' (owned + shared), 'mine' (owned only), 'shared' (shared only)
  */
-export async function listFlows() {
-  const response = await fetch(`${API_BASE}/flows`, {
+export async function listFlows(scope = 'all') {
+  const response = await fetch(`${API_BASE}/flows?scope=${scope}`, {
     headers: getHeaders()
   });
   if (!response.ok) throw new Error('Failed to fetch flows');

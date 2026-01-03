@@ -26,6 +26,59 @@ async function testTcp({ host, port, timeout = 1000 }) {
   });
 }
 
+function getNewestConnectivityStatusTsMs(app) {
+  try {
+    const items = Array.from(app.connectivityStatus?.values?.() || []);
+    let newest = null;
+    for (const s of items) {
+      const ts = s?.ts;
+      if (!ts) continue;
+      const ms = Date.parse(ts);
+      if (!Number.isFinite(ms)) continue;
+      if (newest == null || ms > newest) newest = ms;
+    }
+    return newest;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeConnectivityFromNats(app) {
+  const newestTsMs = getNewestConnectivityStatusTsMs(app);
+  const natsOk = app.nats?.healthy?.() === true;
+  let connectedCount = 0;
+  try {
+    const items = Array.from(app.connectivityStatus?.values?.() || []);
+    for (const s of items) {
+      if (s?.state === 'connected' || s?.state === 'connecting') connectedCount += 1;
+    }
+  } catch {}
+
+  // If we have ANY recent status updates, treat connectivity as up.
+  // This avoids false negatives on Linux when connectivity runs in host network mode
+  // and the health endpoint is not reachable from the core container due to host firewall rules.
+  const recentWindowMs = 60_000;
+  const recent = newestTsMs != null ? (Date.now() - newestTsMs) <= recentWindowMs : false;
+  if (natsOk && recent) {
+    return {
+      ok: true,
+      via: 'nats',
+      nats: true,
+      connections: connectedCount,
+      lastTs: new Date(newestTsMs).toISOString(),
+    };
+  }
+
+  return {
+    ok: false,
+    via: 'nats',
+    nats: natsOk,
+    connections: connectedCount,
+    lastTs: newestTsMs != null ? new Date(newestTsMs).toISOString() : null,
+    error: newestTsMs == null ? 'no_status_seen' : 'stale_status',
+  };
+}
+
 export async function diagRoutes(app) {
   // admin-only guard - check diagnostic.system permission for all diagnostic routes
   app.addHook('preHandler', async (req, reply) => {
@@ -70,15 +123,17 @@ export async function diagRoutes(app) {
     let tsdb = 'down';
     try { await app.tsdb?.query('select 1'); tsdb = 'up'; } catch {}
 
-    // connectivity service health via HTTP JSON endpoint
-    // Try multiple URLs to support both Linux (host network) and Windows (bridge network)
+    // connectivity service health
+    // Prefer direct HTTP health endpoint (best fidelity), but fall back to NATS status cache.
+    // On Linux with connectivity in host network mode, host firewall rules can block core->host traffic,
+    // causing false "down" warnings in the UI even while telemetry is flowing.
     let connectivity = { ok: null };
     const connectivityUrls = [
-      'http://host-gateway:3100/health',  // Linux/host network (core bridge -> connectivity host mode via gateway)
-      'http://connectivity:3100/health',  // Windows/bridge network
-      'http://host.docker.internal:3100/health' // Fallback for some Docker configs
+      'http://host-gateway:3100/health',
+      'http://connectivity:3100/health',
+      'http://host.docker.internal:3100/health'
     ];
-    
+
     for (const url of connectivityUrls) {
       try {
         const ac = new AbortController();
@@ -88,19 +143,23 @@ export async function diagRoutes(app) {
         if (res.ok) {
           let data = null; try { data = await res.json(); } catch {}
           app.log.info({ connectivityHealthData: data, url }, 'connectivity health response');
-          connectivity = { ok: true, nats: !!data?.nats, connections: Number(data?.connections ?? 0) };
-          break; // Success - stop trying other URLs
-        } else {
-          connectivity = { ok: false, status: res.status };
+          connectivity = { ok: true, via: 'http', nats: !!data?.nats, connections: Number(data?.connections ?? 0) };
+          break;
         }
+        connectivity = { ok: false, via: 'http', status: res.status };
       } catch (e) {
-        // Continue to next URL if this one fails
-        connectivity = { ok: false, error: e?.name === 'AbortError' ? 'timeout' : (e?.message || 'error') };
+        connectivity = { ok: false, via: 'http', error: e?.name === 'AbortError' ? 'timeout' : (e?.message || 'error') };
       }
     }
-    
+
     if (!connectivity.ok) {
-      app.log.warn({ connectivity, triedUrls: connectivityUrls }, 'connectivity health check failed on all URLs');
+      const fallback = summarizeConnectivityFromNats(app);
+      // Only override if fallback indicates up, otherwise keep the HTTP error detail.
+      if (fallback.ok) {
+        connectivity = fallback;
+      } else {
+        app.log.warn({ connectivity, triedUrls: connectivityUrls, fallback }, 'connectivity health check failed; NATS fallback also indicates down');
+      }
     }
 
     // simple TCP reachability for frontend and caddy (TLS proxy when profile enabled)

@@ -144,20 +144,33 @@ export default async function flowRoutes(app) {
     }
   });
 
-  // GET /api/flows - List all flows (own + shared)
+  // GET /api/flows - List flows based on scope parameter
   app.get('/api/flows', async (req, reply) => {
     const userId = req.user?.sub;
     if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const scope = String(req.query?.scope || 'all');
+    let whereClause = 'f.owner_user_id = $1';
+    
+    if (scope === 'all') {
+      // Show both owned and shared flows
+      whereClause = '(f.owner_user_id = $1 OR f.shared = true)';
+    } else if (scope === 'shared') {
+      // Show only shared flows (excluding owned)
+      whereClause = 'f.shared = true AND f.owner_user_id != $1';
+    }
+    // scope === 'mine' uses the default whereClause (owned only)
 
     const result = await db.query(`
       SELECT 
         f.*,
         u.display_name as owner_name,
+        (f.owner_user_id = $1) as is_owner,
         (SELECT COUNT(*) FROM flow_executions WHERE flow_id = f.id) as execution_count,
         (SELECT MAX(started_at) FROM flow_executions WHERE flow_id = f.id) as last_executed_at
       FROM flows f
       LEFT JOIN users u ON f.owner_user_id = u.id
-      WHERE f.owner_user_id = $1 OR f.shared = true
+      WHERE ${whereClause}
       ORDER BY f.updated_at DESC
     `, [userId]);
 
