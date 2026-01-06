@@ -79,6 +79,7 @@ DataForeman is available for both **Windows** and **Linux** systems:
 
 1. **Download** the latest installer from [GitHub Releases](https://github.com/orionK-max/DataForeman/releases)
 2. **Run** `DataForeman-Setup-X.X.X.exe` (requires Administrator)
+   - If Windows shows "Windows protected your PC", click **More info** → **Run anyway** (normal for open-source software without paid code signing)
 3. **Start** from desktop shortcut or Start Menu
 4. **Access** at http://localhost:8080
 

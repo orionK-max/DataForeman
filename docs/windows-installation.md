@@ -80,7 +80,10 @@ DataForeman requires Docker Desktop to run its containerized services.
 2. **Run the Installer**
    - Right-click the downloaded file
    - Select "Run as Administrator"
-   - If Windows SmartScreen appears, click "More info" → "Run anyway"
+   - **Windows SmartScreen Warning**: If you see "Windows protected your PC":
+     - This is **normal and expected** for open-source software
+     - The installer is safe but not code-signed (requires expensive annual certificate)
+     - Click **"More info"** → **"Run anyway"**
 
 3. **Follow the Installation Wizard**
    - Review and accept the license agreement
