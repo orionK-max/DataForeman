@@ -87,8 +87,8 @@ function buildHealthRows(summary, servicesStatus) {
 
   // Connectivity
   const connectivityRunning = servicesStatus?.connectivity?.running ?? true;
-  const hasConnections = summary?.connectivity?.hasConnections ?? true; // assume true if not provided (backward compat)
   const connectivityOk = !!summary?.connectivity?.ok && connectivityRunning;
+  const hasConnections = summary?.connectivity?.hasConnections ?? true; // assume true if not provided (backward compat)
   
   rows.push({
     key: 'connectivity',
