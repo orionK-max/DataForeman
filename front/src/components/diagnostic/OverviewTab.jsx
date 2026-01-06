@@ -87,10 +87,14 @@ function buildHealthRows(summary, servicesStatus) {
 
   // Connectivity
   const connectivityRunning = servicesStatus?.connectivity?.running ?? true;
+  const hasConnections = summary?.connectivity?.hasConnections ?? true; // assume true if not provided (backward compat)
+  const connectivityOk = !!summary?.connectivity?.ok && connectivityRunning;
+  
   rows.push({
     key: 'connectivity',
     label: 'Connectivity',
-    ok: !!summary?.connectivity?.ok && connectivityRunning,
+    ok: connectivityOk,
+    warning: !connectivityOk && !hasConnections, // show warning (orange) if no connections configured
     text: summary?.connectivity?.ok && connectivityRunning ? 'OK' : 'DOWN',
     desc: `Connects to devices · ${summary?.connectivity?.connections ?? 0} active`,
     restartable: true,
@@ -120,10 +124,13 @@ function buildHealthRows(summary, servicesStatus) {
 
   // Core Ingestion (replaces standalone ingestor)
   const coreIngestionActive = summary?.coreIngestion?.activeRecently === true;
+  const coreIngestionHasConnections = summary?.coreIngestion?.hasConnections ?? true; // assume true if not provided
+  
   rows.push({
     key: 'core-ingestion',
     label: 'Telemetry Ingestion',
     ok: coreIngestionActive,
+    warning: !coreIngestionActive && !coreIngestionHasConnections, // show warning (orange) if idle with no connections
     text: coreIngestionActive ? 'ACTIVE' : 'IDLE',
     desc: 'Core service telemetry ingestion',
     restartable: false,
@@ -288,8 +295,9 @@ export default function OverviewTab() {
     }
   };
 
-  const getHealthColor = (ok) => {
+  const getHealthColor = (ok, warning) => {
     if (ok) return { bgcolor: '#10b981', color: 'white' };
+    if (warning) return { bgcolor: '#f59e0b', color: 'white' }; // orange for warning state
     return { bgcolor: '#ef4444', color: 'white' };
   };
 
@@ -358,7 +366,7 @@ export default function OverviewTab() {
                         label={row.text}
                         size="small"
                         sx={{
-                          ...getHealthColor(row.ok),
+                          ...getHealthColor(row.ok, row.warning),
                           fontWeight: 600,
                           fontSize: '0.75rem',
                           minWidth: 60

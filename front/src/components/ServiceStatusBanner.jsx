@@ -29,14 +29,22 @@ const ServiceStatusBanner = ({ summary }) => {
 
   // Check if connectivity service is down
   const connectivityDown = summary.connectivity?.ok === false;
+  const hasConnections = summary.connectivity?.hasConnections ?? true;
 
   if (!connectivityDown) return null;
   if (dismissed) return null;
 
+  // Change severity and message if no connections are configured
+  const severity = !hasConnections ? 'warning' : 'error';
+  const title = !hasConnections ? 'No Connections Configured' : 'Connectivity Service Stopped';
+  const message = !hasConnections 
+    ? 'Add a device connection to start collecting telemetry data.'
+    : 'Device communication is unavailable. Restart the connectivity service to restore device connections.';
+
   return (
     <Collapse in={!dismissed}>
       <Alert
-        severity="error"
+        severity={severity}
         icon={<WarningIcon />}
         sx={{ 
           borderRadius: 0,
@@ -44,7 +52,7 @@ const ServiceStatusBanner = ({ summary }) => {
         }}
         action={
           <>
-            {can('diagnostic.system', 'update') ? (
+            {hasConnections && can('diagnostic.system', 'update') ? (
               <Button
                 color="inherit"
                 size="small"
@@ -55,7 +63,7 @@ const ServiceStatusBanner = ({ summary }) => {
               >
                 {restartingService === 'connectivity' ? 'Restarting...' : 'Restart'}
               </Button>
-            ) : (
+            ) : hasConnections ? (
               <Tooltip title="Requires 'System Diagnostics' UPDATE permission">
                 <span>
                   <Button
@@ -69,7 +77,7 @@ const ServiceStatusBanner = ({ summary }) => {
                   </Button>
                 </span>
               </Tooltip>
-            )}
+            ) : null}
             <IconButton
               aria-label="close"
               color="inherit"
@@ -82,10 +90,10 @@ const ServiceStatusBanner = ({ summary }) => {
         }
       >
         <AlertTitle sx={{ fontWeight: 600 }}>
-          Connectivity Service Stopped
+          {title}
         </AlertTitle>
         <Typography variant="body2">
-          Device communication is unavailable. Restart the connectivity service to restore device connections.
+          {message}
         </Typography>
       </Alert>
     </Collapse>

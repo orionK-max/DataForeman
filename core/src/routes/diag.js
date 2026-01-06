@@ -162,14 +162,24 @@ export async function diagRoutes(app) {
       }
     }
 
+    // Add hasConnections flag to connectivity for better UX messaging
+    connectivity.hasConnections = hasConnections;
+
     // simple TCP reachability for frontend and caddy (TLS proxy when profile enabled)
     const frontTcp = await testTcp({ host: 'front', port: 80, timeout: 800 });
     const caddyTcp = await testTcp({ host: 'caddy', port: 80, timeout: 800 });
 
+    // Check if any connections are configured (for better UX on fresh installs)
+    let hasConnections = false;
+    try {
+      const { rows } = await app.db.query('SELECT COUNT(*) as count FROM connections');
+      hasConnections = Number(rows[0]?.count || 0) > 0;
+    } catch {}
+
     // NOTE: Standalone ingestor service has been deprecated (2025-10-24)
     // Core service now handles all telemetry ingestion via telemetry-ingest.js
     // Keeping this check temporarily to monitor core's ingestion activity
-    let coreIngestion = { activeRecently: null, lastTs: null };
+    let coreIngestion = { activeRecently: null, lastTs: null, hasConnections };
     try {
       const q = `select max(ts) as last from tag_values where ts > now() - interval '10 minutes'`;
       const { rows } = await (app.tsdb || app.db).query(q);
