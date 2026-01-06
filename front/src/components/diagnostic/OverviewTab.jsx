@@ -95,7 +95,7 @@ function buildHealthRows(summary, servicesStatus) {
     label: 'Connectivity',
     ok: connectivityOk,
     warning: !connectivityOk && !hasConnections, // show warning (orange) if no connections configured
-    text: summary?.connectivity?.ok && connectivityRunning ? 'OK' : 'DOWN',
+    text: connectivityOk ? 'OK' : 'DOWN',
     desc: `Connects to devices · ${summary?.connectivity?.connections ?? 0} active`,
     restartable: true,
     serviceName: 'connectivity',
