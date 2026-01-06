@@ -29,15 +29,16 @@ const ServiceStatusBanner = ({ summary }) => {
 
   // Check if connectivity service is down
   const connectivityDown = summary.connectivity?.ok === false;
-  const hasConnections = summary.connectivity?.hasConnections ?? true;
+  const hasConnections = summary.connectivity?.hasConnections;
 
   if (!connectivityDown) return null;
   if (dismissed) return null;
 
   // Change severity and message if no connections are configured
-  const severity = !hasConnections ? 'warning' : 'error';
-  const title = !hasConnections ? 'No Connections Configured' : 'Connectivity Service Stopped';
-  const message = !hasConnections 
+  // If hasConnections is undefined/null, assume no connections (safer default for fresh installs)
+  const severity = hasConnections === false || hasConnections === undefined ? 'warning' : 'error';
+  const title = hasConnections === false || hasConnections === undefined ? 'No Connections Configured' : 'Connectivity Service Stopped';
+  const message = hasConnections === false || hasConnections === undefined
     ? 'Add a device connection to start collecting telemetry data.'
     : 'Device communication is unavailable. Restart the connectivity service to restore device connections.';
 
@@ -52,7 +53,7 @@ const ServiceStatusBanner = ({ summary }) => {
         }}
         action={
           <>
-            {hasConnections && can('diagnostic.system', 'update') ? (
+            {(hasConnections === true) && can('diagnostic.system', 'update') ? (
               <Button
                 color="inherit"
                 size="small"
@@ -63,7 +64,7 @@ const ServiceStatusBanner = ({ summary }) => {
               >
                 {restartingService === 'connectivity' ? 'Restarting...' : 'Restart'}
               </Button>
-            ) : hasConnections ? (
+            ) : (hasConnections === true) ? (
               <Tooltip title="Requires 'System Diagnostics' UPDATE permission">
                 <span>
                   <Button

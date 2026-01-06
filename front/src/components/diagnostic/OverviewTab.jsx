@@ -88,13 +88,13 @@ function buildHealthRows(summary, servicesStatus) {
   // Connectivity
   const connectivityRunning = servicesStatus?.connectivity?.running ?? true;
   const connectivityOk = !!summary?.connectivity?.ok && connectivityRunning;
-  const hasConnections = summary?.connectivity?.hasConnections ?? true; // assume true if not provided (backward compat)
+  const hasConnections = summary?.connectivity?.hasConnections;
   
   rows.push({
     key: 'connectivity',
     label: 'Connectivity',
-    ok: connectivityOk,
-    warning: !connectivityOk && !hasConnections, // show warning (orange) if no connections configured
+    ok: connectivityOk && hasConnections, // Only show green if OK AND has connections
+    warning: connectivityOk && !hasConnections, // Show warning if OK but NO connections
     text: connectivityOk ? 'OK' : 'DOWN',
     desc: `Connects to devices · ${summary?.connectivity?.connections ?? 0} active`,
     restartable: true,
@@ -124,13 +124,13 @@ function buildHealthRows(summary, servicesStatus) {
 
   // Core Ingestion (replaces standalone ingestor)
   const coreIngestionActive = summary?.coreIngestion?.activeRecently === true;
-  const coreIngestionHasConnections = summary?.coreIngestion?.hasConnections ?? true; // assume true if not provided
+  const coreIngestionHasConnections = summary?.coreIngestion?.hasConnections;
   
   rows.push({
     key: 'core-ingestion',
     label: 'Telemetry Ingestion',
-    ok: coreIngestionActive,
-    warning: !coreIngestionActive && !coreIngestionHasConnections, // show warning (orange) if idle with no connections
+    ok: coreIngestionActive && coreIngestionHasConnections, // GREEN: active with connections
+    warning: !coreIngestionHasConnections, // ORANGE: no connections (whether active or idle)
     text: coreIngestionActive ? 'ACTIVE' : 'IDLE',
     desc: 'Core service telemetry ingestion',
     restartable: false,
@@ -296,8 +296,8 @@ export default function OverviewTab() {
   };
 
   const getHealthColor = (ok, warning) => {
+    if (warning) return { bgcolor: '#f59e0b', color: 'white' }; // orange for warning state - check this FIRST
     if (ok) return { bgcolor: '#10b981', color: 'white' };
-    if (warning) return { bgcolor: '#f59e0b', color: 'white' }; // orange for warning state
     return { bgcolor: '#ef4444', color: 'white' };
   };
 
