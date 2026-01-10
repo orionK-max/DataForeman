@@ -40,7 +40,15 @@ echo "      ✓ logs/ directory fixed"
 echo "[3/3] Setting postgres log directory to world-writable (0777)..."
 mkdir -p "$SCRIPT_DIR/logs/postgres"
 chmod 0777 "$SCRIPT_DIR/logs/postgres"
+
+# Ensure all standard log directories exist
+for dir in core connectivity front nats ops ingestor; do
+  mkdir -p "$SCRIPT_DIR/logs/$dir"
+  chmod 0755 "$SCRIPT_DIR/logs/$dir"
+done
+
 echo "      ✓ logs/postgres/ set to 0777 (required for UID 70 container)"
+echo "      ✓ All log directories created"
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
