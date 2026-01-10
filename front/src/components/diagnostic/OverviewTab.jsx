@@ -94,8 +94,8 @@ function buildHealthRows(summary, servicesStatus) {
     key: 'connectivity',
     label: 'Connectivity',
     ok: connectivityOk && hasConnections, // Only show green if OK AND has connections
-    warning: connectivityOk && !hasConnections, // Show warning if OK but NO connections
-    text: connectivityOk ? 'OK' : 'DOWN',
+    warning: connectivityOk && !hasConnections, // Show warning (grey) if OK but NO connections
+    text: connectivityOk ? (hasConnections ? 'OK' : 'NO CONNECTIONS') : 'DOWN',
     desc: `Connects to devices · ${summary?.connectivity?.connections ?? 0} active`,
     restartable: true,
     serviceName: 'connectivity',
@@ -130,8 +130,8 @@ function buildHealthRows(summary, servicesStatus) {
     key: 'core-ingestion',
     label: 'Telemetry Ingestion',
     ok: coreIngestionActive && coreIngestionHasConnections, // GREEN: active with connections
-    warning: !coreIngestionHasConnections, // ORANGE: no connections (whether active or idle)
-    text: coreIngestionActive ? 'ACTIVE' : 'IDLE',
+    warning: !coreIngestionHasConnections, // GREY: no connections (whether active or idle)
+    text: coreIngestionActive ? 'ACTIVE' : (coreIngestionHasConnections ? 'IDLE' : 'NO CONNECTIONS'),
     desc: 'Core service telemetry ingestion',
     restartable: false,
   });
@@ -296,7 +296,7 @@ export default function OverviewTab() {
   };
 
   const getHealthColor = (ok, warning) => {
-    if (warning) return { bgcolor: '#f59e0b', color: 'white' }; // orange for warning state - check this FIRST
+    if (warning) return { bgcolor: '#9ca3af', color: 'white' }; // grey for warning state (no connections) - check this FIRST
     if (ok) return { bgcolor: '#10b981', color: 'white' };
     return { bgcolor: '#ef4444', color: 'white' };
   };

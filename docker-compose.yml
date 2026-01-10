@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
       POSTGRES_DB: ${PGDATABASE:-dataforeman}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${DB_PORT_BINDING:-127.0.0.1:5432:5432}"
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
@@ -31,7 +31,7 @@ services:
     image: nats:2-alpine
     command: ["-js", "-l", "/var/log/nats/nats.current"]
     ports:
-      - "127.0.0.1:4222:4222"  # Only accessible from localhost (needed for connectivity service with host network)
+      - "${NATS_PORT_BINDING:-127.0.0.1:4222:4222}"  # Only accessible from localhost (needed for connectivity service with host network)
       # - "8222:8222"  # REMOVED - NATS HTTP should not be exposed
     volumes:
       - ./logs/nats:/var/log/nats
@@ -43,7 +43,7 @@ services:
       POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       POSTGRES_DB: ${TSDB_DATABASE:-telemetry}
     ports:
-      - "127.0.0.1:5433:5432"
+      - "${TSDB_PORT_BINDING:-127.0.0.1:5433:5432}"
     volumes:
       - tsdb-data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
@@ -115,7 +115,11 @@ services:
     # Note: Using host networking for EIP autodiscovery on Linux
     # With host mode, the service binds directly to port 3100 on the host
     # Port mappings are not needed (and cause warnings) with host networking
-    network_mode: host
+    # On Windows/macOS, host networking is not supported - don't set network_mode (uses default bridge)
+    # Set CONNECTIVITY_NETWORK_MODE=host in .env for Linux deployments only
+    network_mode: "${CONNECTIVITY_NETWORK_MODE:-}"
+    ports:
+      - "${CONNECTIVITY_PORT:-3100}:3100"  # Only used when network_mode is not host
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       NATS_URL: "${NATS_URL:-nats://nats:4222}"  # Use service name for Docker Compose networking

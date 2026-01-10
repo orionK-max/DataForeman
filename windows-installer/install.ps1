@@ -63,16 +63,47 @@ if (-not (Test-Path ".env")) {
     if (Test-Path ".env.example") {
         Copy-Item ".env.example" ".env"
         Write-ColorOutput "[OK] Created .env file from template" "Green"
+        
+        # Configure Windows-specific networking settings
+        Write-ColorOutput "  Configuring Windows Docker networking..." "Gray"
+        
+        # Read the .env file
+        $envContent = Get-Content ".env" -Raw
+        
+        # Replace database and service hostnames for bridge networking
+        $envContent = $envContent -replace 'PGHOST=localhost', 'PGHOST=db'
+        $envContent = $envContent -replace 'TSDB_HOST=localhost', 'TSDB_HOST=tsdb'
+        $envContent = $envContent -replace 'NATS_URL=nats://localhost:4222', 'NATS_URL=nats://nats:4222'
+        
+        # Add Windows-specific port bindings at the end
+        $windowsNetworking = @"
+
+########################################
+# Windows Docker Networking
+########################################
+# Windows requires bridge networking with 0.0.0.0 bindings
+# for inter-container communication
+DB_PORT_BINDING=0.0.0.0:5432:5432
+TSDB_PORT_BINDING=0.0.0.0:5433:5432
+NATS_PORT_BINDING=0.0.0.0:4222:4222
+
+# Do not set CONNECTIVITY_NETWORK_MODE on Windows
+# (uses default bridge networking for compatibility)
+"@
+        
+        $envContent = $envContent + $windowsNetworking
+        
+        # Write back to .env
+        Set-Content -Path ".env" -Value $envContent -NoNewline
+        
+        Write-ColorOutput "[OK] Windows networking configured (bridge mode with service names)" "Green"
     } else {
         Write-ColorOutput "[WARN] .env.example not found" "Yellow"
     }
 } else {
-    Write-ColorOutput "[OK] .env file already exists" "Green"
+    Write-ColorOutput "[OK] .env file already exists (not modified)" "Green"
+    Write-ColorOutput "  If you need to reconfigure networking, delete .env and run install again" "Gray"
 }
-
-# Note: Windows Docker networking configuration
-# Docker Compose defaults now work for Windows (uses bridge networking with service names)
-Write-ColorOutput "[OK] Docker Compose configured for Windows" "Green"
 Write-Host ""
 
 # Create directories and fix permissions
