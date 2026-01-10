@@ -56,23 +56,14 @@ if ($dockerInstalled) {
 }
 Write-Host ""
 
-# Create .env file if it doesn't exist
+# Create .env file if it doesn't exist (handled by Inno Setup installer)
 Write-ColorOutput "[2/4] Setting up environment..." "Yellow"
 Set-Location $InstallDir
-if (-not (Test-Path ".env")) {
-    # Use Windows-specific .env template if available, otherwise fall back to .env.example
-    if (Test-Path ".env.windows") {
-        Copy-Item ".env.windows" ".env"
-        Write-ColorOutput "[OK] Created .env file from Windows template" "Green"
-    } elseif (Test-Path ".env.example") {
-        Copy-Item ".env.example" ".env"
-        Write-ColorOutput "[OK] Created .env file from template" "Green"
-    } else {
-        Write-ColorOutput "[WARN] .env.windows and .env.example not found" "Yellow"
-    }
+if (Test-Path ".env") {
+    Write-ColorOutput "[OK] .env file configured for Windows" "Green"
 } else {
-    Write-ColorOutput "[OK] .env file already exists (not modified)" "Green"
-    Write-ColorOutput "  If you need to reconfigure, delete .env and run install again" "Gray"
+    Write-ColorOutput "[WARN] .env file not found" "Yellow"
+    Write-ColorOutput "  The installer should have created it from .env.windows template" "Gray"
 }
 Write-Host ""
 
