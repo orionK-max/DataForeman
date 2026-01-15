@@ -11,6 +11,64 @@ import { InputStateManager } from './input-state-manager.js';
 import { FlowSession } from './flow-session.js';
 
 
+function summarizeValueForCoreLogs(value) {
+  if (value === null) return { type: 'null' };
+  if (value === undefined) return { type: 'undefined' };
+
+  const t = typeof value;
+  if (t === 'string') return { type: 'string', length: value.length };
+  if (t === 'number' || t === 'boolean' || t === 'bigint') return { type: t };
+  if (t === 'function') return { type: 'function' };
+
+  // Avoid enumerating large binary payloads.
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) {
+    return { type: 'buffer', bytes: value.length };
+  }
+  if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+    return { type: 'arraybuffer', bytes: value.byteLength };
+  }
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView?.(value)) {
+    return { type: 'typedarray', bytes: value.byteLength };
+  }
+
+  if (Array.isArray(value)) return { type: 'array', length: value.length };
+
+  if (t === 'object') {
+    // Special-case SaveFileNode download payloads so we never log base64 bodies.
+    const download = value?.__download;
+    if (download && typeof download === 'object') {
+      return {
+        type: 'download',
+        filename: typeof download.filename === 'string' ? download.filename : undefined,
+        mimeType: typeof download.mimeType === 'string' ? download.mimeType : undefined,
+        // Don't log dataBase64, but it’s useful to know approximate size.
+        dataBase64Length: typeof download.dataBase64 === 'string' ? download.dataBase64.length : undefined
+      };
+    }
+
+    const keys = Object.keys(value);
+    return { type: 'object', keysCount: keys.length };
+  }
+
+  return { type: 'unknown' };
+}
+
+function summarizeNodeOutputForCoreLogs(output) {
+  if (!output || typeof output !== 'object') return { type: typeof output };
+
+  return {
+    hasValue: Object.prototype.hasOwnProperty.call(output, 'value'),
+    value: summarizeValueForCoreLogs(output.value),
+    quality: output.quality,
+    bytes: output.bytes,
+    filename: typeof output.filename === 'string' ? output.filename : undefined,
+    mimeType: typeof output.mimeType === 'string' ? output.mimeType : undefined,
+    hasLogs: Array.isArray(output.logs) ? output.logs.length : undefined,
+    hasError: !!output.error
+  };
+}
+
+
 /**
  * Validate flow graph structure
  * @param {Object} definition - Flow definition with nodes and edges
@@ -332,7 +390,8 @@ export async function executeNode(node, nodeOutputs, context) {
     execContext.autoLogResult(nodeInstance, result, 'info');
     execContext.autoLogResult(nodeInstance, result, 'debug');
     
-    log.debug({ result }, 'Node executed successfully');
+    // Never dump full result into core service logs (may include large file contents).
+    log.debug({ result: summarizeNodeOutputForCoreLogs(result) }, 'Node executed successfully');
     return result;
   } catch (error) {
     log.error({ error }, 'Node execution failed');
@@ -632,7 +691,16 @@ export async function executeFlow(context) {
         app.runtimeState.setNodeOutput(flow.id, nodeId, output.runtime);
       }
       
-      log.info({ nodeId, nodeType: node.type, output, executionTime: output.executionTime }, 'Node executed');
+      // Important: do NOT log raw output/value here, it can contain full file contents.
+      log.info(
+        {
+          nodeId,
+          nodeType: node.type,
+          executionTime: output.executionTime,
+          output: summarizeNodeOutputForCoreLogs(output)
+        },
+        'Node executed'
+      );
       
       // Add node logs to buffer if logging is enabled
       if (logBuffer && output.logs && output.logs.length > 0) {
@@ -689,7 +757,29 @@ export async function executeFlow(context) {
       [outputs, execution.id]
     );
     
-    log.info({ executionId: execution.id, outputs }, 'Flow execution completed');
+    // Avoid logging full outputs (may include large payloads like file contents).
+    log.info(
+      {
+        executionId: execution.id,
+        nodeCount: Object.keys(outputs).length
+      },
+      'Flow execution completed'
+    );
+    
+    // Publish execution completion event via NATS for real-time notifications
+    const natsSubject = `flow.${flowId}.execution.complete`;
+    log.info({ subject: natsSubject, executionId: execution.id }, 'Publishing NATS event');
+    try {
+      await app.nats.publish(natsSubject, {
+        executionId: execution.id,
+        flowId,
+        outputs,
+        timestamp: new Date().toISOString()
+      });
+      log.info({ subject: natsSubject }, 'NATS event published successfully');
+    } catch (err) {
+      log.warn({ err }, 'Failed to publish execution completion event');
+    }
     
     // Auto-exit test mode for manual flows after single execution
     if (flow.execution_mode === 'manual' && flow.test_mode) {

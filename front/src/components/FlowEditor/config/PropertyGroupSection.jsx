@@ -88,6 +88,80 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange }) =
     const key = property.name;
     
     switch (property.type) {
+      case 'fileUpload':
+        return (
+          <Box key={key}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                display: 'block', 
+                mb: 0.5, 
+                color: 'text.secondary',
+                fontSize: '0.75rem',
+                fontWeight: 500
+              }}
+            >
+              {property.displayName}
+            </Typography>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Button component="label" variant="outlined" size="small">
+                Choose file…
+                <input
+                  type="file"
+                  hidden
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+
+                    const maxBytes = 10 * 1024 * 1024; // 10MB
+                    if (file.size > maxBytes) {
+                      console.warn(`Selected file is too large (${file.size} bytes)`);
+                      e.target.value = '';
+                      return;
+                    }
+
+                    const arrayBuffer = await file.arrayBuffer();
+                    const bytes = new Uint8Array(arrayBuffer);
+
+                    // Convert to base64 (keep simple; file size is capped)
+                    let binary = '';
+                    for (let i = 0; i < bytes.length; i++) {
+                      binary += String.fromCharCode(bytes[i]);
+                    }
+                    const dataBase64 = btoa(binary);
+
+                    handleChange(property.name, {
+                      name: file.name,
+                      mimeType: file.type || 'application/octet-stream',
+                      size: file.size,
+                      lastModified: file.lastModified,
+                      dataBase64,
+                    });
+
+                    // Allow re-selecting the same file
+                    e.target.value = '';
+                  }}
+                />
+              </Button>
+
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {value?.name ? value.name : 'No file selected'}
+              </Typography>
+            </Box>
+
+            {property.description && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                {property.description}
+              </Typography>
+            )}
+          </Box>
+        );
+
       case 'string':
         return (
           <Box key={key}>
@@ -382,13 +456,35 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange }) =
         </Box>
         
         <Collapse in={isExposed} timeout="auto">
-          <Box sx={{ mt: 1, ml: 3, display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Box sx={{ mt: 1, ml: 3, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
             <Box sx={{ flex: 1 }}>
-              <Typography 
-                variant="caption" 
-                sx={{ 
-                  display: 'block', 
-                  mb: 0.5, 
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  mb: 0.5,
+                  color: 'text.secondary',
+                  fontSize: '0.7rem',
+                  fontWeight: 500
+                }}
+              >
+                Alias
+              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                value={exposureConfig.alias ?? ''}
+                onChange={(e) => updateExposureConfig(property.name, 'alias', e.target.value)}
+                placeholder="Optional label shown during execution"
+              />
+            </Box>
+
+            <Box sx={{ flex: '0 0 auto' }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  mb: 0.5,
                   color: 'text.secondary',
                   fontSize: '0.7rem',
                   fontWeight: 500

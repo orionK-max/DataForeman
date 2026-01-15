@@ -36,6 +36,10 @@ import { JSONOpsNode } from './data/JSONOpsNode.js';
 // Script nodes
 import { JavaScriptNode } from './scripts/JavaScriptNode.js';
 
+// File nodes
+import { LoadFileNode } from './files/LoadFileNode.js';
+import { SaveFileNode } from './files/SaveFileNode.js';
+
 // Utility nodes
 import { ConstantNode } from './utility/ConstantNode.js';
 import { CommentNode } from './utility/CommentNode.js';
@@ -95,6 +99,10 @@ export async function registerAllNodes(options = {}) {
   
   // Script operations (legacy - skip validation until Phase 4 refactor)
   NodeRegistry.register('script-js', JavaScriptNode, { skipValidation: true });
+
+  // File operations
+  NodeRegistry.register('load-file', LoadFileNode);
+  NodeRegistry.register('save-file', SaveFileNode);
   
   // Utility nodes
   NodeRegistry.register('constant', ConstantNode);

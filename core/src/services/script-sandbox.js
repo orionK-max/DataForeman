@@ -288,6 +288,7 @@ export async function executeScript(code, context = {}, options = {}) {
     flowId,
     nodeOutputs = new Map(),
     input = null,
+    inputs = null,
     timeout = DEFAULT_TIMEOUT,
     allowedPaths = []
   } = options;
@@ -312,10 +313,13 @@ export async function executeScript(code, context = {}, options = {}) {
     error: (...args) => logs.push({ level: 'error', args: args.map(String) })
   };
   
+  const effectiveInputs = Array.isArray(inputs) ? inputs : [input];
+
   // Create sandbox context
   const sandbox = {
     console: consoleProxy,
     $input: input,
+    $inputs: effectiveInputs,
     $tags: createTagsAPI(app, flowId, nodeOutputs),
     $flow: createFlowAPI(app, flowId),
     $fs: createFilesystemAPI(app, allowedPaths),

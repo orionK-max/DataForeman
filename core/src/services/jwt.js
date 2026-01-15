@@ -39,6 +39,8 @@ export const jwtPlugin = fp(async (app) => {
     ) {
       return;
     }
+  // SSE endpoints handle authentication in preHandler hooks (EventSource can't send headers)
+  if (url.includes('/execution-events?') || url.includes('/logs/stream?')) return;
   if (String(process.env.AUTH_DEV_TOKEN) === '1' && url.startsWith('/api/logs')) return;
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;

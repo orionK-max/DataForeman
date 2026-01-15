@@ -24,7 +24,7 @@ export function validateParameters(parameterSchema, runtimeParameters) {
     if (param.required && (value === null || value === undefined || value === '')) {
       errors.push({
         parameter: param.name,
-        message: `Required parameter '${param.displayName || param.name}' is missing`
+        message: `Required parameter '${param.alias || param.displayName || param.name}' is missing`
       });
       continue;
     }
@@ -69,8 +69,8 @@ export function validateParameters(parameterSchema, runtimeParameters) {
  * @returns {string|null} Error message or null if valid
  */
 function validateParameterType(param, value) {
-  const { type, displayName, name, min, max, pattern, options } = param;
-  const label = displayName || name;
+  const { type, displayName, alias, name, min, max, pattern, options } = param;
+  const label = alias || displayName || name;
 
   switch (type) {
     case 'string':

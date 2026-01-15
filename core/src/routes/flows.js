@@ -551,6 +551,23 @@ export default async function flowRoutes(app) {
       values.push(description);
     }
     if (definition !== undefined) {
+      // Clean up orphaned edges before saving
+      if (definition && definition.nodes && definition.edges) {
+        const nodeIds = new Set(definition.nodes.map(n => n.id));
+        definition.edges = definition.edges.filter(edge => {
+          const hasValidSource = nodeIds.has(edge.source);
+          const hasValidTarget = nodeIds.has(edge.target);
+          if (!hasValidSource || !hasValidTarget) {
+            req.log.debug({ 
+              flowId: id, 
+              edge, 
+              reason: !hasValidSource ? 'invalid source' : 'invalid target' 
+            }, 'Removing orphaned edge');
+            return false;
+          }
+          return true;
+        });
+      }
       updates.push(`definition = $${paramCount++}`);
       values.push(definition);
     }
@@ -1376,6 +1393,112 @@ export default async function flowRoutes(app) {
     });
   });
 
+  // GET /api/flows/:id/execution-events - SSE stream for execution completion events
+  // GET /api/flows/:id/execution-events - Server-Sent Events endpoint for flow execution notifications
+  // Requires 'read' permission on flows
+  // Note: EventSource doesn't support custom headers, so authentication is via query param
+  app.get('/api/flows/:id/execution-events', {
+    preHandler: async (req, reply) => {
+      // Handle token from query parameter for EventSource compatibility
+      const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+      if (!token) {
+        reply.code(401).send({ error: 'unauthorized' });
+        return;
+      }
+      
+      try {
+        const payload = await app.jwtVerify(token);
+        req.user = { sub: payload.sub, role: payload.role || 'viewer', jti: payload.jti };
+      } catch (error) {
+        reply.code(401).send({ error: 'unauthorized' });
+        return;
+      }
+    }
+  }, async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    const { id } = req.params;
+    const log = app.log.child({ route: 'execution-events', flowId: id, userId });
+
+    // Verify access to this flow
+    const flowCheck = await db.query(`
+      SELECT id FROM flows
+      WHERE id = $1 AND (owner_user_id = $2 OR shared = true)
+    `, [id, userId]);
+
+    if (flowCheck.rows.length === 0) {
+      return reply.code(404).send({ error: 'flow not found' });
+    }
+
+    // Set up SSE headers
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no' // Disable buffering in nginx
+    });
+
+    // Send initial comment to establish connection
+    reply.raw.write(': connected\n\n');
+
+    // Subscribe to NATS for this flow's execution events
+    const subject = `flow.${id}.execution.complete`;
+    const sub = app.nats.subscribe(subject, (event) => {
+      // Handler is called by nats.js subscribe loop
+      // Event processing happens in the async loop below
+    });
+
+    log.info({ subject }, 'SSE connection established');
+
+    // Send keepalive every 30 seconds to prevent timeout
+    const keepaliveInterval = setInterval(() => {
+      try {
+        reply.raw.write(': keepalive\n\n');
+      } catch (err) {
+        // Ignore write errors (client disconnected)
+      }
+    }, 30000);
+
+    // Process NATS messages using callback-style iteration to avoid "already yielding" errors
+    // Each message is processed independently without blocking
+    (async () => {
+      try {
+        for await (const msg of sub) {
+          const event = msg.json();
+          
+          try {
+            // Send event to client
+            reply.raw.write(`event: execution-complete\n`);
+            reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+            
+            log.info({ executionId: event.executionId }, 'Sent execution completion event');
+          } catch (writeErr) {
+            // Client disconnected during write, stop processing
+            log.warn({ writeErr }, 'Failed to send event, client disconnected');
+            break;
+          }
+        }
+      } catch (err) {
+        // Subscription closed or errored
+        if (err.code !== 'BAD API') {
+          log.error({ err }, 'Error in NATS subscription');
+        }
+      }
+    })();
+
+    // Clean up on client disconnect
+    req.raw.on('close', () => {
+      log.info('Client disconnected, cleaning up');
+      clearInterval(keepaliveInterval);
+      try {
+        sub.unsubscribe();
+      } catch (e) {
+        // Already unsubscribed
+      }
+    });
+  });
+
   // GET /api/flows/:id/parameter-history - Get recent parameter executions
   app.get('/api/flows/:id/parameter-history', async (req, reply) => {
     const userId = req.user?.sub;
@@ -1923,17 +2046,11 @@ export default async function flowRoutes(app) {
 
     try {
       if (app.nats && app.nats.healthy && app.nats.healthy()) {
-        subscription = await app.nats.subscribe(subject, (err, msg) => {
-          if (err) {
-            req.log.error({ err, flowId: id }, 'NATS subscription error');
-            return;
-          }
-
+        subscription = app.nats.subscribe(subject, (logData) => {
           try {
-            const logData = typeof msg === 'string' ? JSON.parse(msg) : msg;
             reply.raw.write(`data: ${JSON.stringify(logData)}\n\n`);
           } catch (parseError) {
-            req.log.error({ err: parseError }, 'Failed to parse log message');
+            req.log.error({ err: parseError }, 'Failed to write log message');
           }
         });
 

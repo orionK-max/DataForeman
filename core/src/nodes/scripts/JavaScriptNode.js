@@ -31,10 +31,25 @@ export class JavaScriptNode extends BaseNode {
     
     inputs: [
       {
-        displayName: 'Input',
+        displayName: 'Input 1',
         type: 'main',
         required: false,
-        description: 'Optional input value (available as $input in script)'
+        skipNodeOnNull: false,
+        description: 'Optional input value (available as $input and $inputs[0] in script)'
+      }
+    ],
+
+    ioRules: [
+      {
+        inputs: {
+          min: 1,
+          max: 10,
+          default: 1,
+          canAdd: true,
+          canRemove: true,
+          type: 'main',
+          required: false
+        }
       }
     ],
     
@@ -81,9 +96,7 @@ export class JavaScriptNode extends BaseNode {
         }
       ],
       handles: {
-        inputs: [
-          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
-        ],
+        inputs: [],
         outputs: [
           { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
         ],
@@ -117,7 +130,7 @@ export class JavaScriptNode extends BaseNode {
         name: 'code',
         displayName: 'JavaScript Code',
         type: 'code',
-        default: '// Write your code here\n// Access input via $input\n// Use console.log() for debugging\n\nreturn $input;',
+        default: '// Write your code here\n// Access first input via $input or $inputs[0]\n// Access all inputs via $inputs (array)\n// Use console.log() for debugging\n\nreturn $input;',
         required: true,
         language: 'javascript',
         description: 'JavaScript code to execute'
@@ -154,13 +167,19 @@ export class JavaScriptNode extends BaseNode {
           label: 'JavaScript Code',
           language: 'javascript',
           height: 300,
-          defaultValue: '// Write your code here\n// Access input via $input\n// Use console.log() for debugging\n\nreturn $input;',
+          defaultValue: '// Write your code here\n// Access first input via $input or $inputs[0]\n// Access all inputs via $inputs (array)\n// Use console.log() for debugging\n\nreturn $input;',
           autocomplete: [
             {
               label: '$input',
               kind: 'Variable',
               documentation: 'Input value from previous node',
               insertText: '$input'
+            },
+            {
+              label: '$inputs',
+              kind: 'Variable',
+              documentation: 'Array of all input values (index matches input handle)',
+              insertText: '$inputs'
             },
             {
               label: '$tags.get',
@@ -287,18 +306,49 @@ export class JavaScriptNode extends BaseNode {
     const nodeOutputs = context.nodeOutputs;
     const { code, timeout = 10000, onError = 'stop' } = node.data || {};
 
-    // Get input value and quality
-    let inputValue = null;
-    let inputQuality = 0; // Good quality by default
+    const desiredInputCount = Math.max(1, Math.min(10, Number(node.data?.inputCount ?? 1) || 1));
 
-    const inputData = context.getInputValue(0);
-    if (inputData !== undefined && inputData !== null) {
-      // Extract value if it's an object with value property
-      if (typeof inputData === 'object' && 'value' in inputData) {
-        inputValue = inputData.value;
-        inputQuality = inputData.quality || 192;
+    const resolveInputByHandle = (portName) => {
+      // Continuous execution mode: read by portName from InputStateManager
+      if (context.inputStateManager) {
+        const inputData = context.inputStateManager.getInput(node.id, portName);
+        return inputData !== undefined ? inputData : null;
+      }
+
+      // Manual mode: find the specific incoming edge for this handle
+      const edges = context.execution?.edges || context.execution?.definition?.edges || [];
+      const edge = edges.find(e => e.target === node.id && (e.targetHandle || 'input') === portName);
+      if (!edge) return null;
+      return nodeOutputs.get(edge.source) || null;
+    };
+
+    // Get input values and base quality
+    const inputValues = [];
+    let inputValue = null;
+    let inputQuality = 0; // Existing behavior preserved
+
+    for (let i = 0; i < desiredInputCount; i++) {
+      const portName = `input-${i}`;
+      const inputData = resolveInputByHandle(portName);
+
+      if (inputData !== undefined && inputData !== null) {
+        if (typeof inputData === 'object' && 'value' in inputData) {
+          inputValues[i] = inputData.value;
+          if (i === 0) {
+            inputValue = inputData.value;
+            inputQuality = inputData.quality || 192;
+          }
+        } else {
+          inputValues[i] = inputData;
+          if (i === 0) {
+            inputValue = inputData;
+          }
+        }
       } else {
-        inputValue = inputData;
+        inputValues[i] = null;
+        if (i === 0) {
+          inputValue = null;
+        }
       }
     }
 
@@ -325,6 +375,7 @@ export class JavaScriptNode extends BaseNode {
         flowId,
         nodeOutputs,
         input: inputValue,
+        inputs: inputValues,
         timeout: Number(timeout),
         allowedPaths
       });

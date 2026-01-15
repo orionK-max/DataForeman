@@ -615,6 +615,9 @@ export default async function libraryRoutes(app) {
       return reply.code(401).send({ error: 'unauthorized' });
     }
 
+    // Require flows:read to access extension assets
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
     const { libraryId } = req.params;
     const assetPath = req.params['*'];
     const normalizedAssetPath = assetPath?.replace(/^dist[\\/]/, '');

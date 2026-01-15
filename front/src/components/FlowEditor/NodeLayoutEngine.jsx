@@ -39,6 +39,56 @@ const resolveTemplate = (template, data) => {
 };
 
 /**
+ * Format values based on format type
+ */
+const formatValue = (value, format) => {
+  if (!format || value === null || value === undefined) {
+    return value;
+  }
+
+  switch (format) {
+    case 'relativeTime': {
+      // Convert timestamp (ms) to relative time
+      const timestamp = typeof value === 'number' ? value : parseInt(value, 10);
+      if (isNaN(timestamp)) return value;
+      
+      const now = Date.now();
+      const diffMs = now - timestamp;
+      const diffSec = Math.floor(diffMs / 1000);
+      const diffMin = Math.floor(diffSec / 60);
+      const diffHour = Math.floor(diffMin / 60);
+      const diffDay = Math.floor(diffHour / 24);
+      
+      if (diffSec < 60) return `${diffSec}s ago`;
+      if (diffMin < 60) return `${diffMin}m ago`;
+      if (diffHour < 24) return `${diffHour}h ago`;
+      return `${diffDay}d ago`;
+    }
+    
+    case 'date': {
+      // Format as date/time
+      const timestamp = typeof value === 'number' ? value : parseInt(value, 10);
+      if (isNaN(timestamp)) return value;
+      return new Date(timestamp).toLocaleString();
+    }
+    
+    case 'bytes': {
+      // Format bytes as human-readable
+      const bytes = typeof value === 'number' ? value : parseInt(value, 10);
+      if (isNaN(bytes)) return value;
+      
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    }
+    
+    default:
+      return value;
+  }
+};
+
+/**
  * Evaluate conditional visibility expressions
  * Supports: {{field}}, {{field}} === "value", {{field}} < 100, etc.
  */
@@ -195,12 +245,22 @@ const resolveBlockProps = (block, data, executionOrder) => {
 
     case 'values':
       return {
-        items: (props.items || []).map(item => ({
-          label: item.label,
-          value: resolveTemplate(item.value, data),
-          color: resolveColor(item.color, data),
-          visible: item.visible ? evaluateCondition(item.visible, data) : true
-        })).filter(item => item.visible && (item.value !== null && item.value !== undefined)),
+        items: (props.items || []).map(item => {
+          const resolvedValue = resolveTemplate(item.value, data);
+          let formattedValue = resolvedValue;
+          
+          // Apply format if specified
+          if (item.format && resolvedValue !== null && resolvedValue !== undefined) {
+            formattedValue = formatValue(resolvedValue, item.format);
+          }
+          
+          return {
+            label: item.label,
+            value: formattedValue,
+            color: resolveColor(item.color, data),
+            visible: item.visible ? evaluateCondition(item.visible, data) : true
+          };
+        }).filter(item => item.visible && (item.value !== null && item.value !== undefined)),
         layout: props.layout,
         spacing: props.spacing,
         labelWidth: props.labelWidth

@@ -57,7 +57,7 @@ import {
   Download as DownloadIcon,
   Stop as StopIcon,
 } from '@mui/icons-material';
-import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder, updateFlowParameters, executeNodeAction } from '../services/flowsApi';
+import { getFlow, updateFlow, deployFlow, executeFlow, testExecuteNode, executeFromNode, fireTrigger, calculateExecutionOrder, updateFlowParameters, executeNodeAction, getLastExecution } from '../services/flowsApi';
 import { getBackendMetadata, fetchBackendNodeMetadata } from '../constants/nodeTypes';
 import NodeBrowser from '../components/FlowEditor/NodeBrowser';
 import NodeConfigPanel from '../components/FlowEditor/NodeConfigPanel';
@@ -113,6 +113,7 @@ const FlowEditor = () => {
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const autoSaveTimerRef = useRef(null);
+  const lastDownloadedExecutionIdRef = useRef(null); // Track last downloaded execution to avoid duplicates
 
   // Build dynamic nodeTypes from backend metadata (already loaded by App.jsx)
   // This creates React components for all node types (core + library nodes)
@@ -407,7 +408,7 @@ const FlowEditor = () => {
       
       // Debounce auto-save by 2 seconds
       autoSaveTimerRef.current = setTimeout(() => {
-        handleSave(true); // Pass true to indicate auto-save
+        handleSave(true).catch(() => {}); // Pass true to indicate auto-save
       }, 2000);
     }
     
@@ -549,6 +550,70 @@ const FlowEditor = () => {
     setSnackbar({ open: true, message, severity });
   };
 
+  // Helper: trigger a browser download for Save File outputs
+  const triggerDownload = ({ filename, mimeType, dataBase64 }) => {
+    try {
+      const binary = atob(dataBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to trigger download:', error);
+      showSnackbar('Failed to download file: ' + (filename || 'file'), 'error');
+    }
+  };
+
+  const processDownloadsFromOutputs = (outputs, executionId = null) => {
+    const downloads = [];
+    for (const nodeOutput of Object.values(outputs || {})) {
+      const payload = nodeOutput?.value?.__download;
+      if (payload?.dataBase64 && payload?.filename) {
+        downloads.push(payload);
+      }
+    }
+
+    if (downloads.length > 0) {
+      downloads.forEach(triggerDownload);
+    }
+
+    if (executionId) {
+      lastDownloadedExecutionIdRef.current = executionId;
+    }
+  };
+
+  // Fallback: poll last execution for downloads (works even if SSE/NATS is unavailable)
+  const pollLastExecutionForDownloads = async (maxAttempts = 12, intervalMs = 1000) => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const lastExec = await getLastExecution(id);
+        if (lastExec?.hasExecution && lastExec?.outputs && lastExec?.executionId) {
+          if (lastDownloadedExecutionIdRef.current !== lastExec.executionId) {
+            processDownloadsFromOutputs(lastExec.outputs, lastExec.executionId);
+            return true;
+          }
+          return false;
+        }
+      } catch (error) {
+        // Not fatal - keep trying a few times
+        console.warn('Failed to poll last execution for downloads:', error);
+      }
+
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    return false;
+  };
+
   // Poll for test_mode changes (for manual flows that auto-exit)
   useEffect(() => {
     if (!id) return;
@@ -573,6 +638,41 @@ const FlowEditor = () => {
     
     return () => clearInterval(pollInterval);
   }, [id, isTestMode]); // Re-run if isTestMode changes to update the comparison
+
+  // Listen for execution completion events via SSE for instant file downloads
+  useEffect(() => {
+    if (!id) return;
+
+    const token = localStorage.getItem('df_token');
+    if (!token) return;
+
+    // Connect to SSE endpoint
+    const eventSource = new EventSource(`/api/flows/${id}/execution-events?token=${token}`);
+
+    eventSource.addEventListener('execution-complete', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const { executionId, outputs } = data;
+
+        // Check if we've already processed this execution
+        if (executionId && lastDownloadedExecutionIdRef.current !== executionId) {
+          processDownloadsFromOutputs(outputs || {}, executionId);
+        }
+      } catch (error) {
+        console.error('Failed to process execution-complete event:', error);
+      }
+    });
+
+    eventSource.onerror = (error) => {
+      console.error('SSE connection error:', error);
+      // EventSource will automatically reconnect
+    };
+
+    // Clean up on unmount
+    return () => {
+      eventSource.close();
+    };
+  }, [id]); // Only depend on id
 
   // Handle node highlighting from query parameter
   useEffect(() => {
@@ -656,7 +756,7 @@ const FlowEditor = () => {
       const validation = validateForSave(nodes, edges);
       if (!validation.valid) {
         showSnackbar('Validation failed: ' + validation.errors[0].message, 'error');
-        return;
+        return false;
       }
 
       await updateFlow(id, { definition });
@@ -683,9 +783,21 @@ const FlowEditor = () => {
           showSnackbar('Warning: ' + validation.warnings[0].message, 'warning');
         }, 2000);
       }
+
+      return true;
     } catch (error) {
       showSnackbar('Failed to save flow: ' + error.message, 'error');
+      return false;
     }
+  };
+
+  const ensureSavedForTestOrExecute = async () => {
+    if (!hasUnsavedChanges) return true;
+    const saved = await handleSave(true);
+    if (!saved) {
+      showSnackbar('Cannot run test: save failed', 'error');
+    }
+    return saved;
   };
 
   // Extract exposed parameters from all nodes
@@ -731,6 +843,7 @@ const FlowEditor = () => {
         const param = {
           name: `${node.id}.${paramName}`, // Unique name: nodeId.propertyName
           displayName: config.displayName || paramDef.displayName || paramName,
+          alias: typeof config.alias === 'string' && config.alias.trim() ? config.alias.trim() : undefined,
           description: config.description || paramDef.description || '',
           type: paramDef.type,
           parameterKind: parameterKind,
@@ -817,7 +930,7 @@ const FlowEditor = () => {
     }
   };
 
-  // Test run flow (creates temporary deployment)
+  // Test run flow (creates temporary deployment for continuous, executes once for manual)
   const handleRun = async () => {
     if (flow?.deployed) {
       showSnackbar('Cannot test when deployed. Undeploy first to test the flow.', 'warning');
@@ -854,7 +967,42 @@ const FlowEditor = () => {
       return;
     }
 
-    // Show test mode configuration dialog
+    // For manual flows, just execute once (like Execute button)
+    if (flow?.execution_mode === 'manual') {
+      try {
+        // Validate before execution
+        const validation = validateForDeploy(nodes, edges);
+        if (!validation.valid) {
+          const errorList = validation.errors.map(e => e.message).join('; ');
+          showSnackbar('Cannot execute: ' + errorList, 'error');
+          return;
+        }
+
+        // Ensure the latest editor changes are persisted before execution
+        if (!(await ensureSavedForTestOrExecute())) {
+          return;
+        }
+
+        await executeFlow(id);
+        // SSE can miss events if NATS/SSE isn't available; poll as a fallback.
+        // Run in the background so the UI stays responsive.
+        setTimeout(() => {
+          pollLastExecutionForDownloads().catch(() => {});
+        }, 1500);
+        showSnackbar('Flow execution started', 'success');
+      } catch (error) {
+        showSnackbar('Failed to execute flow: ' + error.message, 'error');
+      }
+      return;
+    }
+
+    // Continuous flow: save any pending edits before entering test-mode dialog
+    // (test mode deployment uses the stored flow definition)
+    if (!(await ensureSavedForTestOrExecute())) {
+      return;
+    }
+
+    // For continuous flows, show test mode configuration dialog
     setTestModeDialogOpen(true);
   };
 
@@ -1777,13 +1925,13 @@ const FlowEditor = () => {
         flowDefinition={flow?.definition}
       />
 
-      {/* Test Mode Configuration Dialog */}
+      {/* Test Mode Configuration Dialog (Continuous Flows Only) */}
       <Dialog open={testModeDialogOpen} onClose={() => setTestModeDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Start Test Mode</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
             <Typography variant="body2" color="text.secondary">
-              Test mode temporarily deploys your flow for testing. Configure options below.
+              Test mode temporarily deploys your continuous flow for testing. Configure options below.
             </Typography>
             <FormGroup>
               <FormControlLabel

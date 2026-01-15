@@ -1,6 +1,24 @@
 import fp from 'fastify-plugin';
 import { randomUUID } from 'crypto';
 
+function summarizeKeysForLog(value, { maxKeys = 30 } = {}) {
+	if (!value || typeof value !== 'object') return { keyCount: 0, keys: [] };
+	const keys = Object.keys(value);
+	return { keyCount: keys.length, keys: keys.slice(0, maxKeys) };
+}
+
+function summarizeJobResultForLog(result) {
+	if (!result || typeof result !== 'object') return { type: typeof result };
+	const outputs = (result.outputs && typeof result.outputs === 'object') ? result.outputs : null;
+	return {
+		success: result.success === true,
+		executionId: typeof result.executionId === 'string' ? result.executionId : undefined,
+		outputNodeCount: outputs ? Object.keys(outputs).length : 0,
+		outputs: outputs ? summarizeKeysForLog(outputs) : undefined,
+		hasError: result.error != null,
+	};
+}
+
 // Utility to shallow merge progress and auto compute pct clamp
 function mergeProgress(oldP, next) {
 	const base = typeof oldP === 'object' && oldP ? oldP : {};
@@ -46,7 +64,7 @@ export const jobsPlugin = fp(async (app) => {
 			throw e;
 		});
 		const job = rows[0];
-		log.info({ job: job.id, type: job.type, params: job.params }, 'job enqueued');
+		log.info({ job: job.id, type: job.type, params: summarizeKeysForLog(job.params) }, 'job enqueued');
 		return job;
 	}
 
@@ -133,7 +151,7 @@ export const jobsPlugin = fp(async (app) => {
 			}
 			throw e;
 		});
-		log.info({ job: id, result }, 'job completed');
+		log.info({ job: id, result: summarizeJobResultForLog(result) }, 'job completed');
 		return rows[0];
 	}
 
