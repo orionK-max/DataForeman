@@ -12,7 +12,7 @@
 		{
 			"label": "rebuild-core",
 			"type": "shell",
-			"command": "docker compose build core && docker compose up -d core",
+			"command": "docker compose build core; docker compose up -d core",
 			"args": [],
 			"isBackground": false,
 			"group": "build"
@@ -20,49 +20,14 @@
 		{
 			"label": "rebuild-connectivity",
 			"type": "shell",
-			"command": "docker compose build connectivity && docker compose up -d connectivity",
+			"command": "docker compose build connectivity; docker compose up -d connectivity",
 			"isBackground": false,
 			"group": "build"
 		},
 		{
 			"label": "rebuild-core-and-connectivity",
 			"type": "shell",
-			"command": "docker compose build core connectivity && docker compose up -d core connectivity",
-			"isBackground": false,
-			"group": "build"
-		},
-		{
-			"label": "rebuild-core",
-			"type": "shell",
-			"command": "docker compose build core && docker compose up -d core",
-			"isBackground": false,
-			"group": "build"
-		},
-		{
-			"label": "migrate-core",
-			"type": "shell",
-			"command": "docker compose exec -T core npx --yes node-pg-migrate -m migrations --check-order false -d postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE up",
-			"isBackground": false,
-			"group": "build"
-		},
-		{
-			"label": "rebuild-connectivity",
-			"type": "shell",
-			"command": "docker compose build connectivity && docker compose up -d connectivity",
-			"isBackground": false,
-			"group": "build"
-		},
-		{
-			"label": "rebuild-connectivity",
-			"type": "shell",
-			"command": "docker compose build connectivity && docker compose up -d connectivity",
-			"isBackground": false,
-			"group": "build"
-		},
-		{
-			"label": "rebuild-connectivity",
-			"type": "shell",
-			"command": "docker compose build connectivity && docker compose up -d connectivity",
+			"command": "docker compose build core connectivity; docker compose up -d core connectivity",
 			"isBackground": false,
 			"group": "build"
 		}

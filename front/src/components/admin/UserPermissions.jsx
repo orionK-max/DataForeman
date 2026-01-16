@@ -114,11 +114,35 @@ export default function UserPermissions({ user }) {
   const groupedFeatures = groupFeaturesByCategory();
 
   // Check if user is an admin (permissions should not be editable)
-  const isAdminUser = user?.email && (
-    user.email.toLowerCase().includes('admin') ||
-    user.email === 'admin@dataforeman.local' ||
-    user.email === 'admin@example.com'
-  );
+  // Protect the first admin user (by created_at) to prevent lockout
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  
+  useEffect(() => {
+    // Check if this is the first user (admin) by fetching all users
+    const checkIfFirstUser = async () => {
+      try {
+        const response = await adminService.getUsers();
+        const allUsers = response.users || [];
+        // Find the first created user (excluding system user)
+        const sortedUsers = allUsers
+          .filter(u => u.email !== 'system@dataforeman.local')
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        
+        if (sortedUsers.length > 0 && sortedUsers[0].id === user?.id) {
+          setIsAdminUser(true);
+        } else {
+          setIsAdminUser(false);
+        }
+      } catch (error) {
+        console.error('Error checking first user:', error);
+        setIsAdminUser(false);
+      }
+    };
+    
+    if (user?.id) {
+      checkIfFirstUser();
+    }
+  }, [user?.id]);
 
   // Load permissions when user changes
   useEffect(() => {

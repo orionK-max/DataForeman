@@ -16,12 +16,12 @@ create_database_if_not_exists() {
   local attempt=1
   
   while [ $attempt -le $max_attempts ]; do
-    if PGPASSWORD=$password psql -h $host -p $port -U $user -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$dbname'" 2>/dev/null | grep -q 1; then
+    if PGPASSWORD=$password psql -h $host -p $port -U $user -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$dbname'" 2>&1 | grep -q 1; then
       echo "Database '$dbname' exists."
       return 0
     fi
     
-    if PGPASSWORD=$password psql -h $host -p $port -U $user -d postgres -c "CREATE DATABASE $dbname" 2>/dev/null; then
+    if PGPASSWORD=$password psql -h $host -p $port -U $user -d postgres -c "CREATE DATABASE $dbname" 2>&1; then
       echo "Database '$dbname' created."
       return 0
     fi

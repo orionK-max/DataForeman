@@ -407,45 +407,8 @@ CREATE INDEX IF NOT EXISTS idx_flow_folders_parent ON flow_folders(parent_folder
 INSERT INTO roles(name) VALUES ('viewer') ON CONFLICT DO NOTHING;
 INSERT INTO roles(name) VALUES ('admin') ON CONFLICT DO NOTHING;
 
--- Insert default admin user
-INSERT INTO users(email, display_name, is_active) 
-VALUES ('admin@example.com', 'Admin', true)
-ON CONFLICT (email) DO NOTHING;
-
--- Assign admin role to admin user
-INSERT INTO user_roles(user_id, role_id)
-SELECT u.id, r.id 
-FROM users u 
-JOIN roles r ON r.name='admin' 
-WHERE u.email='admin@example.com'
-ON CONFLICT DO NOTHING;
-
--- Grant all permissions to first user (by created_at)
-INSERT INTO user_permissions (user_id, feature, can_create, can_read, can_update, can_delete)
-SELECT u.id, f.feature, true, true, true, true
-FROM (SELECT id FROM users ORDER BY created_at ASC LIMIT 1) u
-CROSS JOIN (
-    VALUES 
-        ('dashboards'),
-        ('connectivity.devices'),
-        ('connectivity.tags'),
-        ('connectivity.poll_groups'),
-        ('connectivity.units'),
-        ('connectivity.internal_tags'),
-        ('chart_composer'),
-        ('diagnostics'),
-        ('diagnostic.system'),
-        ('diagnostic.capacity'),
-        ('diagnostic.logs'),
-        ('diagnostic.network'),
-        ('users'),
-        ('permissions'),
-        ('jobs'),
-        ('logs'),
-        ('flows'),
-        ('configuration')
-) AS f(feature)
-ON CONFLICT (user_id, feature) DO NOTHING;
+-- NOTE: Admin user creation moved to bootstrap.js to use ADMIN_EMAIL from environment
+-- The bootstrap service will create the admin user with credentials from .env file
 
 -- Insert comprehensive units of measure (from migration 016)
 INSERT INTO units_of_measure (name, symbol, category, is_system) VALUES
