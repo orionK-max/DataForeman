@@ -73,6 +73,7 @@ services:
       PGPASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
       PGDATABASE: ${PGDATABASE:-dataforeman}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Demo mode configuration
       DEMO_MODE: ${DEMO_MODE:-0}
