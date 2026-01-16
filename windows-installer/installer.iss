@@ -43,6 +43,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Application files (exclude large directories)
 Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "node_modules,.git,logs,var,.github,.vscode,windows-installer\dist"
+; Windows-specific .env file (copy .env.windows to .env if .env doesn't exist)
+Source: "..\.env.windows"; DestDir: "{app}"; DestName: ".env"; Flags: onlyifdoesntexist
 ; Launcher scripts
 Source: "start-dataforeman.bat"; DestDir: "{app}\windows-installer"; Flags: ignoreversion
 Source: "stop-dataforeman.bat"; DestDir: "{app}\windows-installer"; Flags: ignoreversion

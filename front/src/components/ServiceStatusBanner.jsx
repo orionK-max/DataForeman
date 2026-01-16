@@ -31,16 +31,16 @@ const ServiceStatusBanner = ({ summary }) => {
   const connectivityDown = summary.connectivity?.ok === false;
   const hasConnections = summary.connectivity?.hasConnections;
 
+  // Only show banner if connectivity is actually down AND there are connections configured
+  // If there are no connections, the service being "down" is expected and not an error
   if (!connectivityDown) return null;
+  if (!hasConnections) return null; // Don't show warning if no connections are configured
   if (dismissed) return null;
 
-  // Change severity and message if no connections are configured
-  // If hasConnections is undefined/null, assume no connections (safer default for fresh installs)
-  const severity = hasConnections === false || hasConnections === undefined ? 'warning' : 'error';
-  const title = hasConnections === false || hasConnections === undefined ? 'No Connections Configured' : 'Connectivity Service Stopped';
-  const message = hasConnections === false || hasConnections === undefined
-    ? 'Add a device connection to start collecting telemetry data.'
-    : 'Device communication is unavailable. Restart the connectivity service to restore device connections.';
+  // At this point, connectivity is down AND we have connections configured - show error
+  const severity = 'error';
+  const title = 'Connectivity Service Stopped';
+  const message = 'Device communication is unavailable. Restart the connectivity service to restore device connections.';
 
   return (
     <Collapse in={!dismissed}>
@@ -53,7 +53,7 @@ const ServiceStatusBanner = ({ summary }) => {
         }}
         action={
           <>
-            {(hasConnections === true) && can('diagnostic.system', 'update') ? (
+            {can('diagnostic.system', 'update') ? (
               <Button
                 color="inherit"
                 size="small"
@@ -64,7 +64,7 @@ const ServiceStatusBanner = ({ summary }) => {
               >
                 {restartingService === 'connectivity' ? 'Restarting...' : 'Restart'}
               </Button>
-            ) : (hasConnections === true) ? (
+            ) : (
               <Tooltip title="Requires 'System Diagnostics' UPDATE permission">
                 <span>
                   <Button
@@ -78,7 +78,7 @@ const ServiceStatusBanner = ({ summary }) => {
                   </Button>
                 </span>
               </Tooltip>
-            ) : null}
+            )}
             <IconButton
               aria-label="close"
               color="inherit"

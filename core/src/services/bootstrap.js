@@ -4,7 +4,7 @@ import argon2 from 'argon2';
 export async function ensureAdminPassword(app) {
   const log = app.log || console;
   try {
-    const adminEmail = 'admin@example.com';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
     const envPw = process.env.ADMIN_PASSWORD;
     // Find admin user
     const { rows: users } = await app.db.query('select id from users where lower(email)=lower($1) limit 1', [adminEmail]);

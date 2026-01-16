@@ -56,23 +56,15 @@ if ($dockerInstalled) {
 }
 Write-Host ""
 
-# Create .env file if it doesn't exist
+# Create .env file if it doesn't exist (handled by Inno Setup installer)
 Write-ColorOutput "[2/4] Setting up environment..." "Yellow"
 Set-Location $InstallDir
-if (-not (Test-Path ".env")) {
-    if (Test-Path ".env.example") {
-        Copy-Item ".env.example" ".env"
-        Write-ColorOutput "[OK] Created .env file from template" "Green"
-    } else {
-        Write-ColorOutput "[WARN] .env.example not found" "Yellow"
-    }
+if (Test-Path ".env") {
+    Write-ColorOutput "[OK] .env file configured for Windows" "Green"
 } else {
-    Write-ColorOutput "[OK] .env file already exists" "Green"
+    Write-ColorOutput "[WARN] .env file not found" "Yellow"
+    Write-ColorOutput "  The installer should have created it from .env.windows template" "Gray"
 }
-
-# Note: Windows Docker networking configuration
-# Docker Compose defaults now work for Windows (uses bridge networking with service names)
-Write-ColorOutput "[OK] Docker Compose configured for Windows" "Green"
 Write-Host ""
 
 # Create directories and fix permissions
