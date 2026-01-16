@@ -6,20 +6,25 @@ export async function ensureAdminPassword(app) {
   try {
     const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
     const envPw = process.env.ADMIN_PASSWORD;
-    // Find admin user
+    // Find or create admin user
     const { rows: users } = await app.db.query('select id from users where lower(email)=lower($1) limit 1', [adminEmail]);
+    let userId;
     if (users.length === 0) {
-      // Should exist from migration, but guard anyway
+      // Create new admin user
       const ins = await app.db.query(
         "insert into users(email, display_name, is_active) values ($1,$2,true) returning id",
         [adminEmail, 'Admin']
       );
-      const uid = ins.rows[0].id;
-      await app.db.query(
-        "insert into user_roles(user_id, role_id) select $1, r.id from roles r where r.name='admin' on conflict do nothing",
-        [uid]
-      );
+      userId = ins.rows[0].id;
+    } else {
+      userId = users[0].id;
     }
+    
+    // Ensure admin role is assigned (idempotent)
+    await app.db.query(
+      "insert into user_roles(user_id, role_id) select $1, r.id from roles r where r.name='admin' on conflict do nothing",
+      [userId]
+    );
 
     const { rows } = await app.db.query(
       `select u.id as user_id, ai.id as ai_id, ai.secret_hash
