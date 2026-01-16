@@ -167,7 +167,41 @@ export async function authRoutes(app) {
       'insert into users(email, display_name, is_active) values ($1,$2,coalesce($3,true)) returning id',
       [email, display_name || null, is_active]
     );
-    return { id: rows[0].id };
+    const userId = rows[0].id;
+    
+    // Assign default 'viewer' role to new user
+    await app.db.query(
+      "insert into user_roles(user_id, role_id) select $1, r.id from roles r where r.name='viewer' on conflict do nothing",
+      [userId]
+    );
+    
+    // Grant default permissions to new user
+    const defaultFeatures = [
+      'dashboards',
+      'connectivity.devices',
+      'connectivity.tags',
+      'connectivity.poll_groups',
+      'connectivity.units',
+      'connectivity.internal_tags',
+      'chart_composer',
+      'diagnostics',
+      'diagnostic.system',
+      'diagnostic.capacity',
+      'diagnostic.logs',
+      'diagnostic.network',
+      'jobs',
+      'logs',
+      'flows'
+    ];
+    
+    for (const feature of defaultFeatures) {
+      await app.db.query(
+        'insert into user_permissions(user_id, feature, can_create, can_read, can_update, can_delete) values ($1, $2, true, true, true, true) on conflict do nothing',
+        [userId, feature]
+      );
+    }
+    
+    return { id: userId };
   });
 
   app.post('/admin/users/:id', { preHandler: requireAdmin }, async (req) => {

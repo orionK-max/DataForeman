@@ -26,6 +26,35 @@ export async function ensureAdminPassword(app) {
       [userId]
     );
 
+    // Ensure admin has all permissions (idempotent)
+    const defaultFeatures = [
+      'dashboards',
+      'connectivity.devices',
+      'connectivity.tags',
+      'connectivity.poll_groups',
+      'connectivity.units',
+      'connectivity.internal_tags',
+      'chart_composer',
+      'diagnostics',
+      'diagnostic.system',
+      'diagnostic.capacity',
+      'diagnostic.logs',
+      'diagnostic.network',
+      'users',
+      'permissions',
+      'jobs',
+      'logs',
+      'flows',
+      'configuration'
+    ];
+    
+    for (const feature of defaultFeatures) {
+      await app.db.query(
+        'insert into user_permissions(user_id, feature, can_create, can_read, can_update, can_delete) values ($1, $2, true, true, true, true) on conflict do nothing',
+        [userId, feature]
+      );
+    }
+
     const { rows } = await app.db.query(
       `select u.id as user_id, ai.id as ai_id, ai.secret_hash
          from users u

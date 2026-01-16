@@ -3,7 +3,7 @@
 ; Requires Inno Setup 6.0 or later: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "DataForeman"
-#define MyAppVersion "0.2.1"
+#define MyAppVersion "0.4.4"
 #define MyAppPublisher "DataForeman Project"
 #define MyAppURL "https://github.com/orionK-max/DataForeman"
 #define MyAppExeName "start-dataforeman.bat"
