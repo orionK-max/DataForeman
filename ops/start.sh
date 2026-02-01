@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 MODE="compose" # or local-core
-WITH_CADDY="false"
+WITH_CADDY="true"
 TAIL_CORE="false"
 BUILD_MODE="no-build" # values: no-build | build
 

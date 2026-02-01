@@ -84,7 +84,7 @@ export class JavaScriptNode extends BaseNode {
           type: 'divider',
           color: '#e0e0e0',
           margin: 8,
-          visible: '{{code}}'
+          visible: '!!{{code}}'
         },
         {
           type: 'code',
@@ -92,7 +92,7 @@ export class JavaScriptNode extends BaseNode {
           content: '{{code}}',
           maxLines: 3,
           showLineNumbers: false,
-          visible: '{{code}}'
+          visible: '!!{{code}}'
         }
       ],
       handles: {

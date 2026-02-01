@@ -1067,7 +1067,7 @@ export default async function flowRoutes(app) {
         jobId: job.id, 
         userId, 
         testRun: flow.test_mode || false,
-        hasParameters: !!validatedParameters 
+        hasParameters: !!validatedParameters
       }, 'Flow execution job enqueued');
 
       reply.send({ 
@@ -1444,10 +1444,9 @@ export default async function flowRoutes(app) {
 
     // Subscribe to NATS for this flow's execution events
     const subject = `flow.${id}.execution.complete`;
-    const sub = app.nats.subscribe(subject, (event) => {
-      // Handler is called by nats.js subscribe loop
-      // Event processing happens in the async loop below
-    });
+    
+    // Use direct subscription for SSE streaming (need raw async iterator)
+    const sub = app.nats.subscribeRaw(subject);
 
     log.info({ subject }, 'SSE connection established');
 
@@ -1460,8 +1459,7 @@ export default async function flowRoutes(app) {
       }
     }, 30000);
 
-    // Process NATS messages using callback-style iteration to avoid "already yielding" errors
-    // Each message is processed independently without blocking
+    // Process NATS messages using async iteration
     (async () => {
       try {
         for await (const msg of sub) {

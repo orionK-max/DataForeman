@@ -97,6 +97,15 @@ const evaluateCondition = (condition, data) => {
     return true; // No condition = always visible
   }
 
+  // Special case: !!{{propertyName}} - check property existence without embedding value
+  // This prevents multi-line code/complex values from breaking the eval
+  const existenceCheckMatch = condition.match(/^!!\{\{(\w+)\}\}$/);
+  if (existenceCheckMatch) {
+    const propName = existenceCheckMatch[1];
+    const value = data[propName];
+    return !!(value && (typeof value !== 'string' || value.trim().length > 0));
+  }
+
   // Resolve all templates first
   const resolved = resolveTemplate(condition, data);
   

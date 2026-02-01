@@ -283,11 +283,19 @@ export class NodeExecutionContext {
    * @param {string} [message] - Message if data is object
    */
   logInfo(data, message) {
+    // Only log to core service logs if node has logging enabled
+    const nodeLogLevel = this.node.data?.logLevel || 'none';
+    if (this._shouldLogLevel(nodeLogLevel, 'info')) {
+      if (typeof data === 'string') {
+        this.log.info(data);
+      } else {
+        this.log.info(data, message);
+      }
+    }
+    // Always attempt buffer log (it has its own checks)
     if (typeof data === 'string') {
-      this.log.info(data);
       this._bufferLog('info', data);
     } else {
-      this.log.info(data, message);
       this._bufferLog('info', message || JSON.stringify(data), data);
     }
   }
@@ -299,11 +307,19 @@ export class NodeExecutionContext {
    * @param {string} [message] - Message if data is object
    */
   logDebug(data, message) {
+    // Only log to core service logs if node has logging enabled
+    const nodeLogLevel = this.node.data?.logLevel || 'none';
+    if (this._shouldLogLevel(nodeLogLevel, 'debug')) {
+      if (typeof data === 'string') {
+        this.log.debug(data);
+      } else {
+        this.log.debug(data, message);
+      }
+    }
+    // Always attempt buffer log (it has its own checks)
     if (typeof data === 'string') {
-      this.log.debug(data);
       this._bufferLog('debug', data);
     } else {
-      this.log.debug(data, message);
       this._bufferLog('debug', message || JSON.stringify(data), data);
     }
   }
@@ -315,11 +331,19 @@ export class NodeExecutionContext {
    * @param {string} [message] - Message if data is object
    */
   logWarn(data, message) {
+    // Only log to core service logs if node has logging enabled
+    const nodeLogLevel = this.node.data?.logLevel || 'none';
+    if (this._shouldLogLevel(nodeLogLevel, 'warn')) {
+      if (typeof data === 'string') {
+        this.log.warn(data);
+      } else {
+        this.log.warn(data, message);
+      }
+    }
+    // Always attempt buffer log (it has its own checks)
     if (typeof data === 'string') {
-      this.log.warn(data);
       this._bufferLog('warn', data);
     } else {
-      this.log.warn(data, message);
       this._bufferLog('warn', message || JSON.stringify(data), data);
     }
   }

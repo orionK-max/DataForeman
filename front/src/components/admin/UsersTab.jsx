@@ -33,7 +33,9 @@ export default function UsersTab() {
   const loadUsers = async () => {
     try {
       const data = await adminService.getUsers();
-      setUsers(data.users || []);
+      // Filter out system user from display
+      const filteredUsers = (data.users || []).filter(u => u.email !== 'system@dataforeman.local');
+      setUsers(filteredUsers);
     } catch (err) {
       console.error('Failed to load users:', err);
     } finally {

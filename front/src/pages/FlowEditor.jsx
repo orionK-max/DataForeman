@@ -843,7 +843,8 @@ const FlowEditor = () => {
         const param = {
           name: `${node.id}.${paramName}`, // Unique name: nodeId.propertyName
           displayName: config.displayName || paramDef.displayName || paramName,
-          alias: typeof config.alias === 'string' && config.alias.trim() ? config.alias.trim() : undefined,
+          // Use node's alias if it exists, otherwise fall back to parameter alias
+          alias: node.data?.alias || (typeof config.alias === 'string' && config.alias.trim() ? config.alias.trim() : undefined),
           description: config.description || paramDef.description || '',
           type: paramDef.type,
           parameterKind: parameterKind,

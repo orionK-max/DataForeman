@@ -100,8 +100,9 @@ echo "   Frontend Dev: http://localhost:5174"
 echo "   Frontend Prod: http://localhost:8080"
 echo ""
 
-# Start all services
+# Start all services (including Caddy for network access)
 docker compose up -d db nats tsdb core connectivity rotator front
+docker compose --profile tls up -d caddy
 
 # Start frontend in dev mode (background)
 cd front

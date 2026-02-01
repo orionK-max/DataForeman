@@ -22,6 +22,12 @@ export class SaveFileNode extends BaseNode {
         type: 'main',
         displayName: 'Data',
         description: 'Data to write to the file'
+      },
+      {
+        name: 'filename',
+        type: 'string',
+        displayName: 'File Name',
+        description: 'Optional dynamic filename (overrides configured filename)'
       }
     ],
     outputs: [],
@@ -62,7 +68,10 @@ export class SaveFileNode extends BaseNode {
         }
       ],
       handles: {
-        inputs: [{ index: 0, position: 'auto', color: 'auto', label: null, visible: true }],
+        inputs: [
+          { index: 0, position: 'auto', color: 'auto', label: 'Data', visible: true },
+          { index: 1, position: 'auto', color: 'auto', label: 'Filename', visible: true }
+        ],
         outputs: [],
         size: 12,
         borderWidth: 2,
@@ -95,8 +104,8 @@ export class SaveFileNode extends BaseNode {
         displayName: 'File Name',
         type: 'string',
         default: 'output.txt',
-        required: true,
-        description: 'Downloaded file name'
+        required: false,
+        description: 'Default filename (can be overridden by filename input)'
       },
       {
         name: 'format',
@@ -132,8 +141,8 @@ export class SaveFileNode extends BaseNode {
               property: 'filename',
               label: 'File Name',
               default: 'output.txt',
-              required: true,
-              helperText: 'Name for the downloaded file'
+              required: false,
+              helperText: 'Default filename (can be overridden by input connection)'
             }
           ]
         },
@@ -198,11 +207,15 @@ export class SaveFileNode extends BaseNode {
   }
 
   async execute(context) {
-    const filename = this.getParameter(context.node, 'filename', 'output.txt');
+    // Get filename from input (if connected) or parameter (fallback)
+    const filenameInput = context.getInputValue(1);
+    const filenameParam = this.getParameter(context.node, 'filename', 'output.txt');
+    const filename = (filenameInput?.value || filenameInput) || filenameParam;
+    
     const format = this.getParameter(context.node, 'format', 'text');
     const mimeTypeParam = this.getParameter(context.node, 'mimeType', '');
 
-    // Extract input value
+    // Extract input value from data input
     const inputData = context.getInputValue(0);
     const value = (inputData && typeof inputData === 'object' && 'value' in inputData) ? inputData.value : inputData;
 

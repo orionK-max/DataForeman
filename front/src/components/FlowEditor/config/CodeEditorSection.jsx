@@ -1,12 +1,15 @@
-import React from 'react';
-import { Box, Typography } from '@mui/material';
+import React, { useState } from 'react';
+import { Box, Typography, IconButton, Tooltip } from '@mui/material';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import Editor from '@monaco-editor/react';
+import FullscreenCodeEditorDialog from './FullscreenCodeEditorDialog';
 
 /**
  * Code editor section using Monaco editor
  */
 const CodeEditorSection = ({ section, nodeData, onChange }) => {
   const value = nodeData?.[section.property] ?? section.defaultValue ?? '';
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   
   const handleEditorMount = (editor, monaco) => {
     // Register autocomplete if provided
@@ -51,11 +54,22 @@ const CodeEditorSection = ({ section, nodeData, onChange }) => {
   
   return (
     <Box sx={{ mb: 2 }}>
-      {section.label && (
-        <Typography variant="body2" gutterBottom>
-          {section.label}
-        </Typography>
-      )}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        {section.label && (
+          <Typography variant="body2">
+            {section.label}
+          </Typography>
+        )}
+        <Tooltip title="Open fullscreen editor">
+          <IconButton
+            size="small"
+            onClick={() => setFullscreenOpen(true)}
+            sx={{ ml: 'auto' }}
+          >
+            <FullscreenIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
       
       <Box 
         sx={{ 
@@ -90,6 +104,16 @@ const CodeEditorSection = ({ section, nodeData, onChange }) => {
           {section.helperText}
         </Typography>
       )}
+
+      <FullscreenCodeEditorDialog
+        open={fullscreenOpen}
+        onClose={() => setFullscreenOpen(false)}
+        value={value}
+        onChange={(val) => onChange({ [section.property]: val })}
+        language={section.language || 'javascript'}
+        title={section.label || 'Code Editor'}
+        autocomplete={section.autocomplete || []}
+      />
     </Box>
   );
 };

@@ -457,27 +457,30 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange }) =
         
         <Collapse in={isExposed} timeout="auto">
           <Box sx={{ mt: 1, ml: 3, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography
-                variant="caption"
-                sx={{
-                  display: 'block',
-                  mb: 0.5,
-                  color: 'text.secondary',
-                  fontSize: '0.7rem',
-                  fontWeight: 500
-                }}
-              >
-                Alias
-              </Typography>
-              <TextField
-                fullWidth
-                size="small"
-                value={exposureConfig.alias ?? ''}
-                onChange={(e) => updateExposureConfig(property.name, 'alias', e.target.value)}
-                placeholder="Optional label shown during execution"
-              />
-            </Box>
+            {/* Only show Alias field if node doesn't have its own alias property */}
+            {!metadata?.properties?.some(p => p.name === 'alias') && (
+              <Box sx={{ flex: 1 }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: 'block',
+                    mb: 0.5,
+                    color: 'text.secondary',
+                    fontSize: '0.7rem',
+                    fontWeight: 500
+                  }}
+                >
+                  Alias
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={exposureConfig.alias ?? ''}
+                  onChange={(e) => updateExposureConfig(property.name, 'alias', e.target.value)}
+                  placeholder="Optional label shown during execution"
+                />
+              </Box>
+            )}
 
             <Box sx={{ flex: '0 0 auto' }}>
               <Typography

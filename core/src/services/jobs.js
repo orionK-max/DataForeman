@@ -526,7 +526,8 @@ export const jobsPlugin = fp(async (app) => {
 			activeJobs.set(job.id, jobPromise);
 			log.debug({ jobId: job.id, activeCount: activeJobs.size, maxConcurrent: MAX_CONCURRENT_JOBS }, 'job: added to active set');
 		}			// Wait before next claim attempt (shorter idle when jobs are active)
-			const idleMs = activeJobs.size === 0 ? 1000 : 250;
+			// Reduced delays for faster job processing (was 1000/250)
+			const idleMs = activeJobs.size === 0 ? 100 : 50;
 			await new Promise(r => setTimeout(r, idleMs));
 		}
 	}
