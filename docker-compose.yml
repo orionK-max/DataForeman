@@ -36,6 +36,19 @@ services:
     volumes:
       - ./logs/nats:/var/log/nats
 
+  nanomq:
+    build: ./nanomq
+    ports:
+      - "${NANOMQ_MQTT_PORT:-1883}:1883"        # MQTT
+      - "${NANOMQ_MQTTS_PORT:-8883}:8883"       # MQTT over TLS
+      - "${NANOMQ_WS_PORT:-8081}:8081"          # WebSocket
+      - "${NANOMQ_HTTP_PORT:-8001}:8001"        # HTTP API
+    volumes:
+      - ./logs/nanomq:/var/log/nanomq
+      - ./nanomq/nanomq.conf:/etc/nanomq/nanomq.conf:ro
+    depends_on:
+      - core
+
   tsdb:
     image: timescale/timescaledb:latest-pg16
     environment:

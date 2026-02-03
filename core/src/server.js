@@ -30,6 +30,7 @@ import flowLiveDataRoutes from './routes/flow-live-data.js';
 import flowResourceRoutes from './routes/flow-resources.js';
 import libraryRoutes from './routes/libraries.js';
 import adminFlowsRoutes from './routes/admin/flows.js';
+import mqttRoutes from './routes/mqtt.js';
 import { jobsPlugin } from './services/jobs.js';
 import { dbPlugin } from './services/db.js';
 import { tsdbPlugin } from './services/tsdb.js';
@@ -168,6 +169,7 @@ export async function buildServer() {
   await app.register(flowResourceRoutes); // Flow resource monitoring - no prefix, routes define their own paths
   await app.register(libraryRoutes); // Node library management - no prefix, routes define their own paths
   await app.register(adminFlowsRoutes, { prefix: '/api/admin/flows' }); // Admin flow configuration
+  await app.register(mqttRoutes); // MQTT management and authentication - no prefix, routes define their own paths
   // Jobs plugin + routes (admin only) – register once then start dispatcher
   await app.register(jobsPlugin); // services.jobs
   await app.register(jobsRoutes, { prefix: '/api' }); // /api/jobs endpoints (admin)

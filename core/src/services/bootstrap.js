@@ -45,7 +45,8 @@ export async function ensureAdminPassword(app) {
       'jobs',
       'logs',
       'flows',
-      'configuration'
+      'configuration',
+      'mqtt'
     ];
     
     for (const feature of defaultFeatures) {

@@ -217,8 +217,12 @@ Then delete and recreate the admin user:
 # Connect to the database
 docker compose exec db psql -U dataforeman dataforeman
 
+# If you changed ADMIN_EMAIL, use that value instead of admin@example.com.
+# You can see what Core is configured to use with:
+# docker compose exec core sh -lc 'echo "ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}"'
+
 # Delete the admin user
-DELETE FROM users WHERE email = 'admin@example.com';
+DELETE FROM users WHERE lower(email)=lower('admin@example.com');
 
 # Exit the database
 \q
@@ -233,7 +237,8 @@ Wait 10 seconds, then try logging in with the new password.
 
 **Solution 3: Check if database has admin user**
 ```bash
-docker compose exec db psql -U dataforeman -c "SELECT email FROM users WHERE email='admin@example.com';"
+# If you set ADMIN_EMAIL in .env, replace admin@example.com with that value.
+docker compose exec db psql -U dataforeman -c "SELECT email FROM users WHERE lower(email)=lower('admin@example.com');"
 ```
 
 If empty, the admin user wasn't created. Check core logs:

@@ -30,6 +30,8 @@ export const jwtPlugin = fp(async (app) => {
   if (url.startsWith('/health') || url.startsWith('/metrics')) return;
   // Public connectivity system summary (used for UI chips)
   if (url.startsWith('/api/connectivity/summary')) return;
+  // MQTT auth webhook (called by nanoMQ broker)
+  if (url === '/api/mqtt/auth') return;
     if (
       url === '/api/auth/login' ||
       url === '/api/auth/refresh' ||

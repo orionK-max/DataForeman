@@ -35,6 +35,7 @@ import UnitsOfMeasure from '../components/connectivity/UnitsOfMeasure';
 import InternalTagsManager from '../components/connectivity/InternalTagsManager';
 import ConnectionBrowser from '../components/connectivity/ConnectionBrowser';
 import FolderTree from '../components/folders/FolderTree';
+import MqttManager from '../components/connectivity/MqttManager';
 
 // Tab panel component
 function TabPanel({ children, value, index, ...other }) {
@@ -279,12 +280,14 @@ const Connectivity = () => {
         { id: 'opcua', name: 'OPC UA', children: [] },
         { id: 's7', name: 'Siemens S7', children: [] },
         { id: 'eip', name: 'EtherNet/IP', children: [] },
+        { id: 'mqtt', name: 'MQTT', children: [] },
         { id: 'internal', name: 'Internal', children: [] },
       ]
     : [
         { id: 'opcua', name: 'OPC UA', children: [] },
         { id: 's7', name: 'Siemens S7', children: [] },
         { id: 'eip', name: 'EtherNet/IP', children: [] },
+        { id: 'mqtt', name: 'MQTT', children: [] },
       ];
   
   if (loading) {
@@ -538,6 +541,11 @@ const Connectivity = () => {
                   onDelete={can('connectivity.devices', 'delete') ? handleDeleteConnection : null}
                   onEdit={can('connectivity.devices', 'update') ? handleEditEipConnection : null}
                 />
+              </TabPanel>
+
+              {/* MQTT Tab */}
+              <TabPanel value={protocolTab} index="mqtt">
+                <MqttManager />
               </TabPanel>
             </Box>
           </Box>
