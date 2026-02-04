@@ -76,7 +76,7 @@ const TagStatusBadge = ({ status }) => {
  * SavedTagsList Component
  * Displays all saved tags for a specific connection with batch operations support
  */
-const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
+const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGroup = false }) => {
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -125,9 +125,11 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
       }
     };
     
-    loadPollGroups();
+    if (!hidePollGroup) {
+      loadPollGroups();
+    }
     loadUnits();
-  }, []);
+  }, [hidePollGroup]);
 
   // Load tags for the connection
   const loadTags = useCallback(async () => {
@@ -573,14 +575,14 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
                 <TableCell>Name</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell>Status</TableCell>
-                <TableCell>Poll Group</TableCell>
+                {!hidePollGroup && <TableCell>Poll Group</TableCell>}
                 <TableCell>Unit</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={7} align="center">
+                  <TableCell colSpan={hidePollGroup ? 6 : 7} align="center">
                     <CircularProgress size={20} />
                   </TableCell>
                 </TableRow>
@@ -588,7 +590,7 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
               
               {!loading && filteredTags.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} align="center">
+                  <TableCell colSpan={hidePollGroup ? 6 : 7} align="center">
                     <Typography variant="body2" color="text.secondary">
                       No tags found
                     </Typography>
@@ -625,13 +627,15 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
                     <TableCell sx={{ fontSize: '0.813rem' }}>
                       <TagStatusBadge status={tag.status} />
                     </TableCell>
-                    <TableCell sx={{ fontSize: '0.813rem' }}>
-                      {tag.poll_group_name 
-                        ? `${tag.poll_group_name} (${formatPollRate(tag.poll_rate_ms)})`
-                        : tag.poll_rate_ms 
-                          ? formatPollRate(tag.poll_rate_ms)
-                          : '—'}
-                    </TableCell>
+                    {!hidePollGroup && (
+                      <TableCell sx={{ fontSize: '0.813rem' }}>
+                        {tag.poll_group_name 
+                          ? `${tag.poll_group_name} (${formatPollRate(tag.poll_rate_ms)})`
+                          : tag.poll_rate_ms 
+                            ? formatPollRate(tag.poll_rate_ms)
+                            : '—'}
+                      </TableCell>
+                    )}
                     <TableCell sx={{ fontSize: '0.813rem' }}>
                       {tag.unit_symbol || '—'}
                     </TableCell>
@@ -677,33 +681,37 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger }) => {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1 }}>
             {/* Poll Group and Unit Row */}
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <Typography variant="caption" color="text.secondary">Poll Group:</Typography>
-              <FormControl size="small" sx={{ minWidth: 150 }}>
-                <Select
-                  value={selectedPollGroup}
-                  onChange={(e) => setSelectedPollGroup(e.target.value)}
-                  size="small"
-                  sx={{ fontSize: '0.813rem', height: 28 }}
-                >
-                  {pollGroups.map(pg => (
-                    <MenuItem key={pg.group_id} value={pg.group_id}>
-                      {pg.name} ({formatPollRate(pg.poll_rate_ms)})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              {!hidePollGroup && (
+                <>
+                  <Typography variant="caption" color="text.secondary">Poll Group:</Typography>
+                  <FormControl size="small" sx={{ minWidth: 150 }}>
+                    <Select
+                      value={selectedPollGroup}
+                      onChange={(e) => setSelectedPollGroup(e.target.value)}
+                      size="small"
+                      sx={{ fontSize: '0.813rem', height: 28 }}
+                    >
+                      {pollGroups.map(pg => (
+                        <MenuItem key={pg.group_id} value={pg.group_id}>
+                          {pg.name} ({formatPollRate(pg.poll_rate_ms)})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={applyPollGroup}
+                    disabled={busy}
+                    sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
+                  >
+                    Apply
+                  </Button>
+                </>
+              )}
               
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={applyPollGroup}
-                disabled={busy}
-                sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
-              >
-                Apply
-              </Button>
-              
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>Unit:</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ ml: hidePollGroup ? 0 : 2 }}>Unit:</Typography>
               <Autocomplete
                 size="small"
                 value={selectedUnit}

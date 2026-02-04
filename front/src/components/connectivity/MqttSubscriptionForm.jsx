@@ -14,12 +14,7 @@ import {
   Switch,
   Box,
   Alert,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Typography,
 } from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import mqttService from '../../services/mqttService';
 
 const MqttSubscriptionForm = ({ 
@@ -35,10 +30,8 @@ const MqttSubscriptionForm = ({
     topic: '',
     qos: 0,
     payload_format: 'json',
-    value_path: '',
-    timestamp_path: '',
-    quality_path: '',
     tag_prefix: '',
+    message_buffer_size: 100,
     enabled: true,
   });
 
@@ -64,10 +57,8 @@ const MqttSubscriptionForm = ({
         topic: initialData.topic || '',
         qos: initialData.qos ?? 0,
         payload_format: initialData.payload_format || 'json',
-        value_path: initialData.value_path || '',
-        timestamp_path: initialData.timestamp_path || '',
-        quality_path: initialData.quality_path || '',
         tag_prefix: initialData.tag_prefix || '',
+        message_buffer_size: initialData.message_buffer_size ?? 100,
         enabled: initialData.enabled !== false,
       });
     } else if (connectionId) {
@@ -185,6 +176,16 @@ const MqttSubscriptionForm = ({
             helperText="Optional prefix for generated tag paths"
           />
 
+          <TextField
+            label="Message Buffer Size"
+            type="number"
+            value={formData.message_buffer_size}
+            onChange={handleChange('message_buffer_size')}
+            fullWidth
+            inputProps={{ min: 10, max: 1000 }}
+            helperText="Number of recent messages to store for field analysis (10-1000)"
+          />
+
           <FormControlLabel
             control={
               <Switch
@@ -194,52 +195,6 @@ const MqttSubscriptionForm = ({
             }
             label="Enable Subscription"
           />
-
-          {/* JSON Path Extraction */}
-          {formData.payload_format === 'json' && (
-            <Accordion>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography>JSON Path Extraction</Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Alert severity="info" sx={{ mb: 1 }}>
-                    Use dot notation to extract values from JSON payloads.
-                    <br />
-                    Example: <code>sensor.temperature</code> extracts value from{' '}
-                    <code>{`{"sensor":{"temperature":25.3}}`}</code>
-                  </Alert>
-
-                  <TextField
-                    label="Value Path"
-                    value={formData.value_path}
-                    onChange={handleChange('value_path')}
-                    fullWidth
-                    placeholder="value or sensor.temperature"
-                    helperText="JSON path to the numeric value"
-                  />
-
-                  <TextField
-                    label="Timestamp Path"
-                    value={formData.timestamp_path}
-                    onChange={handleChange('timestamp_path')}
-                    fullWidth
-                    placeholder="timestamp or meta.timestamp"
-                    helperText="JSON path to timestamp (ISO 8601 format)"
-                  />
-
-                  <TextField
-                    label="Quality Path"
-                    value={formData.quality_path}
-                    onChange={handleChange('quality_path')}
-                    fullWidth
-                    placeholder="quality or meta.quality"
-                    helperText="JSON path to quality indicator"
-                  />
-                </Box>
-              </AccordionDetails>
-            </Accordion>
-          )}
         </Box>
       </DialogContent>
       <DialogActions>

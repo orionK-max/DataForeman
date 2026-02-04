@@ -111,7 +111,11 @@ export const telemetryIngestPlugin = fp(async (app) => {
 
   async function flush() {
     if (flushing) return;
-    if (!batch.length) return;
+    if (!batch.length) {
+      app.log.info({ batchLength: batch.length }, 'Flush called with empty batch');
+      return;
+    }
+    app.log.info({ batchLength: batch.length }, 'Flushing batch to TimescaleDB');
     flushing = true;
     const rows = batch.splice(0, batch.length);
     lastFlush = Date.now();
@@ -184,6 +188,8 @@ export const telemetryIngestPlugin = fp(async (app) => {
     const sub = nats.subscribe(subject, async (msg) => {
       try {
         const obj = typeof msg === 'object' && msg?.connection_id ? msg : sc.decode(msg.data || msg);
+        app.log.info({ obj, hasConnection: !!obj?.connection_id, hasTagId: obj?.tag_id != null, hasTs: obj?.ts != null }, 'Received telemetry message');
+        
         if (!obj || !obj.connection_id || obj.tag_id == null || obj.ts == null) return;
         // Skip if tag is currently deleted (ensure periodic refresh keeps cache fresh)
         if (deletedTags.has(Number(obj.tag_id))) {
@@ -207,7 +213,21 @@ export const telemetryIngestPlugin = fp(async (app) => {
           tsMs = Date.now();
         }
         
-        batch.push({ connection_id: String(obj.connection_id), tag_id: Number(obj.tag_id), ts: tsMs, quality: obj.q == null ? null : Number(obj.q), v_num, v_text, v_json });
+        // Convert quality to number (handle both numeric and string values)
+        let quality = null;
+        if (obj.q != null) {
+          if (typeof obj.q === 'string') {
+            // Map common string quality values to numbers
+            const qualityMap = { 'GOOD': 0, 'BAD': 1, 'UNCERTAIN': 2, 'ERROR': 3 };
+            quality = qualityMap[obj.q.toUpperCase()] ?? 0; // Default to 0 (GOOD) if unknown
+          } else {
+            quality = Number(obj.q);
+            if (isNaN(quality)) quality = 0;
+          }
+        }
+        
+        batch.push({ connection_id: String(obj.connection_id), tag_id: Number(obj.tag_id), ts: tsMs, quality, v_num, v_text, v_json });
+        app.log.info({ batchSize: batch.length, tag_id: obj.tag_id, v_num, tsMs }, 'Added to batch');
         
         // Update in-memory tag cache for instant reads (if RuntimeStateStore is available)
         if (app.runtimeState) {

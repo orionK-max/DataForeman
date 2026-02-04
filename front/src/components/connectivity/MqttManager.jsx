@@ -36,6 +36,8 @@ import PublishIcon from '@mui/icons-material/Publish';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
 import mqttService from '../../services/mqttService';
 import MqttConnectionForm from './MqttConnectionForm';
 import MqttSubscriptionForm from './MqttSubscriptionForm';
@@ -162,7 +164,7 @@ const MqttManager = () => {
 
   const handleUpdateConnection = async (formData) => {
     try {
-      await mqttService.updateConnection(editingConnection.connection_id, formData);
+      await mqttService.updateConnection(editingConnection.id, formData);
       showSnackbar('Connection updated successfully');
       loadConnections();
       setConnectionFormOpen(false);
@@ -172,9 +174,21 @@ const MqttManager = () => {
     }
   };
 
+  const handleToggleConnection = async (connection) => {
+    try {
+      await mqttService.updateConnection(connection.id, {
+        enabled: !connection.enabled
+      });
+      showSnackbar(`Connection ${!connection.enabled ? 'enabled' : 'disabled'} successfully`);
+      loadConnections();
+    } catch (err) {
+      showSnackbar('Failed to update connection', 'error');
+    }
+  };
+
   const handleDeleteConnection = async () => {
     try {
-      await mqttService.deleteConnection(deleteDialog.item.connection_id);
+      await mqttService.deleteConnection(deleteDialog.item.connection_id || deleteDialog.item.id);
       showSnackbar('Connection deleted successfully');
       loadConnections();
       setDeleteDialog({ open: false, type: null, item: null });
@@ -204,6 +218,18 @@ const MqttManager = () => {
       setEditingSubscription(null);
     } catch (err) {
       throw new Error(err.message || 'Failed to update subscription');
+    }
+  };
+
+  const handleToggleSubscription = async (subscription) => {
+    try {
+      await mqttService.updateSubscription(subscription.id, {
+        enabled: !subscription.enabled
+      });
+      showSnackbar(`Subscription ${!subscription.enabled ? 'enabled' : 'disabled'} successfully`);
+      loadSubscriptions();
+    } catch (err) {
+      showSnackbar('Failed to update subscription', 'error');
     }
   };
 
@@ -318,7 +344,7 @@ const MqttManager = () => {
                 </TableRow>
               ) : (
                 connections.map((conn, idx) => (
-                  <TableRow key={conn.connection_id ?? conn.id ?? conn.name ?? `conn-${idx}`}>
+                  <TableRow key={conn.id ?? conn.name ?? `conn-${idx}`}>
                     <TableCell>
                       <Typography variant="body2" fontWeight="bold">
                         {conn.name}
@@ -349,6 +375,15 @@ const MqttManager = () => {
                       )}
                     </TableCell>
                     <TableCell>
+                      <Tooltip title={conn.enabled ? "Disable" : "Enable"}>
+                        <IconButton 
+                          size="small" 
+                          onClick={() => handleToggleConnection(conn)}
+                          color={conn.enabled ? "warning" : "success"}
+                        >
+                          {conn.enabled ? <PauseIcon /> : <PlayArrowIcon />}
+                        </IconButton>
+                      </Tooltip>
                       <IconButton 
                         size="small" 
                         onClick={() => openEditConnection(conn)}
@@ -381,7 +416,7 @@ const MqttManager = () => {
             startIcon={<AddIcon />}
             onClick={() => {
               setEditingSubscription(null);
-              setSelectedConnectionId(connections[0]?.connection_id || null);
+              setSelectedConnectionId(connections[0]?.id || null);
               setSubscriptionFormOpen(true);
             }}
             disabled={connections.length === 0}
@@ -419,13 +454,13 @@ const MqttManager = () => {
                   </TableRow>
                 ) : (
                   subscriptions.map((sub, idx) => {
-                    const conn = connections.find(c => c.connection_id === sub.connection_id);
+                    const conn = connections.find(c => c.id === sub.connection_id);
                     const rowKey = sub.id ?? sub.subscription_id ?? `${sub.connection_id ?? 'unknown'}:${sub.topic ?? 'unknown'}:${idx}`;
                     return (
                       <TableRow key={rowKey}>
                         <TableCell>
                           <Typography variant="body2">
-                            {conn?.name || 'Unknown'}
+                            {sub.connection_name || conn?.name || 'Unknown'}
                           </Typography>
                         </TableCell>
                         <TableCell>
@@ -461,6 +496,15 @@ const MqttManager = () => {
                           )}
                         </TableCell>
                         <TableCell>
+                          <Tooltip title={sub.enabled ? "Disable" : "Enable"}>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleToggleSubscription(sub)}
+                              color={sub.enabled ? "warning" : "success"}
+                            >
+                              {sub.enabled ? <PauseIcon /> : <PlayArrowIcon />}
+                            </IconButton>
+                          </Tooltip>
                           <IconButton 
                             size="small" 
                             onClick={() => openEditSubscription(sub)}
@@ -511,7 +555,7 @@ const MqttManager = () => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => handleOpenPublisherForm(connections[0]?.connection_id || null)}
+            onClick={() => handleOpenPublisherForm(connections[0]?.id || null)}
             disabled={connections.length === 0}
           >
             New Publisher
@@ -548,7 +592,7 @@ const MqttManager = () => {
                   </TableRow>
                 ) : (
                   publishers.map((pub, idx) => {
-                    const conn = connections.find(c => c.connection_id === pub.connection_id);
+                    const conn = connections.find(c => c.id === pub.connection_id);
                     const rowKey = pub.id ?? pub.publisher_id ?? `${pub.connection_id ?? 'unknown'}:${pub.name ?? 'unknown'}:${idx}`;
                     return (
                       <TableRow key={rowKey}>

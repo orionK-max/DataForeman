@@ -234,6 +234,82 @@ const mqttService = {
     const response = await api.get('/mqtt/topics');
     return response.topics || [];
   },
+
+  // ==================== Field Mappings ====================
+
+  /**
+   * Analyze fields in subscription messages
+   * @param {string} subscriptionId - Subscription ID
+   * @returns {Promise<Object>} Detected field combinations
+   */
+  async analyzeFields(subscriptionId) {
+    return await api.post(`/mqtt/subscriptions/${subscriptionId}/analyze-fields`);
+  },
+
+  /**
+   * Get field mappings for a subscription
+   * @param {string} subscriptionId - Subscription ID (optional)
+   * @returns {Promise<Array>} List of field mappings
+   */
+  async getFieldMappings(subscriptionId = null) {
+    const url = subscriptionId
+      ? `/mqtt/field-mappings?subscription_id=${subscriptionId}`
+      : '/mqtt/field-mappings';
+    const response = await api.get(url);
+    return response.mappings || [];
+  },
+
+  /**
+   * Create a field mapping
+   * @param {Object} mappingData - Field mapping configuration
+   * @returns {Promise<Object>} Created mapping with ID
+   */
+  async createFieldMapping(mappingData) {
+    return await api.post('/mqtt/field-mappings', mappingData);
+  },
+
+  /**
+   * Update a field mapping
+   * @param {string} mappingId - Mapping ID
+   * @param {Object} mappingData - Updated mapping configuration
+   * @returns {Promise<Object>} Success response
+   */
+  async updateFieldMapping(mappingId, mappingData) {
+    return await api.put(`/mqtt/field-mappings/${mappingId}`, mappingData);
+  },
+
+  /**
+   * Delete a field mapping
+   * @param {string} mappingId - Mapping ID
+   * @returns {Promise<Object>} Success response
+   */
+  async deleteFieldMapping(mappingId) {
+    return await api.delete(`/mqtt/field-mappings/${mappingId}`);
+  },
+
+  /**
+   * Import field mappings from CSV
+   * @param {string} subscriptionId - Subscription ID
+   * @param {string} csvData - CSV data string
+   * @returns {Promise<Object>} Preview data with valid mappings and errors
+   */
+  async importFieldMappingsCSV(subscriptionId, csvData) {
+    return await api.post('/mqtt/field-mappings/import-csv', {
+      subscription_id: subscriptionId,
+      csv_data: csvData,
+    });
+  },
+
+  /**
+   * Create tags from field mappings
+   * @param {Array<string>} mappingIds - Array of mapping IDs
+   * @returns {Promise<Object>} Results with created tags and errors
+   */
+  async createTagsFromMappings(mappingIds) {
+    return await api.post('/mqtt/field-mappings/create-tags', {
+      mapping_ids: mappingIds,
+    });
+  },
 };
 
 export default mqttService;

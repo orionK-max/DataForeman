@@ -14,7 +14,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "name": { "type": "string" },
-        "type": { "type": "string", "enum": ["opcua-client", "opcua-server", "s7", "eip"] },
+        "type": { "type": "string", "enum": ["opcua-client", "opcua-server", "s7", "eip", "mqtt"] },
         "enabled": { "type": "boolean" },
         "endpoint": { "type": "string" },
         "host": { "type": "string" },
@@ -38,7 +38,7 @@
         "write_acl": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
         "driver_opts": { "type": "object", "additionalProperties": true }
       },
-      "required": ["id", "type", "enabled"]
+      "required": ["id", "type"]
     },
     "id": { "type": "string", "minLength": 1 }
   },

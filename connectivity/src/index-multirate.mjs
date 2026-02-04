@@ -260,7 +260,7 @@ function emitTelemetry(nc, connId, pt) {
     v: pt.v,
     q: pt.q
   };
-  log.debug({ topic, payload }, 'Publishing telemetry to NATS');
+  log.info({ topic, payload }, 'Publishing telemetry to NATS');
   const enc = sc.encode(JSON.stringify(payload));
   // Observe payload size to estimate throughput and publish periodic stats
   try { observeDataAndMaybePublish(nc, connId, enc.byteLength ?? enc.length, pt.ts); } catch {}
@@ -668,14 +668,21 @@ async function handleMQTTConfigUpdate(nc, id, config, existing) {
       // Set up data handler to emit telemetry
       driver.setDataHandler(async (data) => {
         try {
-          // Emit telemetry via NATS
+          // Emit telemetry via NATS using the format expected by emitTelemetry
           const telemetryData = {
-            tag_path: data.tagPath,
-            value: data.value,
-            timestamp: data.timestamp,
-            quality: data.quality,
+            ts: data.timestamp,
+            v: data.value,
+            q: data.quality,
             connection_id: id
           };
+          
+          // Support both tagPath (legacy) and tagId (field mapping) modes
+          if (data.tagId) {
+            telemetryData.tag_id = data.tagId;
+          } else if (data.tagPath) {
+            telemetryData.tag_path = data.tagPath;
+          }
+          
           emitTelemetry(nc, id, telemetryData);
         } catch (err) {
           log.error({ err, connectionId: id }, 'Failed to emit MQTT telemetry');
@@ -758,6 +765,9 @@ async function handleMQTTConfigUpdate(nc, id, config, existing) {
       // Load and subscribe to topics
       await driver.loadSubscriptions();
       
+      // Load field mappings
+      await driver.loadFieldMappings();
+      
       // Load and start publishers
       const publishers = await driver.loadPublishers();
       for (const pub of publishers) {
@@ -789,6 +799,9 @@ async function handleMQTTConfigUpdate(nc, id, config, existing) {
       }
       
       await existing.driver.loadSubscriptions();
+      
+      // Reload field mappings
+      await existing.driver.loadFieldMappings();
       
       // Reload and restart publishers
       const publishers = await existing.driver.loadPublishers();
@@ -883,6 +896,7 @@ async function main() {
     for await (const m of configSub) {
       try {
         const data = JSON.parse(sc.decode(m.data));
+        log.info({ data }, 'Received config update via NATS');
         await handleConfigUpdate(nc, data);
       } catch (err) {
         log.error({ err: String(err?.message || err) }, 'Config message processing failed');
@@ -920,6 +934,36 @@ async function main() {
         }
       } catch (err) {
         log.error({ err }, 'Error handling telemetry for MQTT publishers');
+      }
+    }
+  })();
+
+  // Subscribe to field mapping reload requests
+  const fieldMappingSub = nc.subscribe('df.connectivity.reload-field-mappings.v1');
+  log.info('Field mapping reload subscription created');
+  (async () => {
+    log.info('Starting field mapping reload listener');
+    for await (const m of fieldMappingSub) {
+      try {
+        const data = JSON.parse(sc.decode(m.data));
+        const { subscription_id, connection_id } = data;
+        
+        // Find the MQTT connection for this subscription
+        for (const [connId, entry] of connections.entries()) {
+          if (entry.config?.type === 'mqtt' && entry.driver) {
+            // If connection_id specified, only reload for that connection
+            if (connection_id && connId !== connection_id) continue;
+            
+            // Reload field mappings for this MQTT driver
+            await entry.driver.reloadFieldMappings();
+            log.info({ 
+              connectionId: connId, 
+              subscription_id 
+            }, 'Reloaded field mappings');
+          }
+        }
+      } catch (err) {
+        log.error({ err }, 'Error handling field mapping reload');
       }
     }
   })();

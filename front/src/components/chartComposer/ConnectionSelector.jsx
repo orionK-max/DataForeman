@@ -18,10 +18,12 @@ import {
   Box,
   Chip,
   TablePagination,
+  Autocomplete,
 } from '@mui/material';
 import { Add } from '@mui/icons-material';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
 import chartComposerService from '../../services/chartComposerService';
+import mqttService from '../../services/mqttService';
 
 const MAX_TAGS = 50;
 
@@ -37,6 +39,8 @@ const ConnectionSelector = () => {
 
   const [connections, setConnections] = useState([]);
   const [selectedConnection, setSelectedConnection] = useState('');
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [selectedSubscription, setSelectedSubscription] = useState('');
   const [loading, setLoading] = useState(false);
   const [tagSearch, setTagSearch] = useState('');
   const [error, setError] = useState('');
@@ -65,6 +69,8 @@ const ConnectionSelector = () => {
   useEffect(() => {
     if (!selectedConnection) {
       setSavedTags([]);
+      setSubscriptions([]);
+      setSelectedSubscription('');
       return;
     }
 
@@ -75,7 +81,26 @@ const ConnectionSelector = () => {
       try {
         const res = await chartComposerService.getTags(selectedConnection);
         if (!alive) return;
-        setSavedTags(res.tags || []);
+        const tags = res.tags || [];
+        setSavedTags(tags);
+        
+        // If MQTT connection, load subscriptions
+        if (tags.length > 0 && tags[0].driver_type === 'MQTT') {
+          try {
+            const subs = await mqttService.getSubscriptions(selectedConnection);
+            if (!alive) return;
+            const formatted = (subs || []).map(s => ({
+              ...s,
+              display_name: `${s.connection_name}: ${s.topic}`
+            }));
+            setSubscriptions(formatted);
+          } catch (err) {
+            console.error('Failed to load MQTT subscriptions:', err);
+          }
+        } else {
+          setSubscriptions([]);
+          setSelectedSubscription('');
+        }
       } catch (err) {
         if (alive) {
           console.error('Failed to load tags:', err);
@@ -108,19 +133,27 @@ const ConnectionSelector = () => {
     // Reset page when search or connection changes
   useEffect(() => {
     setPage(0);
-  }, [tagSearch, selectedConnection]);
+  }, [tagSearch, selectedConnection, selectedSubscription]);
 
   const filteredTags = useMemo(() => {
-    if (!tagSearch.trim()) return savedTags;
+    let tags = savedTags;
+    
+    // Filter by subscription if MQTT and subscription selected
+    if (selectedSubscription && tags.length > 0 && tags[0].driver_type === 'MQTT') {
+      tags = tags.filter(tag => tag.subscription_id === selectedSubscription);
+    }
+    
+    // Filter by search
+    if (!tagSearch.trim()) return tags;
     const query = tagSearch.toLowerCase();
-    return savedTags.filter(
+    return tags.filter(
       (tag) =>
         String(tag.tag_id).toLowerCase().includes(query) ||
         String(tag.tag_name || '').toLowerCase().includes(query) ||
         String(tag.tag_path || '').toLowerCase().includes(query) ||
         String(tag.data_type || '').toLowerCase().includes(query)
     );
-  }, [savedTags, tagSearch]);
+  }, [savedTags, tagSearch, selectedSubscription]);
 
   // Paginated tags
   const paginatedTags = useMemo(() => {
@@ -247,12 +280,15 @@ const ConnectionSelector = () => {
           </Typography>
         </Box>
 
-        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-          <FormControl size="small" sx={{ minWidth: 200, flex: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, mb: 2, flexDirection: 'column' }}>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
             <InputLabel>Connection</InputLabel>
             <Select
               value={selectedConnection}
-              onChange={(e) => setSelectedConnection(e.target.value)}
+              onChange={(e) => {
+                setSelectedConnection(e.target.value);
+                setSelectedSubscription('');
+              }}
               label="Connection"
             >
               <MenuItem value="">Select connection...</MenuItem>
@@ -262,12 +298,26 @@ const ConnectionSelector = () => {
             </Select>
           </FormControl>
 
+          {subscriptions.length > 0 && (
+            <Autocomplete
+              size="small"
+              value={subscriptions.find(s => s.id === selectedSubscription) || null}
+              onChange={(e, newValue) => setSelectedSubscription(newValue?.id || '')}
+              options={subscriptions}
+              getOptionLabel={(option) => option.display_name}
+              renderInput={(params) => (
+                <TextField {...params} label="MQTT Subscription" placeholder="All subscriptions" />
+              )}
+              sx={{ minWidth: 200 }}
+            />
+          )}
+
           <TextField
             size="small"
             placeholder="Search tags..."
             value={tagSearch}
             onChange={(e) => setTagSearch(e.target.value)}
-            sx={{ minWidth: 150, flex: 1 }}
+            sx={{ minWidth: 150 }}
           />
         </Box>
 

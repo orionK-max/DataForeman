@@ -1251,10 +1251,15 @@ export async function connectivityRoutes(app) {
           pg.description as poll_group_description,
           u.name as unit_name,
           u.symbol as unit_symbol,
-          u.category as unit_category
+          u.category as unit_category,
+          -- MQTT subscription info
+          mfm.subscription_id,
+          ms.topic as subscription_topic
         FROM tag_metadata tm
         JOIN poll_groups pg ON tm.poll_group_id = pg.group_id
         LEFT JOIN units_of_measure u ON tm.unit_id = u.id
+        LEFT JOIN mqtt_field_mappings mfm ON mfm.tag_id = tm.tag_id AND tm.driver_type = 'MQTT'
+        LEFT JOIN mqtt_subscriptions ms ON ms.id = mfm.subscription_id
         WHERE tm.connection_id = $1
           ${includeDeleted ? '' : "AND coalesce(tm.status,'active') <> 'deleted'"}
         ORDER BY pg.poll_rate_ms ASC, tm.tag_name ASC
@@ -1595,6 +1600,29 @@ export async function connectivityRoutes(app) {
         req.log.warn({ err: e, id, tagId }, 'failed to mark tag_metadata pending_delete');
       }
 
+      try {
+        const { rows: trows } = await app.db.query(
+          `select driver_type from tag_metadata where connection_id=$1 and tag_id=$2`,
+          [id, tagId]
+        );
+        if (trows[0]?.driver_type === 'MQTT') {
+          const { rows: deleted } = await app.db.query(
+            `delete from mqtt_field_mappings where tag_id=$1 returning subscription_id`,
+            [tagId]
+          );
+          if (deleted.length && app.nats?.healthy?.() === true) {
+            for (const subId of [...new Set(deleted.map(r => r.subscription_id).filter(Boolean))]) {
+              app.nats.publish('df.connectivity.reload-field-mappings.v1', {
+                subscription_id: subId,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        req.log.warn({ err: e, id, tagId }, 'failed to delete mqtt field mapping for tag');
+      }
+
       await saveConnectionConfig(app.db, id, conn);
 
       try {
@@ -1666,6 +1694,30 @@ export async function connectivityRoutes(app) {
         }
       } catch (e) {
         req.log.warn({ err: e, id, tagIds: normalizedTagIds }, 'failed to mark tags pending_delete');
+      }
+
+      try {
+        const { rows: typeRows } = await app.db.query(
+          `select tag_id, driver_type from tag_metadata where connection_id=$1 and tag_id = any($2)`,
+          [id, normalizedTagIds]
+        );
+        const mqttTagIds = typeRows.filter(r => r.driver_type === 'MQTT').map(r => Number(r.tag_id)).filter(n => Number.isFinite(n));
+        if (mqttTagIds.length) {
+          const { rows: deleted } = await app.db.query(
+            `delete from mqtt_field_mappings where tag_id = any($1) returning subscription_id`,
+            [mqttTagIds]
+          );
+          if (deleted.length && app.nats?.healthy?.() === true) {
+            for (const subId of [...new Set(deleted.map(r => r.subscription_id).filter(Boolean))]) {
+              app.nats.publish('df.connectivity.reload-field-mappings.v1', {
+                subscription_id: subId,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        req.log.warn({ err: e, id, tagIds: normalizedTagIds }, 'failed to delete mqtt field mappings for batch');
       }
 
       await saveConnectionConfig(app.db, id, conn);

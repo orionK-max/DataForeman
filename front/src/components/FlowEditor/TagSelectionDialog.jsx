@@ -26,8 +26,10 @@ import {
   Radio,
   RadioGroup,
   FormControlLabel,
+  Autocomplete,
 } from '@mui/material';
 import connectivityService from '../../services/connectivityService';
+import mqttService from '../../services/mqttService';
 
 /**
  * TagSelectionDialog - Unified tag selector for Flow Studio nodes
@@ -62,6 +64,8 @@ const TagSelectionDialog = ({
   // For connectivity source
   const [connections, setConnections] = useState([]);
   const [selectedConnection, setSelectedConnection] = useState('');
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [selectedSubscription, setSelectedSubscription] = useState('');
   
   // Tags data
   const [tags, setTags] = useState([]);
@@ -97,6 +101,16 @@ const TagSelectionDialog = ({
       }
     }
   }, [open, source, selectedConnection]);
+
+  // Load MQTT subscriptions when connection changes
+  useEffect(() => {
+    if (selectedConnection && tags.length > 0 && tags[0].driver_type === 'MQTT') {
+      loadSubscriptions();
+    } else {
+      setSubscriptions([]);
+      setSelectedSubscription('');
+    }
+  }, [selectedConnection, tags]);
 
   // Reset temp selection when dialog closes
   useEffect(() => {
@@ -163,17 +177,41 @@ const TagSelectionDialog = ({
     }
   };
 
+  const loadSubscriptions = async () => {
+    try {
+      const subs = await mqttService.getSubscriptions(selectedConnection);
+      const conn = connections.find(c => c.id === selectedConnection);
+      setSubscriptions(
+        subs.map(s => ({
+          ...s,
+          display_name: `${conn?.name || 'Unknown'}: ${s.topic}`
+        }))
+      );
+    } catch (err) {
+      console.error('Failed to load subscriptions:', err);
+      setSubscriptions([]);
+    }
+  };
+
   // Filter tags based on search
   const filteredTags = useMemo(() => {
-    if (!searchTerm.trim()) return tags;
+    let result = tags;
+    
+    // Filter by subscription for MQTT
+    if (selectedSubscription && tags.length > 0 && tags[0].driver_type === 'MQTT') {
+      result = result.filter(tag => tag.subscription_id === selectedSubscription);
+    }
+    
+    // Filter by search term
+    if (!searchTerm.trim()) return result;
     const query = searchTerm.toLowerCase();
-    return tags.filter(tag =>
+    return result.filter(tag =>
       (tag.tag_name || '').toLowerCase().includes(query) ||
       (tag.tag_path || '').toLowerCase().includes(query) ||
       String(tag.tag_id || '').includes(query) ||
       (tag.data_type || '').toLowerCase().includes(query)
     );
-  }, [tags, searchTerm]);
+  }, [tags, searchTerm, selectedSubscription]);
 
   // Paginated tags
   const paginatedTags = useMemo(() => {
@@ -198,12 +236,14 @@ const TagSelectionDialog = ({
   const handleSourceChange = (event) => {
     setSource(event.target.value);
     setSelectedConnection('');
+    setSelectedSubscription('');
     setTags([]);
     setTempSelectedTag(null);
   };
 
   const handleConnectionChange = (event) => {
     setSelectedConnection(event.target.value);
+    setSelectedSubscription('');
   };
 
   const handleRowClick = (tag) => {
@@ -280,21 +320,37 @@ const TagSelectionDialog = ({
 
           {/* Connection Selector (only for connectivity source) */}
           {source === 'connectivity' && (
-            <FormControl size="small" fullWidth>
-              <InputLabel>Connection</InputLabel>
-              <Select
-                value={selectedConnection}
-                onChange={handleConnectionChange}
-                label="Connection"
-              >
-                <MenuItem value="">Select a connection...</MenuItem>
-                {connections.map((conn) => (
-                  <MenuItem key={conn.id} value={conn.id}>
-                    {conn.name} ({conn.type})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Connection</InputLabel>
+                <Select
+                  value={selectedConnection}
+                  onChange={handleConnectionChange}
+                  label="Connection"
+                >
+                  <MenuItem value="">Select a connection...</MenuItem>
+                  {connections.map((conn) => (
+                    <MenuItem key={conn.id} value={conn.id}>
+                      {conn.name} ({conn.type})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {subscriptions.length > 0 && (
+                <Autocomplete
+                  size="small"
+                  value={subscriptions.find(s => s.id === selectedSubscription) || null}
+                  onChange={(e, newValue) => setSelectedSubscription(newValue?.id || '')}
+                  options={subscriptions}
+                  getOptionLabel={(option) => option.display_name}
+                  renderInput={(params) => (
+                    <TextField {...params} label="MQTT Subscription" placeholder="All subscriptions" />
+                  )}
+                  fullWidth
+                />
+              )}
+            </Box>
           )}
 
           {/* Search Field */}
