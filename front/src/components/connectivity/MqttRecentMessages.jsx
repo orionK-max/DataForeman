@@ -69,9 +69,19 @@ const MqttRecentMessages = ({ subscriptionId, autoRefresh = true, refreshInterva
       }));
       setMessages(mappedMessages);
       setSubscription(data.subscription);
+      setError(null); // Clear any previous errors
     } catch (err) {
       console.error('Failed to load messages:', err);
-      setError(err.message || 'Failed to load messages');
+      
+      // If subscription not found, stop polling
+      if (err.message?.includes('not found')) {
+        setError('Subscription has been deleted');
+        setIsAutoRefresh(false); // Stop auto-refresh
+        setMessages([]);
+        setSubscription(null);
+      } else {
+        setError(err.message || 'Failed to load messages');
+      }
     } finally {
       setLoading(false);
     }

@@ -95,9 +95,21 @@ const MqttConnectionForm = ({ open, onClose, onSubmit, initialData = null, isEdi
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+      PaperProps={{
+        component: 'form',
+        autoComplete: 'off',
+      }}
+    >
       <DialogTitle>
         {isEditing ? 'Edit MQTT Connection' : 'New MQTT Connection'}
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontWeight: 'normal' }}>
+          Connect to external MQTT brokers
+        </Typography>
       </DialogTitle>
       <DialogContent>
         {error && (
@@ -167,6 +179,8 @@ const MqttConnectionForm = ({ open, onClose, onSubmit, initialData = null, isEdi
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <TextField
                   label="Username"
+                  name="mqtt_broker_username"
+                  autoComplete="new-username"
                   value={formData.username}
                   onChange={handleChange('username')}
                   fullWidth
@@ -176,6 +190,8 @@ const MqttConnectionForm = ({ open, onClose, onSubmit, initialData = null, isEdi
                 <TextField
                   label="Password"
                   type="password"
+                  name="mqtt_broker_password"
+                  autoComplete="new-password"
                   value={formData.password}
                   onChange={handleChange('password')}
                   fullWidth

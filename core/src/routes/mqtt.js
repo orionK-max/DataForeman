@@ -8,17 +8,25 @@ export default async function mqttRoutes(app) {
   const tsdb = app.tsdb;
   const log = app.log.child({ mod: 'mqtt-routes' });
 
+  // Auth failure tracking cache: username -> { lastFailedAttempt, failureCount }
+  const authFailures = new Map();
+
   /**
    * POST /api/mqtt/auth - Authentication webhook for nanoMQ
    * 
    * nanoMQ calls this endpoint to verify client credentials.
    * No JWT authentication required (webhook from broker).
    * 
+   * Authentication flow:
+   * 1. Check mqtt_require_auth setting
+   * 2. If false (anonymous mode): allow all connections
+   * 3. If true (authenticated mode): check device credentials first, then user credentials
+   * 
    * Request body format (from nanoMQ):
    * {
    *   "clientid": "client123",
-   *   "username": "user@example.com",
-   *   "password": "userpassword"
+   *   "username": "device_name or user@example.com",
+   *   "password": "device_password or user_password"
    * }
    * 
    * Response:
@@ -34,15 +42,71 @@ export default async function mqttRoutes(app) {
 
     log.debug({ clientid, username }, 'MQTT auth request');
 
-    // Validate required fields
-    if (!username || !password) {
-      log.warn({ clientid, username }, 'MQTT auth failed: missing credentials');
-      return reply.send({ result: 'deny', reason: 'missing_credentials' });
-    }
-
     try {
-      // Query user from database
-      const { rows } = await db.query(
+      // Check global authentication setting
+      const settingResult = await db.query(
+        `SELECT value FROM system_settings WHERE key = 'mqtt_require_auth'`
+      );
+      
+      const requireAuth = settingResult.rows.length > 0 
+        ? settingResult.rows[0].value === 'true' || settingResult.rows[0].value === true
+        : false;
+
+      // Anonymous mode - allow all connections
+      if (!requireAuth) {
+        log.info({ clientid, username, mode: 'anonymous' }, 'MQTT auth allowed (anonymous mode)');
+        return reply.send({ 
+          result: 'allow',
+          is_superuser: false
+        });
+      }
+
+      // Authenticated mode - require credentials
+      if (!username || !password) {
+        log.warn({ clientid, username }, 'MQTT auth failed: missing credentials');
+        return reply.send({ result: 'deny', reason: 'missing_credentials' });
+      }
+
+      // Try device credentials first
+      const deviceResult = await db.query(
+        `SELECT id, device_name, credential_hash, enabled 
+         FROM mqtt_device_credentials 
+         WHERE username = $1`,
+        [username]
+      );
+
+      if (deviceResult.rows.length > 0) {
+        const device = deviceResult.rows[0];
+        
+        if (!device.enabled) {
+          log.warn({ username, device_name: device.device_name }, 'MQTT auth failed: device disabled');
+          return reply.send({ result: 'deny', reason: 'device_disabled' });
+        }
+
+        // Verify device password
+        const argon2 = await import('argon2');
+        const isValid = await argon2.verify(device.credential_hash, password);
+
+        if (isValid) {
+          log.info({ username, device_name: device.device_name, clientid }, 'MQTT auth successful (device)');
+          authFailures.delete(username);
+          return reply.send({ 
+            result: 'allow',
+            is_superuser: false
+          });
+        } else {
+          log.warn({ username, device_name: device.device_name }, 'MQTT auth failed: invalid device password');
+          authFailures.set(username, {
+            lastFailedAttempt: new Date(),
+            failureCount: (authFailures.get(username)?.failureCount || 0) + 1,
+            reason: 'invalid_password'
+          });
+          return reply.send({ result: 'deny', reason: 'invalid_credentials' });
+        }
+      }
+
+      // Fallback to user credentials (for backward compatibility)
+      const userResult = await db.query(
         `SELECT u.id, u.email, ai.secret_hash 
          FROM users u
          JOIN auth_identities ai ON ai.user_id = u.id AND ai.provider = 'local'
@@ -50,33 +114,48 @@ export default async function mqttRoutes(app) {
         [username]
       );
 
-      if (rows.length === 0) {
-        log.warn({ username }, 'MQTT auth failed: user not found');
+      if (userResult.rows.length === 0) {
+        log.warn({ username }, 'MQTT auth failed: no matching device or user');
+        authFailures.set(username, {
+          lastFailedAttempt: new Date(),
+          failureCount: (authFailures.get(username)?.failureCount || 0) + 1,
+          reason: 'not_found'
+        });
         return reply.send({ result: 'deny', reason: 'invalid_credentials' });
       }
 
-      const user = rows[0];
+      const user = userResult.rows[0];
 
-      // Verify password
+      // Verify user password
       const argon2 = await import('argon2');
       const isValid = await argon2.verify(user.secret_hash, password);
 
       if (!isValid) {
-        log.warn({ username }, 'MQTT auth failed: invalid password');
+        log.warn({ username }, 'MQTT auth failed: invalid user password');
+        authFailures.set(username, {
+          lastFailedAttempt: new Date(),
+          failureCount: (authFailures.get(username)?.failureCount || 0) + 1,
+          reason: 'invalid_password'
+        });
         return reply.send({ result: 'deny', reason: 'invalid_credentials' });
       }
 
       // Check if user has MQTT permission
-      // Allow connection if user has either 'mqtt:connect' or general 'mqtt:read' permission
       const hasMqttPermission = await app.permissions.can(user.id, 'mqtt', 'connect') ||
                                 await app.permissions.can(user.id, 'mqtt', 'read');
       
       if (!hasMqttPermission) {
         log.warn({ username }, 'MQTT auth failed: no mqtt permission');
+        authFailures.set(username, {
+          lastFailedAttempt: new Date(),
+          failureCount: (authFailures.get(username)?.failureCount || 0) + 1,
+          reason: 'insufficient_permissions'
+        });
         return reply.send({ result: 'deny', reason: 'insufficient_permissions' });
       }
 
-      log.info({ username, clientid }, 'MQTT auth successful');
+      log.info({ username, clientid, type: 'user' }, 'MQTT auth successful (user)');
+      authFailures.delete(username);
       return reply.send({ 
         result: 'allow',
         is_superuser: false
@@ -99,8 +178,8 @@ export default async function mqttRoutes(app) {
     }
 
     try {
-      // Query nanoMQ HTTP API for broker status
-      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://nanomq:8001';
+      // Query broker HTTP API for broker status
+      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
       const response = await fetch(`${nanoMqUrl}/api/v4/brokers`, {
         headers: {
           'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64')
@@ -131,7 +210,7 @@ export default async function mqttRoutes(app) {
     }
 
     try {
-      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://nanomq:8001';
+      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
       const response = await fetch(`${nanoMqUrl}/api/v4/clients`, {
         headers: {
           'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64')
@@ -174,7 +253,7 @@ export default async function mqttRoutes(app) {
     }
 
     try {
-      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://nanomq:8001';
+      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
       const response = await fetch(`${nanoMqUrl}/api/v4/topic-tree`, {
         headers: {
           'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64')
@@ -234,7 +313,7 @@ export default async function mqttRoutes(app) {
     const { clientId } = req.params;
 
     try {
-      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://nanomq:8001';
+      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
       const response = await fetch(`${nanoMqUrl}/api/v4/clients/${clientId}`, {
         method: 'DELETE',
         headers: {
@@ -357,36 +436,102 @@ export default async function mqttRoutes(app) {
       return reply.code(400).send({ error: 'missing_required_fields' });
     }
 
+    // Prevent using reserved name
+    if (name.trim().toLowerCase() === 'mqtt - internal') {
+      return reply.code(400).send({ error: 'reserved_name', message: '"MQTT - Internal" is a reserved connection name' });
+    }
+
     try {
       // Start transaction
       await db.query('BEGIN');
 
-      // Create connection entry
-      const connResult = await db.query(
-        `INSERT INTO connections (name, type, enabled, config_data)
-         VALUES ($1, 'mqtt', $2, '{}'::jsonb)
-         RETURNING id`,
-        [name, enabled]
+      // If a connection with the same name was previously soft-deleted, revive it.
+      // The connections table enforces UNIQUE(name) and uses deleted_at for soft deletes,
+      // so without this, users cannot recreate a connection after deleting it.
+      const reviveResult = await db.query(
+        `SELECT id
+         FROM connections
+         WHERE name = $1 AND type = 'mqtt' AND deleted_at IS NOT NULL
+         LIMIT 1`,
+        [name]
       );
 
-      const connectionId = connResult.rows[0].id;
+      let connectionId;
+      let revived = false;
 
-      // Create MQTT connection config
-      await db.query(
-        `INSERT INTO mqtt_connections (
-          connection_id, broker_host, broker_port, protocol,
-          use_tls, tls_ca_cert, tls_client_cert, tls_client_key, tls_verify_cert,
-          username, password, client_id_prefix, keep_alive, clean_session,
-          reconnect_period, connect_timeout
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [
-          connectionId, broker_host, broker_port, protocol,
-          use_tls, tls_ca_cert, tls_client_cert, tls_client_key, tls_verify_cert,
-          username, password, client_id_prefix, keep_alive, clean_session,
-          reconnect_period, connect_timeout
-        ]
-      );
+      if (reviveResult.rows.length > 0) {
+        connectionId = reviveResult.rows[0].id;
+        revived = true;
+
+        await db.query(
+          `UPDATE connections
+           SET enabled = $2, deleted_at = NULL, updated_at = now()
+           WHERE id = $1`,
+          [connectionId, enabled]
+        );
+
+        // Upsert MQTT connection config
+        await db.query(
+          `INSERT INTO mqtt_connections (
+            connection_id, broker_host, broker_port, protocol,
+            use_tls, tls_ca_cert, tls_client_cert, tls_client_key, tls_verify_cert,
+            username, password, client_id_prefix, keep_alive, clean_session,
+            reconnect_period, connect_timeout
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+           ON CONFLICT (connection_id)
+           DO UPDATE SET
+             broker_host = EXCLUDED.broker_host,
+             broker_port = EXCLUDED.broker_port,
+             protocol = EXCLUDED.protocol,
+             use_tls = EXCLUDED.use_tls,
+             tls_ca_cert = EXCLUDED.tls_ca_cert,
+             tls_client_cert = EXCLUDED.tls_client_cert,
+             tls_client_key = EXCLUDED.tls_client_key,
+             tls_verify_cert = EXCLUDED.tls_verify_cert,
+             username = EXCLUDED.username,
+             password = EXCLUDED.password,
+             client_id_prefix = EXCLUDED.client_id_prefix,
+             keep_alive = EXCLUDED.keep_alive,
+             clean_session = EXCLUDED.clean_session,
+             reconnect_period = EXCLUDED.reconnect_period,
+             connect_timeout = EXCLUDED.connect_timeout,
+             updated_at = now()`,
+          [
+            connectionId, broker_host, broker_port, protocol,
+            use_tls, tls_ca_cert, tls_client_cert, tls_client_key, tls_verify_cert,
+            username, password, client_id_prefix, keep_alive, clean_session,
+            reconnect_period, connect_timeout
+          ]
+        );
+      } else {
+        // Create connection entry
+        const connResult = await db.query(
+          `INSERT INTO connections (name, type, enabled, config_data)
+           VALUES ($1, 'mqtt', $2, '{}'::jsonb)
+           RETURNING id`,
+          [name, enabled]
+        );
+
+        connectionId = connResult.rows[0].id;
+
+        // Create MQTT connection config
+        await db.query(
+          `INSERT INTO mqtt_connections (
+            connection_id, broker_host, broker_port, protocol,
+            use_tls, tls_ca_cert, tls_client_cert, tls_client_key, tls_verify_cert,
+            username, password, client_id_prefix, keep_alive, clean_session,
+            reconnect_period, connect_timeout
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+          [
+            connectionId, broker_host, broker_port, protocol,
+            use_tls, tls_ca_cert, tls_client_cert, tls_client_key, tls_verify_cert,
+            username, password, client_id_prefix, keep_alive, clean_session,
+            reconnect_period, connect_timeout
+          ]
+        );
+      }
 
       await db.query('COMMIT');
 
@@ -407,7 +552,7 @@ export default async function mqttRoutes(app) {
         log.info({ connectionId }, 'Published MQTT connection config to connectivity service');
       }
 
-      log.info({ connectionId, name, userId }, 'Created MQTT connection');
+      log.info({ connectionId, name, userId, revived }, revived ? 'Revived MQTT connection' : 'Created MQTT connection');
       return reply.code(201).send({ id: connectionId });
 
     } catch (err) {
@@ -433,6 +578,16 @@ export default async function mqttRoutes(app) {
     }
 
     const { id } = req.params;
+    
+    // Prevent editing the system Internal broker
+    const checkResult = await db.query(
+      'SELECT name FROM connections WHERE id = $1',
+      [id]
+    );
+    if (checkResult.rows.length > 0 && checkResult.rows[0].name === 'MQTT - Internal') {
+      return reply.code(403).send({ error: 'forbidden', message: 'Cannot modify the system Internal broker' });
+    }
+
     const {
       name,
       enabled,
@@ -453,6 +608,11 @@ export default async function mqttRoutes(app) {
     } = req.body;
 
     try {
+      // Prevent using reserved name
+      if (name !== undefined && name.trim().toLowerCase() === 'mqtt - internal') {
+        return reply.code(400).send({ error: 'reserved_name', message: '"MQTT - Internal" is a reserved connection name' });
+      }
+
       await db.query('BEGIN');
 
       // Update connections table
@@ -550,6 +710,15 @@ export default async function mqttRoutes(app) {
 
     const { id } = req.params;
 
+    // Prevent deleting the system Internal broker
+    const checkResult = await db.query(
+      'SELECT name FROM connections WHERE id = $1',
+      [id]
+    );
+    if (checkResult.rows.length > 0 && checkResult.rows[0].name === 'MQTT - Internal') {
+      return reply.code(403).send({ error: 'forbidden', message: 'Cannot delete the system Internal broker' });
+    }
+
     try {
       // Soft delete
       await db.query(
@@ -638,7 +807,8 @@ export default async function mqttRoutes(app) {
       value_path,
       timestamp_path,
       quality_path,
-      enabled = true
+      enabled = true,
+      device_credential_id
     } = req.body;
 
     if (!connection_id || !topic) {
@@ -649,12 +819,12 @@ export default async function mqttRoutes(app) {
       const { rows } = await db.query(
         `INSERT INTO mqtt_subscriptions (
           connection_id, topic, qos, tag_prefix, payload_format,
-          value_path, timestamp_path, quality_path, enabled
+          value_path, timestamp_path, quality_path, enabled, device_credential_id
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id`,
         [connection_id, topic, qos, tag_prefix, payload_format,
-         value_path, timestamp_path, quality_path, enabled]
+         value_path, timestamp_path, quality_path, enabled, device_credential_id]
       );
 
       const subscriptionId = rows[0].id;
@@ -694,7 +864,7 @@ export default async function mqttRoutes(app) {
     }
 
     const { id } = req.params;
-    const { qos, tag_prefix, value_path, timestamp_path, quality_path, enabled } = req.body;
+    const { qos, tag_prefix, value_path, timestamp_path, quality_path, enabled, device_credential_id } = req.body;
 
     try {
       const fields = [];
@@ -707,6 +877,7 @@ export default async function mqttRoutes(app) {
       if (timestamp_path !== undefined) { fields.push(`timestamp_path = $${paramCount++}`); values.push(timestamp_path); }
       if (quality_path !== undefined) { fields.push(`quality_path = $${paramCount++}`); values.push(quality_path); }
       if (enabled !== undefined) { fields.push(`enabled = $${paramCount++}`); values.push(enabled); }
+      if (device_credential_id !== undefined) { fields.push(`device_credential_id = $${paramCount++}`); values.push(device_credential_id); }
 
       if (fields.length === 0) {
         return reply.code(400).send({ error: 'no_fields_to_update' });
@@ -1866,6 +2037,437 @@ export default async function mqttRoutes(app) {
       return reply.send({ success: true });
     } catch (err) {
       log.error({ err }, 'Failed to delete publisher mapping');
+      return reply.code(500).send({ error: 'database_error', message: err.message });
+    }
+  });
+
+  // =====================================================
+  // MQTT Device Credentials
+  // =====================================================
+
+  /**
+   * GET /api/mqtt/device-credentials - List device credentials
+   * Requires 'mqtt:read' permission
+   */
+  app.get('/api/mqtt/device-credentials', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'mqtt', 'read'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    try {
+      const { rows } = await db.query(
+        `SELECT id, device_name, username, enabled, timeout_seconds, created_at, updated_at
+         FROM mqtt_device_credentials
+         ORDER BY created_at DESC`
+      );
+      
+      return reply.send({ credentials: rows });
+    } catch (err) {
+      log.error({ err }, 'Failed to list device credentials');
+      return reply.code(500).send({ error: 'database_error', message: err.message });
+    }
+  });
+
+  /**
+   * GET /api/mqtt/device-credentials/status - Get aggregated status for all device credentials
+   * Requires 'mqtt:read' permission
+   * Returns: [{id, username, device_name, status, lastSeen, lastSeenAgo, authFailure}]
+   * Status values: disabled, ready, connected, not_active, auth_failed
+   */
+  app.get('/api/mqtt/device-credentials/status', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'mqtt', 'read'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    try {
+      // Get credentials with last message timestamp from database
+      const { rows: credentials } = await db.query(
+        `SELECT 
+          dc.id, 
+          dc.device_name, 
+          dc.username, 
+          dc.enabled, 
+          dc.timeout_seconds,
+          MAX(mb.received_at) as last_seen
+         FROM mqtt_device_credentials dc
+         LEFT JOIN mqtt_message_buffer mb ON mb.device_id = dc.id
+         GROUP BY dc.id, dc.device_name, dc.username, dc.enabled, dc.timeout_seconds
+         ORDER BY dc.device_name`
+      );
+
+      // Calculate status for each credential
+      const now = new Date();
+      const result = credentials.map(cred => {
+        const authFailure = authFailures.get(cred.username);
+        
+        let status, lastSeen = null, lastSeenAgo = null;
+
+        // Determine status
+        if (!cred.enabled) {
+          status = 'disabled';
+        } else if (authFailure && (now - authFailure.lastFailedAttempt) < 5 * 60 * 1000) {
+          // Auth failed within last 5 minutes
+          status = 'auth_failed';
+        } else if (!cred.last_seen) {
+          status = 'ready';
+        } else {
+          lastSeen = cred.last_seen;
+          const lastSeenMs = now - new Date(lastSeen);
+          lastSeenAgo = Math.floor(lastSeenMs / 1000); // seconds
+
+          if (lastSeenAgo > cred.timeout_seconds) {
+            status = 'not_active';
+          } else {
+            status = 'connected';
+          }
+        }
+
+        return {
+          id: cred.id,
+          device_name: cred.device_name,
+          username: cred.username,
+          status,
+          lastSeen,
+          lastSeenAgo,
+          authFailure: authFailure ? {
+            lastFailedAttempt: authFailure.lastFailedAttempt,
+            failureCount: authFailure.failureCount,
+            reason: authFailure.reason
+          } : null
+        };
+      });
+
+      return reply.send({ statuses: result });
+    } catch (err) {
+      log.error({ err }, 'Failed to get device credential statuses');
+      return reply.code(500).send({ error: 'internal_error', message: err.message });
+    }
+  });
+
+  /**
+   * POST /api/mqtt/device-credentials - Create device credential
+   * Requires 'mqtt:create' permission
+   */
+  app.post('/api/mqtt/device-credentials', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'mqtt', 'create'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const { device_name, username, password, enabled = true, timeout_seconds = 600 } = req.body;
+
+    // Password is optional - useful when authentication is disabled
+    if (!device_name || !username) {
+      return reply.code(400).send({ error: 'missing_required_fields' });
+    }
+
+    // Validate timeout_seconds
+    if (timeout_seconds <= 0 || timeout_seconds > 86400) {
+      return reply.code(400).send({ error: 'invalid_timeout', message: 'timeout_seconds must be between 1 and 86400' });
+    }
+
+    try {
+      // Hash the password if provided, otherwise use empty string
+      const argon2 = await import('argon2');
+      const credential_hash = password ? await argon2.hash(password) : '';
+
+      const { rows } = await db.query(
+        `INSERT INTO mqtt_device_credentials (device_name, username, credential_hash, enabled, timeout_seconds)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, device_name, username, enabled, timeout_seconds, created_at, updated_at`,
+        [device_name, username, credential_hash, enabled, timeout_seconds]
+      );
+
+      const credential = rows[0];
+
+      // Publish NATS event
+      if (app.nats?.healthy?.() === true) {
+        app.nats.publish('df.mqtt.credential.updated.v1', {
+          schema: 'mqtt.credential.updated@v1',
+          ts: new Date().toISOString(),
+          action: 'create',
+          credential: {
+            id: credential.id,
+            username: credential.username,
+            enabled: credential.enabled,
+            timeout_seconds: credential.timeout_seconds
+          }
+        });
+      }
+
+      log.info({ device_name, username }, 'Created device credential');
+      return reply.code(201).send({ credential });
+    } catch (err) {
+      log.error({ err, device_name, username }, 'Failed to create device credential');
+      
+      if (err.code === '23505') {
+        return reply.code(409).send({ error: 'credential_already_exists' });
+      }
+      
+      return reply.code(500).send({ error: 'database_error', message: err.message });
+    }
+  });
+
+  /**
+   * PUT /api/mqtt/device-credentials/:id - Update device credential
+   * Requires 'mqtt:update' permission
+   */
+  app.put('/api/mqtt/device-credentials/:id', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'mqtt', 'update'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const { id } = req.params;
+    const { device_name, password, enabled, timeout_seconds } = req.body;
+
+    // Validate timeout_seconds if provided
+    if (timeout_seconds !== undefined && (timeout_seconds <= 0 || timeout_seconds > 86400)) {
+      return reply.code(400).send({ error: 'invalid_timeout', message: 'timeout_seconds must be between 1 and 86400' });
+    }
+
+    try {
+      const fields = [];
+      const values = [];
+      let paramCount = 1;
+
+      if (device_name !== undefined) {
+        fields.push(`device_name = $${paramCount++}`);
+        values.push(device_name);
+      }
+
+      if (password !== undefined) {
+        const argon2 = await import('argon2');
+        const credential_hash = await argon2.hash(password);
+        fields.push(`credential_hash = $${paramCount++}`);
+        values.push(credential_hash);
+      }
+
+      if (enabled !== undefined) {
+        fields.push(`enabled = $${paramCount++}`);
+        values.push(enabled);
+      }
+
+      if (timeout_seconds !== undefined) {
+        fields.push(`timeout_seconds = $${paramCount++}`);
+        values.push(timeout_seconds);
+      }
+
+      if (fields.length === 0) {
+        return reply.code(400).send({ error: 'no_fields_to_update' });
+      }
+
+      values.push(id);
+      const result = await db.query(
+        `UPDATE mqtt_device_credentials 
+         SET ${fields.join(', ')}, updated_at = now() 
+         WHERE id = $${paramCount}
+         RETURNING id, device_name, username, enabled, timeout_seconds, created_at, updated_at`,
+        values
+      );
+
+      if (result.rows.length === 0) {
+        return reply.code(404).send({ error: 'credential_not_found' });
+      }
+
+      const credential = result.rows[0];
+
+      // If disabling, disconnect any active sessions
+      if (enabled === false) {
+        log.info({ credential_id: id }, 'Disabling device - will disconnect active sessions');
+        try {
+          const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
+          log.info({ nanoMqUrl }, 'Querying broker for connected clients');
+          const clientsResponse = await fetch(`${nanoMqUrl}/api/v4/clients`, {
+            headers: {
+              'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64')
+            }
+          });
+
+          log.info({ ok: clientsResponse.ok, status: clientsResponse.status }, 'Broker clients query response');
+          if (clientsResponse.ok) {
+            const clientsData = await clientsResponse.json();
+            const matchingClients = (clientsData.data || []).filter(c => c.username === credential.username);
+            log.info({ matchingClients: matchingClients.length, username: credential.username }, 'Found matching clients to disconnect');
+
+            for (const client of matchingClients) {
+              try {
+                await fetch(`${nanoMqUrl}/api/v4/clients/${client.client_id}`, {
+                  method: 'DELETE',
+                  headers: {
+                    'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64')
+                  }
+                });
+                log.info({ clientid: client.client_id, username: credential.username }, 'Disconnected client after disabling credential');
+              } catch (disconnectErr) {
+                log.warn({ err: disconnectErr, clientid: client.client_id }, 'Failed to disconnect client');
+              }
+            }
+          }
+        } catch (brokerErr) {
+          log.warn({ err: brokerErr }, 'Failed to query/disconnect clients - broker may be unavailable');
+          // Don't fail the update if disconnect fails
+        }
+      }
+
+      // Publish NATS event
+      if (app.nats?.healthy?.() === true) {
+        app.nats.publish('df.mqtt.credential.updated.v1', {
+          schema: 'mqtt.credential.updated@v1',
+          ts: new Date().toISOString(),
+          action: 'update',
+          credential: {
+            id: credential.id,
+            username: credential.username,
+            enabled: credential.enabled,
+            timeout_seconds: credential.timeout_seconds
+          }
+        });
+      }
+
+      log.info({ credential_id: id, enabled: credential.enabled }, 'Updated device credential');
+      return reply.send({ credential });
+    } catch (err) {
+      log.error({ err, credential_id: id }, 'Failed to update device credential');
+      return reply.code(500).send({ error: 'database_error', message: err.message });
+    }
+  });
+
+  /**
+   * DELETE /api/mqtt/device-credentials/:id - Delete device credential
+   * Requires 'mqtt:delete' permission
+   * 
+   * Also disconnects any active MQTT sessions using this username
+   */
+  app.delete('/api/mqtt/device-credentials/:id', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'mqtt', 'delete'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const { id } = req.params;
+
+    try {
+      const result = await db.query(
+        'DELETE FROM mqtt_device_credentials WHERE id = $1 RETURNING device_name, username',
+        [id]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.code(404).send({ error: 'credential_not_found' });
+      }
+
+      const { device_name, username } = result.rows[0];
+
+      // Disconnect any active sessions with this username
+      try {
+        const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
+        const clientsResponse = await fetch(`${nanoMqUrl}/api/v4/clients`, {
+          headers: {
+            'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64')
+          }
+        });
+
+        if (clientsResponse.ok) {
+          const clientsData = await clientsResponse.json();
+          const matchingClients = (clientsData.data || []).filter(c => c.username === username);
+
+          for (const client of matchingClients) {
+            try {
+              await fetch(`${nanoMqUrl}/api/v4/clients/${client.client_id}`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64')
+                }
+              });
+              log.info({ clientid: client.client_id, username }, 'Disconnected client after credential deletion');
+            } catch (disconnectErr) {
+              log.warn({ err: disconnectErr, clientid: client.client_id }, 'Failed to disconnect client');
+            }
+          }
+        }
+      } catch (brokerErr) {
+        log.warn({ err: brokerErr }, 'Failed to query/disconnect clients - broker may be unavailable');
+        // Don't fail the deletion if disconnect fails
+      }
+
+      // Publish NATS event
+      if (app.nats?.healthy?.() === true) {
+        app.nats.publish('df.mqtt.credential.updated.v1', {
+          schema: 'mqtt.credential.updated@v1',
+          ts: new Date().toISOString(),
+          action: 'delete',
+          credential: {
+            id,
+            username
+          }
+        });
+      }
+
+      log.info({ credential_id: id, device_name, username }, 'Deleted device credential');
+      return reply.send({ success: true });
+    } catch (err) {
+      log.error({ err, credential_id: id }, 'Failed to delete device credential');
+      return reply.code(500).send({ error: 'database_error', message: err.message });
+    }
+  });
+
+  /**
+   * GET /api/mqtt/auth-setting - Get MQTT authentication setting
+   * Requires 'mqtt:read' permission
+   */
+  app.get('/api/mqtt/auth-setting', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'mqtt', 'read'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    try {
+      const { rows } = await db.query(
+        `SELECT value FROM system_settings WHERE key = 'mqtt_require_auth'`
+      );
+      
+      const requireAuth = rows.length > 0 
+        ? rows[0].value === 'true' || rows[0].value === true
+        : false;
+
+      return reply.send({ mqtt_require_auth: requireAuth });
+    } catch (err) {
+      log.error({ err }, 'Failed to get auth setting');
+      return reply.code(500).send({ error: 'database_error', message: err.message });
+    }
+  });
+
+  /**
+   * PUT /api/mqtt/auth-setting - Update MQTT authentication setting
+   * Requires 'mqtt:update' permission
+   */
+  app.put('/api/mqtt/auth-setting', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'mqtt', 'update'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const { mqtt_require_auth } = req.body;
+
+    if (mqtt_require_auth === undefined) {
+      return reply.code(400).send({ error: 'missing_required_field' });
+    }
+
+    try {
+      await db.query(
+        `INSERT INTO system_settings (key, value, updated_at)
+         VALUES ('mqtt_require_auth', $1, now())
+         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = now()`,
+        [mqtt_require_auth ? 'true' : 'false']
+      );
+
+      log.info({ mqtt_require_auth }, 'Updated MQTT auth setting');
+      return reply.send({ mqtt_require_auth });
+    } catch (err) {
+      log.error({ err }, 'Failed to update auth setting');
       return reply.code(500).send({ error: 'database_error', message: err.message });
     }
   });

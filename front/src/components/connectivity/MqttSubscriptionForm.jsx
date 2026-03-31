@@ -6,6 +6,8 @@ import {
   DialogActions,
   Button,
   TextField,
+  Tooltip,
+  IconButton,
   FormControl,
   InputLabel,
   Select,
@@ -14,7 +16,10 @@ import {
   Switch,
   Box,
   Alert,
+  Typography,
+  InputAdornment,
 } from '@mui/material';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import mqttService from '../../services/mqttService';
 
 const MqttSubscriptionForm = ({ 
@@ -33,22 +38,41 @@ const MqttSubscriptionForm = ({
     tag_prefix: '',
     message_buffer_size: 100,
     enabled: true,
+    device_credential_id: null,
   });
 
   const [error, setError] = useState('');
   const [connections, setConnections] = useState([]);
+  const [deviceCredentials, setDeviceCredentials] = useState([]);
+  const [selectedConnectionName, setSelectedConnectionName] = useState('');
+
+  const tagPrefixHelpText =
+    'Optional namespace prepended to generated tag paths (not the MQTT topic). Useful to keep tags distinct when multiple subscriptions/connections use similar topics (e.g., mqtt.brokerA.tele.sensor1.temp). Note: changing this does not rename existing saved tags; it affects newly created tags going forward.';
 
   // Load connections when form opens if no connectionId is provided
   useEffect(() => {
     if (open && !connectionId) {
       mqttService.getConnections()
-        .then(data => setConnections(data))
+        .then(data => {
+          setConnections(data);
+          // Find connection name if editing
+          if (initialData?.connection_id) {
+            const conn = data.find(c => c.id === initialData.connection_id);
+            setSelectedConnectionName(conn?.name || '');
+          }
+        })
         .catch(err => {
           console.error('Failed to load connections:', err);
           setError('Failed to load connections');
         });
     }
-  }, [open, connectionId]);
+    // Load device credentials for internal broker
+    if (open) {
+      mqttService.getDeviceCredentials()
+        .then(data => setDeviceCredentials(data))
+        .catch(err => console.error('Failed to load device credentials:', err));
+    }
+  }, [open, connectionId, initialData]);
 
   useEffect(() => {
     if (initialData) {
@@ -60,39 +84,52 @@ const MqttSubscriptionForm = ({
         tag_prefix: initialData.tag_prefix || '',
         message_buffer_size: initialData.message_buffer_size ?? 100,
         enabled: initialData.enabled !== false,
+        device_credential_id: initialData.device_credential_id || null,
       });
+      // Find connection name if editing
+      if (initialData.connection_name) {
+        setSelectedConnectionName(initialData.connection_name);
+      }
     } else if (connectionId) {
       setFormData(prev => ({ ...prev, connection_id: connectionId }));
     }
   }, [initialData, connectionId]);
 
   const handleChange = (field) => (event) => {
-    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    let value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    // Trim leading/trailing spaces from topic field
+    if (field === 'topic' && typeof value === 'string') {
+      value = value.trim();
+    }
     setFormData(prev => ({ ...prev, [field]: value }));
     setError('');
   };
 
   const handleSubmit = async () => {
+    // Sanitize topic - trim leading/trailing spaces
+    const sanitizedTopic = formData.topic.trim();
+    
     // Validation
     if (!formData.connection_id) {
       setError('Connection ID is required');
       return;
     }
 
-    if (!formData.topic.trim()) {
+    if (!sanitizedTopic) {
       setError('Topic is required');
       return;
     }
 
     // Validate MQTT topic format
     const topicPattern = /^[^+#]*(\+[^+#]*)*(\#)?$/;
-    if (!topicPattern.test(formData.topic)) {
+    if (!topicPattern.test(sanitizedTopic)) {
       setError('Invalid MQTT topic format. Use + for single-level wildcard, # for multi-level');
       return;
     }
 
     try {
-      await onSubmit(formData);
+      // Submit with sanitized topic
+      await onSubmit({ ...formData, topic: sanitizedTopic });
       onClose();
     } catch (err) {
       setError(err.message || 'Failed to save subscription');
@@ -103,6 +140,9 @@ const MqttSubscriptionForm = ({
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         {isEditing ? 'Edit MQTT Subscription' : 'New MQTT Subscription'}
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontWeight: 'normal' }}>
+          Subscribe to topics from configured devices or brokers to receive data
+        </Typography>
       </DialogTitle>
       <DialogContent>
         {error && (
@@ -118,7 +158,11 @@ const MqttSubscriptionForm = ({
               <InputLabel>MQTT Connection</InputLabel>
               <Select
                 value={formData.connection_id}
-                onChange={handleChange('connection_id')}
+                onChange={(e) => {
+                  handleChange('connection_id')(e);
+                  const conn = connections.find(c => c.id === e.target.value);
+                  setSelectedConnectionName(conn?.name || '');
+                }}
                 label="MQTT Connection"
                 disabled={isEditing}
               >
@@ -128,6 +172,33 @@ const MqttSubscriptionForm = ({
                   </MenuItem>
                 ))}
               </Select>
+            </FormControl>
+          )}
+
+          {/* Device Credential Link - only show for internal broker */}
+          {selectedConnectionName === 'MQTT - Internal' && (
+            <FormControl fullWidth>
+              <InputLabel>Link to Device Credential (Optional)</InputLabel>
+              <Select
+                value={formData.device_credential_id || ''}
+                onChange={(e) => {
+                  const value = e.target.value === '' ? null : e.target.value;
+                  setFormData(prev => ({ ...prev, device_credential_id: value }));
+                }}
+                label="Link to Device Credential (Optional)"
+              >
+                <MenuItem value="">
+                  <em>None - No device tracking</em>
+                </MenuItem>
+                {deviceCredentials.map(cred => (
+                  <MenuItem key={cred.id} value={cred.id}>
+                    {cred.device_name} ({cred.username})
+                  </MenuItem>
+                ))}
+              </Select>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
+                Link this subscription to a device for status tracking and message filtering based on device enabled status
+              </Typography>
             </FormControl>
           )}
 
@@ -173,7 +244,23 @@ const MqttSubscriptionForm = ({
             onChange={handleChange('tag_prefix')}
             fullWidth
             placeholder="mqtt.sensors"
-            helperText="Optional prefix for generated tag paths"
+            helperText="Optional namespace prepended to generated tag paths"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Tooltip title={tagPrefixHelpText} arrow>
+                    <IconButton
+                      size="small"
+                      edge="end"
+                      tabIndex={-1}
+                      aria-label="Tag prefix help"
+                    >
+                      <InfoOutlinedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </InputAdornment>
+              ),
+            }}
           />
 
           <TextField

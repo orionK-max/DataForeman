@@ -42,6 +42,7 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
   const [selectedConnection, setSelectedConnection] = useState(initialConnectionId || '');
   const [subscriptions, setSubscriptions] = useState([]);
   const [selectedSubscription, setSelectedSubscription] = useState('');
+  const [deviceCredentials, setDeviceCredentials] = useState([]);
   
   // Field analysis
   const [analyzing, setAnalyzing] = useState(false);
@@ -81,6 +82,32 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
       loadSubscriptions();
     }
   }, [selectedConnection]);
+
+  // Load device credentials (used to label subscriptions linked to a device)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const creds = await mqttService.getDeviceCredentials();
+        if (alive) setDeviceCredentials(creds || []);
+      } catch (err) {
+        // Non-fatal; dropdown will fall back to connection name
+        console.error('Failed to load MQTT device credentials:', err);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const deviceNameById = useMemo(() => {
+    const map = new Map();
+    for (const cred of deviceCredentials || []) {
+      if (cred?.id) map.set(cred.id, cred.device_name || cred.username || cred.id);
+    }
+    return map;
+  }, [deviceCredentials]);
 
   useEffect(() => {
     if (selectedSubscription) {
@@ -419,7 +446,10 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
                   >
                     {subscriptions.map(sub => (
                       <MenuItem key={sub.id} value={sub.id}>
-                        {sub.topic}
+                        {(sub.device_credential_id && deviceNameById.get(sub.device_credential_id))
+                          || sub.connection_name
+                          || connections.find(c => c.id === selectedConnection)?.name
+                          || 'Unknown'}: {sub.topic}
                       </MenuItem>
                     ))}
                   </Select>

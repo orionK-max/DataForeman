@@ -36,7 +36,7 @@ services:
     volumes:
       - ./logs/nats:/var/log/nats
 
-  nanomq:
+  broker:
     build: ./nanomq
     ports:
       - "${NANOMQ_MQTT_PORT:-1883}:1883"        # MQTT

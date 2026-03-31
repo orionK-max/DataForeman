@@ -223,7 +223,16 @@ const mqttService = {
    */
   async getClients() {
     const response = await api.get('/mqtt/clients');
-    return response.clients || [];
+    return response.data || [];
+  },
+
+  /**
+   * Disconnect an MQTT client
+   * @param {string} clientId - Client ID to disconnect
+   * @returns {Promise<Object>} Success response
+   */
+  async disconnectClient(clientId) {
+    return await api.delete(`/mqtt/clients/${encodeURIComponent(clientId)}`);
   },
 
   /**
@@ -309,6 +318,71 @@ const mqttService = {
     return await api.post('/mqtt/field-mappings/create-tags', {
       mapping_ids: mappingIds,
     });
+  },
+
+  // ==================== Device Credentials ====================
+
+  /**
+   * Get all device credentials
+   * @returns {Promise<Array>} List of device credentials
+   */
+  async getDeviceCredentials() {
+    const response = await api.get('/mqtt/device-credentials');
+    return response.credentials || [];
+  },
+
+  /**
+   * Create a new device credential
+   * @param {Object} credentialData - { device_name, username, password, enabled }
+   * @returns {Promise<Object>} Created credential
+   */
+  async createDeviceCredential(credentialData) {
+    return await api.post('/mqtt/device-credentials', credentialData);
+  },
+
+  /**
+   * Update a device credential
+   * @param {string} credentialId - Credential ID
+   * @param {Object} updates - { device_name?, password?, enabled? }
+   * @returns {Promise<Object>} Updated credential
+   */
+  async updateDeviceCredential(credentialId, updates) {
+    return await api.put(`/mqtt/device-credentials/${credentialId}`, updates);
+  },
+
+  /**
+   * Delete a device credential
+   * @param {string} credentialId - Credential ID
+   * @returns {Promise<Object>} Success response
+   */
+  async deleteDeviceCredential(credentialId) {
+    return await api.delete(`/mqtt/device-credentials/${credentialId}`);
+  },
+
+  /**
+   * Get aggregated device credential statuses
+   * @returns {Promise<Array>} List of device statuses with status, lastSeen, etc.
+   */
+  async getDeviceCredentialStatuses() {
+    const response = await api.get('/mqtt/device-credentials/status');
+    return response.statuses || [];
+  },
+
+  /**
+   * Get MQTT authentication setting
+   * @returns {Promise<Object>} { mqtt_require_auth: boolean }
+   */
+  async getAuthSetting() {
+    return await api.get('/mqtt/auth-setting');
+  },
+
+  /**
+   * Update MQTT authentication setting
+   * @param {boolean} requireAuth - Whether to require authentication
+   * @returns {Promise<Object>} { mqtt_require_auth: boolean }
+   */
+  async updateAuthSetting(requireAuth) {
+    return await api.put('/mqtt/auth-setting', { mqtt_require_auth: requireAuth });
   },
 };
 

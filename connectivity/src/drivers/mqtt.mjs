@@ -7,13 +7,14 @@ import sparkplugPayload from 'sparkplug-payload';
 const { spPayload } = sparkplugPayload;
 
 export class MQTTDriver {
-  constructor(log, dbHelper) {
+  constructor(log, dbHelper, deviceCredentialsCache = null) {
     this.log = log.child({ driver: 'mqtt' });
     this.dbHelper = dbHelper;
+    this.deviceCredentialsCache = deviceCredentialsCache;
     this.client = null;
     this.config = null;
     this.connectionId = null;
-    this.subscriptions = new Map(); // topic -> { qos, handler }
+    this.subscriptions = new Map(); // topic -> { qos, handler, device_credential_id }
     this.publishers = new Map(); // publisherId -> config
     this.sparkplugStates = new Map(); // configId -> { seqNum, lastBirth, ... }
     this.fieldMappings = new Map(); // subscription_id -> Map<topic, Array<mapping>>
@@ -22,22 +23,131 @@ export class MQTTDriver {
     this.isClosing = false;
     this.messageCount = 0;
     this.errorCount = 0;
+    this.successfulBrokerHost = null; // Cached successful broker host for fast reconnection
   }
 
   /**
    * Initialize and connect to MQTT broker
+   * Implements cross-platform failover: localhost (host network) <-> broker (bridge network)
+   * Caches successful host to avoid timeout delays on subsequent connections
    */
   async connect(connectionId, mqttConfig) {
     this.connectionId = connectionId;
     this.config = mqttConfig;
 
-    const brokerUrl = `mqtt${this.config.use_tls ? 's' : ''}://${this.config.broker_host}:${this.config.broker_port}`;
+    // Try connecting with configured broker_host first
+    const primaryHost = this.config.broker_host;
+
+    // Only use localhost <-> broker fallback when the user is intentionally targeting the internal broker.
+    // For external brokers, a localhost fallback is misleading and hides the real error.
+    const shouldUseFallback =
+      primaryHost === 'localhost' ||
+      primaryHost === '127.0.0.1' ||
+      primaryHost === 'broker';
+
+    const fallbackHost = shouldUseFallback
+      ? ((primaryHost === 'localhost' || primaryHost === '127.0.0.1') ? 'broker' : 'localhost')
+      : null;
+    
+    // If we previously connected successfully, try that host first (avoids timeout delay)
+    if (this.successfulBrokerHost) {
+      try {
+        await this._attemptConnect(connectionId, this.successfulBrokerHost);
+        return;
+      } catch (err) {
+        this.log.warn({ 
+          cachedHost: this.successfulBrokerHost, 
+          err: err.message 
+        }, 'Cached broker host failed, trying configured hosts');
+        this.successfulBrokerHost = null; // Clear cache
+      }
+    }
+
+    try {
+      await this._attemptConnect(connectionId, primaryHost);
+      this.successfulBrokerHost = primaryHost; // Cache for next time
+      return;
+    } catch (primaryErr) {
+      if (!fallbackHost) {
+        this.log.error({ primaryHost, err: primaryErr.message }, 'MQTT broker connection failed');
+        throw primaryErr;
+      }
+
+      this.log.warn({
+        primaryHost,
+        fallbackHost,
+        err: primaryErr.message
+      }, 'Primary broker connection failed, attempting fallback');
+
+      try {
+        await this._attemptConnect(connectionId, fallbackHost);
+        this.successfulBrokerHost = fallbackHost; // Cache for next time
+        this.log.info({ fallbackHost }, 'Connected to broker using fallback hostname');
+        return;
+      } catch (fallbackErr) {
+        this.log.error({
+          primaryHost,
+          fallbackHost,
+          primaryErr: primaryErr.message,
+          fallbackErr: fallbackErr.message
+        }, 'Both primary and fallback broker connections failed');
+        throw fallbackErr;
+      }
+    }
+  }
+
+  _buildBrokerUrlParts(brokerHost) {
+    const raw = String(brokerHost || '').trim();
+    if (!raw) {
+      throw new Error('Missing broker_host');
+    }
+
+    // Allow full URLs in broker_host (e.g. wss://broker.emqx.io:8084/mqtt)
+    if (raw.includes('://')) {
+      let parsed;
+      try {
+        parsed = new URL(raw);
+      } catch {
+        throw new Error(`Invalid broker_host URL: ${raw}`);
+      }
+
+      const scheme = parsed.protocol.replace(/:$/, '');
+      const host = parsed.hostname;
+      const port = parsed.port ? Number(parsed.port) : Number(this.config.broker_port);
+
+      if (!host || !port) {
+        throw new Error(`Invalid broker_host URL (missing host/port): ${raw}`);
+      }
+
+      if (scheme === 'ws' || scheme === 'wss') {
+        // EMQX and many brokers use /mqtt as the default WS endpoint.
+        const path = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : '/mqtt';
+        const search = parsed.search || '';
+        return { brokerUrl: `${scheme}://${host}:${port}${path}${search}`, scheme };
+      }
+
+      if (scheme === 'mqtt' || scheme === 'mqtts') {
+        return { brokerUrl: `${scheme}://${host}:${port}`, scheme };
+      }
+
+      throw new Error(`Unsupported broker_host URL protocol: ${scheme}`);
+    }
+
+    const scheme = this.config.use_tls ? 'mqtts' : 'mqtt';
+    return { brokerUrl: `${scheme}://${raw}:${this.config.broker_port}`, scheme };
+  }
+
+  /**
+   * Internal method to attempt MQTT connection with specific broker host
+   */
+  async _attemptConnect(connectionId, brokerHost) {
+    const { brokerUrl, scheme } = this._buildBrokerUrlParts(brokerHost);
 
     const options = {
       clientId: `${this.config.client_id_prefix || 'dataforeman'}-${connectionId}-${Date.now()}`,
       clean: this.config.clean_session !== false,
       keepalive: this.config.keep_alive || 60,
-      reconnectPeriod: this.config.reconnect_period || 5000,
+      reconnectPeriod: 0, // Disable auto-reconnect for initial connection attempt
       connectTimeout: this.config.connect_timeout || 30000,
     };
 
@@ -47,40 +157,63 @@ export class MQTTDriver {
       options.password = this.config.password;
     }
 
-    // Add TLS options if enabled
-    if (this.config.use_tls) {
-      options.rejectUnauthorized = this.config.tls_verify_cert !== false;
+    // Add TLS options when using TLS transports.
+    if (scheme === 'mqtts' || scheme === 'wss') {
+      const tlsOptions = {
+        rejectUnauthorized: this.config.tls_verify_cert !== false,
+      };
       if (this.config.tls_ca_cert) {
-        options.ca = Buffer.from(this.config.tls_ca_cert);
+        tlsOptions.ca = Buffer.from(this.config.tls_ca_cert);
       }
       if (this.config.tls_client_cert) {
-        options.cert = Buffer.from(this.config.tls_client_cert);
+        tlsOptions.cert = Buffer.from(this.config.tls_client_cert);
       }
       if (this.config.tls_client_key) {
-        options.key = Buffer.from(this.config.tls_client_key);
+        tlsOptions.key = Buffer.from(this.config.tls_client_key);
+      }
+
+      if (scheme === 'mqtts') {
+        Object.assign(options, tlsOptions);
+      } else {
+        // mqtt.js expects TLS options for wss under wsOptions.
+        options.wsOptions = tlsOptions;
       }
     }
 
-    this.log.info({ connectionId, brokerUrl, clientId: options.clientId }, 'Connecting to MQTT broker');
+    this.log.info({ connectionId, brokerUrl, clientId: options.clientId }, 'Attempting MQTT broker connection');
     this.isConnecting = true;
 
     return new Promise((resolve, reject) => {
       try {
         this.client = mqtt.connect(brokerUrl, options);
 
+        const connectTimeout = setTimeout(() => {
+          if (this.isConnecting) {
+            this.isConnecting = false;
+            this.client?.end(true);
+            reject(new Error(`Connection timeout after ${options.connectTimeout}ms`));
+          }
+        }, options.connectTimeout);
+
         this.client.on('connect', () => {
+          clearTimeout(connectTimeout);
           this.isConnecting = false;
-          this.log.info({ connectionId, clientId: options.clientId }, 'Connected to MQTT broker');
+          // Re-enable auto-reconnect after successful initial connection
+          this.client.options.reconnectPeriod = this.config.reconnect_period || 5000;
+          this.log.info({ connectionId, brokerUrl, clientId: options.clientId }, 'Connected to MQTT broker');
           this.setupEventHandlers();
           resolve();
         });
 
         this.client.on('error', (err) => {
           this.errorCount++;
-          this.log.error({ err, connectionId }, 'MQTT connection error');
           if (this.isConnecting) {
+            clearTimeout(connectTimeout);
             this.isConnecting = false;
+            this.client?.end(true);
             reject(err);
+          } else {
+            this.log.error({ err, connectionId }, 'MQTT connection error');
           }
         });
 
@@ -155,6 +288,30 @@ export class MQTTDriver {
 
     if (!sub) {
       return; // No subscription handler for this topic
+    }
+
+    // Check device credential if linked to subscription
+    if (sub.device_credential_id && this.deviceCredentialsCache) {
+      const credStatus = this.deviceCredentialsCache.getStatusById(sub.device_credential_id);
+      
+      if (!credStatus) {
+        this.log.warn({ 
+          topic, 
+          device_credential_id: sub.device_credential_id 
+        }, 'Device credential not found in cache - dropping message');
+        return;
+      }
+
+      if (!credStatus.enabled) {
+        this.log.debug({ 
+          topic, 
+          device_credential_id: sub.device_credential_id 
+        }, 'Device credential disabled - dropping message');
+        return;
+      }
+
+      // Update lastSeen timestamp (pass credential ID)
+      this.deviceCredentialsCache.updateLastSeen(sub.device_credential_id);
     }
 
     let payload;
@@ -648,6 +805,7 @@ export class MQTTDriver {
           quality_path: sub.quality_path,
           tag_prefix: sub.tag_prefix,
           message_buffer_size: sub.message_buffer_size,
+          device_credential_id: sub.device_credential_id,
           handler: this.dataHandler
         });
         subscribedCount++;
@@ -671,7 +829,7 @@ export class MQTTDriver {
    */
   async loadPublishers() {
     try {
-      const result = await this.dbHelper.queryDb(
+      const result = await this.dbHelper.query(
         `SELECT p.*, 
                 array_agg(
                   json_build_object(
@@ -888,16 +1046,17 @@ export class MQTTDriver {
       for (const sub of matchingSubscriptions) {
         if (!sub.subscription_id) continue; // Skip if no subscription ID
 
-        // Insert message into buffer
+        // Insert message into buffer with device_id (if subscription has device_credential_id)
         await this.dbHelper.query(
-          `INSERT INTO mqtt_message_buffer (subscription_id, topic, payload, qos, retained)
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO mqtt_message_buffer (subscription_id, topic, payload, qos, retained, device_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
           [
             sub.subscription_id,
             topic,
             JSON.stringify(payload),
             packet.qos || 0,
-            packet.retain || false
+            packet.retain || false,
+            sub.device_credential_id || null
           ]
         );
 

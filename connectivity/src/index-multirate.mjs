@@ -34,6 +34,7 @@ const NATS_URL = process.env.NATS_URL || 'nats://nats:4222';
 const SERVICE_ID = process.env.SERVICE_ID || 'connectivity-1';
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = parseInt(process.env.PORT || '3100', 10);
+const CORE_URL = process.env.CORE_URL || 'http://localhost:3000';
 
 // Global state
 let natsConnected = false;
@@ -663,7 +664,7 @@ async function handleMQTTConfigUpdate(nc, id, config, existing) {
       }
 
       const mqttConfig = mqttConfigResult.rows[0];
-      const driver = new MQTTDriver(log, dbHelper);
+      const driver = new MQTTDriver(log, dbHelper, null);
 
       // Set up data handler to emit telemetry
       driver.setDataHandler(async (data) => {

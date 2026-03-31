@@ -43,6 +43,7 @@ import MqttConnectionForm from './MqttConnectionForm';
 import MqttSubscriptionForm from './MqttSubscriptionForm';
 import MqttPublisherForm from './MqttPublisherForm';
 import MqttRecentMessages from './MqttRecentMessages';
+import MqttDeviceCredentials from './MqttDeviceCredentials';
 
 function TabPanel({ children, value, index }) {
   return (
@@ -54,6 +55,7 @@ function TabPanel({ children, value, index }) {
 
 const MqttManager = () => {
   const [tabValue, setTabValue] = useState(0);
+  const [connectionSubTab, setConnectionSubTab] = useState(0); // 0: Devices, 1: External Brokers
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
@@ -235,7 +237,14 @@ const MqttManager = () => {
 
   const handleDeleteSubscription = async () => {
     try {
-      await mqttService.deleteSubscription(deleteDialog.item.id);
+      const deletedId = deleteDialog.item.id;
+      await mqttService.deleteSubscription(deletedId);
+      
+      // Clear selected subscription if it's the one being deleted
+      if (selectedSubscriptionId === deletedId) {
+        setSelectedSubscriptionId(null);
+      }
+      
       showSnackbar('Subscription deleted successfully');
       loadSubscriptions();
       setDeleteDialog({ open: false, type: null, item: null });
@@ -274,9 +283,16 @@ const MqttManager = () => {
     }
   };
 
-  const openEditConnection = (connection) => {
-    setEditingConnection(connection);
-    setConnectionFormOpen(true);
+  const openEditConnection = async (connection) => {
+    try {
+      // List endpoint intentionally omits sensitive fields; fetch full details for editing.
+      const full = await mqttService.getConnection(connection.id);
+      setEditingConnection(full);
+      setConnectionFormOpen(true);
+    } catch (err) {
+      console.error('Failed to load MQTT connection details:', err);
+      showSnackbar('Failed to load broker details', 'error');
+    }
   };
 
   const openEditSubscription = (subscription) => {
@@ -306,21 +322,38 @@ const MqttManager = () => {
         </Tabs>
       </Box>
 
-      {/* Connections Tab */}
+      {/* Connections Tab with nested sub-tabs */}
       <TabPanel value={tabValue} index={0}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h6">MQTT Connections</Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => {
-              setEditingConnection(null);
-              setConnectionFormOpen(true);
-            }}
-          >
-            New Connection
-          </Button>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+          <Tabs value={connectionSubTab} onChange={(e, v) => setConnectionSubTab(v)}>
+            <Tab icon={<CloudIcon />} label="Devices" iconPosition="start" />
+            <Tab icon={<RouterIcon />} label="MQTT Brokers" iconPosition="start" />
+          </Tabs>
         </Box>
+
+        {/* Devices Sub-Tab */}
+        {connectionSubTab === 0 && (
+          <Box sx={{ py: 2 }}>
+            <MqttDeviceCredentials onNotify={showSnackbar} />
+          </Box>
+        )}
+
+        {/* MQTT Brokers Sub-Tab */}
+        {connectionSubTab === 1 && (
+          <Box sx={{ py: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Typography variant="h6">MQTT Brokers</Typography>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setEditingConnection(null);
+                  setConnectionFormOpen(true);
+                }}
+              >
+                New Broker
+              </Button>
+            </Box>
 
         <TableContainer component={Paper}>
           <Table>
@@ -338,7 +371,7 @@ const MqttManager = () => {
                 <TableRow>
                   <TableCell colSpan={5} align="center">
                     <Typography color="text.secondary" sx={{ py: 3 }}>
-                      No MQTT connections configured. Click "New Connection" to add one.
+                      No MQTT brokers configured. Click "New Broker" to add one.
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -375,29 +408,35 @@ const MqttManager = () => {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Tooltip title={conn.enabled ? "Disable" : "Enable"}>
-                        <IconButton 
-                          size="small" 
-                          onClick={() => handleToggleConnection(conn)}
-                          color={conn.enabled ? "warning" : "success"}
-                        >
-                          {conn.enabled ? <PauseIcon /> : <PlayArrowIcon />}
-                        </IconButton>
-                      </Tooltip>
-                      <IconButton 
-                        size="small" 
-                        onClick={() => openEditConnection(conn)}
-                        color="primary"
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton 
-                        size="small" 
-                        onClick={() => openDeleteDialog('connection', conn)}
-                        color="error"
-                      >
-                        <DeleteIcon />
-                      </IconButton>
+                      {conn.name === 'MQTT - Internal' ? (
+                        <Chip label="System" size="small" color="default" />
+                      ) : (
+                        <>
+                          <Tooltip title={conn.enabled ? "Disable" : "Enable"}>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleToggleConnection(conn)}
+                              color={conn.enabled ? "warning" : "success"}
+                            >
+                              {conn.enabled ? <PauseIcon /> : <PlayArrowIcon />}
+                            </IconButton>
+                          </Tooltip>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => openEditConnection(conn)}
+                            color="primary"
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => openDeleteDialog('connection', conn)}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
@@ -405,6 +444,8 @@ const MqttManager = () => {
             </TableBody>
           </Table>
         </TableContainer>
+          </Box>
+        )}
       </TabPanel>
 
       {/* Subscriptions Tab */}
@@ -416,7 +457,7 @@ const MqttManager = () => {
             startIcon={<AddIcon />}
             onClick={() => {
               setEditingSubscription(null);
-              setSelectedConnectionId(connections[0]?.id || null);
+              setSelectedConnectionId(null);
               setSubscriptionFormOpen(true);
             }}
             disabled={connections.length === 0}
@@ -427,7 +468,7 @@ const MqttManager = () => {
 
         {connections.length === 0 ? (
           <Alert severity="info">
-            Create an MQTT connection first before adding subscriptions.
+            Configure a device or external broker in the Connections tab before adding subscriptions.
           </Alert>
         ) : (
           <TableContainer component={Paper}>
@@ -564,7 +605,7 @@ const MqttManager = () => {
 
         {connections.length === 0 ? (
           <Alert severity="info">
-            Create an MQTT connection first before adding publishers.
+            Configure a device or external broker in the Connections tab before adding publishers.
           </Alert>
         ) : (
           <TableContainer component={Paper}>

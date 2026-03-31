@@ -43,6 +43,7 @@ import { ensureAdminPassword } from './services/bootstrap.js';
 import { connectivityBootstrap } from './services/connectivity-bootstrap.js';
 import { flowBootstrap } from './services/flow-bootstrap.js';
 import { initDemoMode } from './services/demo-mode.js';
+import { ensureInternalMqttConnection } from './services/mqtt-bootstrap.js';
 import { systemMetricsSampler } from './services/system-metrics-sampler.js';
 import { tsdbPoliciesPlugin } from './services/tsdb-policies.js';
 import { registerSessionRetention } from './services/session-retention.js';
@@ -148,6 +149,8 @@ export async function buildServer() {
   await ensureAdminPassword(app);
   // Initialize demo mode (creates read-only demo user if DEMO_MODE=1)
   await initDemoMode(app);
+  // Ensure internal MQTT connection to NanoMQ exists
+  await ensureInternalMqttConnection(app);
   // Start session retention purge (purges revoked or expired older than retention window)
   registerSessionRetention(app);
 

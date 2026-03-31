@@ -152,16 +152,28 @@ const QueryControls = () => {
       // Collect all tag IDs (backend will handle multi-connection queries)
       const allTagIds = chartConfig.tagConfigs.map(tag => tag.tag_id);
 
+      // Check if all tags share the same connection_id
+      // If so, include it in the query for better performance (uses primary key)
+      const connectionIds = [...new Set(chartConfig.tagConfigs.map(tag => tag.connection_id).filter(Boolean))];
+      const singleConnectionId = connectionIds.length === 1 ? connectionIds[0] : null;
+
       // Single API call for all tags
       // Backend will auto-detect System tags vs regular tags based on tag_id
       // and query from system_metrics or tag_values table accordingly
-      const response = await chartComposerService.queryData({
+      const queryParams = {
         tag_ids: allTagIds,
         from: effectiveFromDate.toISOString(),
         to: effectiveToDate.toISOString(),
         limit: maxDataPoints,
         no_aggregation: !smartCompression,
-      });
+      };
+
+      // Include connection_id if all tags are from the same connection
+      if (singleConnectionId) {
+        queryParams.conn_id = singleConnectionId;
+      }
+
+      const response = await chartComposerService.queryData(queryParams);
 
       // Handle response
       if (response?.error && !isAutoRefresh) {
