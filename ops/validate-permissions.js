@@ -40,6 +40,8 @@ const PUBLIC_ENDPOINTS = [
   { file: 'config.js', patterns: ['/'] }, // GET config is authenticated but no permission check
   { file: 'health.js', patterns: ['/'] }, // All health endpoints are public
   { file: 'metrics.js', patterns: ['/'] }, // Metrics endpoint is public
+  // Broker-internal endpoints — called by NanoMQ from Docker network, not by users
+  { file: 'mqtt.js', patterns: ['/api/mqtt/auth', '/api/mqtt/acl', '/api/mqtt/webhook'] },
 ];
 
 // Routes that use preHandler hooks for all endpoints
@@ -330,7 +332,10 @@ function analyzeFile(filename) {
     
     // Check for permission check
     if (hasCheck) {
-      stats.routesProtected++;
+      // Only count here if not already bulk-counted via the preHandler path above
+      if (!usesPreHandlerHook) {
+        stats.routesProtected++;
+      }
       log(`  ✓ ${routeSignature} (line ${route.lineNumber}) - Protected`, 'verbose');
     } else {
       stats.routesMissingCheck++;

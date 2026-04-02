@@ -25,6 +25,8 @@ import {
   Card,
   CardContent,
   Grid,
+  FormControlLabel,
+  Switch,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -34,6 +36,7 @@ import RouterIcon from '@mui/icons-material/Router';
 import SubscriptionsIcon from '@mui/icons-material/Subscriptions';
 import PublishIcon from '@mui/icons-material/Publish';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import SecurityIcon from '@mui/icons-material/Security';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -55,7 +58,7 @@ function TabPanel({ children, value, index }) {
 
 const MqttManager = () => {
   const [tabValue, setTabValue] = useState(0);
-  const [connectionSubTab, setConnectionSubTab] = useState(0); // 0: Devices, 1: External Brokers
+  const [requireAuth, setRequireAuth] = useState(false);
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
@@ -124,18 +127,19 @@ const MqttManager = () => {
       const clientsData = await mqttService.getClients();
       setClients(clientsData);
     } catch (err) {
-      console.error('Failed to load broker status:', err);
+      console.warn('Broker status temporarily unavailable:', err.message);
     }
   }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([
+      const [,,, authSetting] = await Promise.all([
         loadConnections(),
         loadSubscriptions(),
         loadPublishers(),
         loadBrokerStatus(),
+        mqttService.getAuthSetting().then(s => setRequireAuth(s.mqtt_require_auth)).catch(() => {}),
       ]);
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -314,33 +318,47 @@ const MqttManager = () => {
 
   return (
     <Box>
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-        <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)}>
-          <Tab icon={<RouterIcon />} label="Connections" iconPosition="start" />
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, display: 'flex', alignItems: 'center' }}>
+        <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)} sx={{ flex: 1 }}>
+          <Tab icon={<SecurityIcon />} label="Credential Groups" iconPosition="start" />
+          <Tab icon={<CloudIcon />} label="Devices" iconPosition="start" />
+          <Tab icon={<RouterIcon />} label="Brokers" iconPosition="start" />
           <Tab icon={<SubscriptionsIcon />} label="Subscriptions" iconPosition="start" />
           <Tab icon={<PublishIcon />} label="Publishers" iconPosition="start" />
         </Tabs>
+        <Tooltip title="When enabled, devices must provide valid credentials to connect. Disabling allows anonymous connections. Changing this setting will restart the broker and disconnect all clients." placement="bottom-end">
+          <FormControlLabel
+          control={<Switch checked={requireAuth} onChange={async () => {
+            try {
+              const newValue = !requireAuth;
+              await mqttService.updateAuthSetting(newValue);
+              setRequireAuth(newValue);
+              showSnackbar(
+                newValue ? 'Authentication enabled. Devices must provide credentials.' : 'Anonymous mode active. Any device can connect.',
+                'success'
+              );
+            } catch (err) {
+              showSnackbar('Failed to update authentication setting', 'error');
+            }
+          }} color="primary" size="small" />}
+          label="Require Auth"
+          sx={{ mr: 1, mb: 0, whiteSpace: 'nowrap' }}
+        />
+        </Tooltip>
       </Box>
 
-      {/* Connections Tab with nested sub-tabs */}
+      {/* Credential Groups Tab */}
       <TabPanel value={tabValue} index={0}>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-          <Tabs value={connectionSubTab} onChange={(e, v) => setConnectionSubTab(v)}>
-            <Tab icon={<CloudIcon />} label="Devices" iconPosition="start" />
-            <Tab icon={<RouterIcon />} label="MQTT Brokers" iconPosition="start" />
-          </Tabs>
-        </Box>
+        <MqttDeviceCredentials section="credentials" onNotify={showSnackbar} requireAuth={requireAuth} onAuthChange={setRequireAuth} />
+      </TabPanel>
 
-        {/* Devices Sub-Tab */}
-        {connectionSubTab === 0 && (
-          <Box sx={{ py: 2 }}>
-            <MqttDeviceCredentials onNotify={showSnackbar} />
-          </Box>
-        )}
+      {/* Devices Tab */}
+      <TabPanel value={tabValue} index={1}>
+        <MqttDeviceCredentials section="devices" onNotify={showSnackbar} requireAuth={requireAuth} onAuthChange={setRequireAuth} />
+      </TabPanel>
 
-        {/* MQTT Brokers Sub-Tab */}
-        {connectionSubTab === 1 && (
-          <Box sx={{ py: 2 }}>
+      {/* Brokers Tab */}
+      <TabPanel value={tabValue} index={2}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
               <Typography variant="h6">MQTT Brokers</Typography>
               <Button
@@ -444,12 +462,10 @@ const MqttManager = () => {
             </TableBody>
           </Table>
         </TableContainer>
-          </Box>
-        )}
       </TabPanel>
 
       {/* Subscriptions Tab */}
-      <TabPanel value={tabValue} index={1}>
+      <TabPanel value={tabValue} index={3}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="h6">MQTT Subscriptions</Typography>
           <Button
@@ -468,7 +484,7 @@ const MqttManager = () => {
 
         {connections.length === 0 ? (
           <Alert severity="info">
-            Configure a device or external broker in the Connections tab before adding subscriptions.
+            Configure a broker in the Brokers tab before adding subscriptions.
           </Alert>
         ) : (
           <TableContainer component={Paper}>
@@ -590,7 +606,7 @@ const MqttManager = () => {
       </TabPanel>
 
       {/* Publishers Tab */}
-      <TabPanel value={tabValue} index={2}>
+      <TabPanel value={tabValue} index={4}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="h6">MQTT Publishers</Typography>
           <Button
@@ -605,7 +621,7 @@ const MqttManager = () => {
 
         {connections.length === 0 ? (
           <Alert severity="info">
-            Configure a device or external broker in the Connections tab before adding publishers.
+            Configure a broker in the Brokers tab before adding publishers.
           </Alert>
         ) : (
           <TableContainer component={Paper}>

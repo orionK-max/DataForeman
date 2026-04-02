@@ -119,6 +119,10 @@ const mqttService = {
     return response;
   },
 
+  async clearSubscriptionMessages(subscriptionId) {
+    return await api.delete(`/mqtt/subscriptions/${subscriptionId}/messages`);
+  },
+
   // ==================== Publishers ====================
 
   /**
@@ -255,6 +259,10 @@ const mqttService = {
     return await api.post(`/mqtt/subscriptions/${subscriptionId}/analyze-fields`);
   },
 
+  async previewExpression(subscriptionId, expression, topic = null) {
+    return await api.post(`/mqtt/subscriptions/${subscriptionId}/preview-expression`, { expression, topic });
+  },
+
   /**
    * Get field mappings for a subscription
    * @param {string} subscriptionId - Subscription ID (optional)
@@ -320,11 +328,11 @@ const mqttService = {
     });
   },
 
-  // ==================== Device Credentials ====================
+  // ==================== Credential Groups ====================
 
   /**
-   * Get all device credentials
-   * @returns {Promise<Array>} List of device credentials
+   * Get all credential groups
+   * @returns {Promise<Array>} List of credential groups
    */
   async getDeviceCredentials() {
     const response = await api.get('/mqtt/device-credentials');
@@ -332,40 +340,61 @@ const mqttService = {
   },
 
   /**
-   * Create a new device credential
-   * @param {Object} credentialData - { device_name, username, password, enabled }
-   * @returns {Promise<Object>} Created credential
+   * Create a new credential group
+   * @param {Object} credentialData - { name, username, password, enabled, timeout_seconds }
+   * @returns {Promise<Object>} Created credential group
    */
   async createDeviceCredential(credentialData) {
     return await api.post('/mqtt/device-credentials', credentialData);
   },
 
   /**
-   * Update a device credential
-   * @param {string} credentialId - Credential ID
-   * @param {Object} updates - { device_name?, password?, enabled? }
-   * @returns {Promise<Object>} Updated credential
+   * Update a credential group
+   * @param {string} credentialId - Credential group ID
+   * @param {Object} updates - { name?, password?, enabled?, timeout_seconds? }
+   * @returns {Promise<Object>} Updated credential group
    */
   async updateDeviceCredential(credentialId, updates) {
     return await api.put(`/mqtt/device-credentials/${credentialId}`, updates);
   },
 
   /**
-   * Delete a device credential
-   * @param {string} credentialId - Credential ID
+   * Delete a credential group (cascades to registered devices)
+   * @param {string} credentialId - Credential group ID
    * @returns {Promise<Object>} Success response
    */
   async deleteDeviceCredential(credentialId) {
     return await api.delete(`/mqtt/device-credentials/${credentialId}`);
   },
 
+  // ==================== Devices (auto-registered) ====================
+
   /**
-   * Get aggregated device credential statuses
-   * @returns {Promise<Array>} List of device statuses with status, lastSeen, etc.
+   * Get all auto-registered devices with status
+   * @returns {Promise<Array>} List of devices
    */
-  async getDeviceCredentialStatuses() {
-    const response = await api.get('/mqtt/device-credentials/status');
-    return response.statuses || [];
+  async getDevices() {
+    const response = await api.get('/mqtt/devices');
+    return response.devices || [];
+  },
+
+  /**
+   * Update a device (display_name, enabled)
+   * @param {string} deviceId - Device ID
+   * @param {Object} updates - { display_name?, enabled? }
+   * @returns {Promise<Object>} Updated device
+   */
+  async updateDevice(deviceId, updates) {
+    return await api.put(`/mqtt/devices/${deviceId}`, updates);
+  },
+
+  /**
+   * Delete a device registration
+   * @param {string} deviceId - Device ID
+   * @returns {Promise<Object>} Success response
+   */
+  async deleteDevice(deviceId) {
+    return await api.delete(`/mqtt/devices/${deviceId}`);
   },
 
   /**

@@ -75,8 +75,9 @@ export const telemetryIngestPlugin = fp(async (app) => {
   let lastDeletedRefresh = 0;
   const DELETED_REFRESH_INTERVAL_MS = 30_000; // refresh every 30s (cheap query)
   
-  // Cache tag metadata (tag_path) for RuntimeStateStore
-  const tagMetadataCache = new Map(); // tagId -> { tag_path, driver_type }
+  // Cache tag metadata (tag_path, driver_type, data_type) for RuntimeStateStore and coercion decisions.
+  // data_type is pulled from mqtt_field_mappings — if 'text', numeric-string coercion is suppressed.
+  const tagMetadataCache = new Map(); // tagId -> { tag_path, driver_type, data_type }
   
   async function refreshDeletedTags(force = false) {
     if (!force && Date.now() - lastDeletedRefresh < DELETED_REFRESH_INTERVAL_MS) return;
@@ -102,7 +103,13 @@ export const telemetryIngestPlugin = fp(async (app) => {
     }
     if (t === 'boolean') return { v_num: v ? 1 : 0, v_text: null, v_json: null };
     if (t === 'string') {
-      // small strings only; longer still fine (TOAST) but acceptable for MVP
+      // Auto-coerce numeric strings — many MQTT/Zigbee devices send numbers quoted (e.g. "23.5").
+      // Only coerce if the trimmed string is non-empty and parses to a finite number.
+      const trimmed = v.trim();
+      if (trimmed !== '') {
+        const n = Number(trimmed);
+        if (Number.isFinite(n)) return { v_num: n, v_text: null, v_json: null };
+      }
       return { v_num: null, v_text: v, v_json: null };
     }
     // object / array
@@ -196,7 +203,38 @@ export const telemetryIngestPlugin = fp(async (app) => {
           metrics.skippedDeleted++;
           return; // silently drop
         }
-        const { v_num, v_text, v_json } = classifyValue(obj.v);
+        const tagIdNum = Number(obj.tag_id);
+
+        // Ensure metadata is cached (needed for coercion override below)
+        if (!tagMetadataCache.has(tagIdNum)) {
+          try {
+            const metaResult = await app.db.query(
+              `SELECT tm.tag_path, tm.driver_type, fm.data_type
+               FROM tag_metadata tm
+               LEFT JOIN mqtt_field_mappings fm ON fm.tag_id = tm.tag_id
+               WHERE tm.tag_id = $1
+               LIMIT 1`,
+              [tagIdNum]
+            );
+            if (metaResult.rows.length > 0) {
+              tagMetadataCache.set(tagIdNum, {
+                tag_path: metaResult.rows[0].tag_path,
+                driver_type: metaResult.rows[0].driver_type,
+                data_type: metaResult.rows[0].data_type || null,
+              });
+            }
+          } catch (err) { /* ignore, cache miss */ }
+        }
+
+        let { v_num, v_text, v_json } = classifyValue(obj.v);
+
+        // If the tag is explicitly mapped as 'text', suppress numeric-string coercion.
+        // classifyValue auto-coerces numeric strings to v_num for all other tags.
+        const meta = tagMetadataCache.get(tagIdNum);
+        if (meta?.data_type === 'text' && v_num !== null && typeof obj.v === 'string') {
+          v_num = null;
+          v_text = obj.v;
+        }
         
         // Convert timestamp to Unix timestamp (milliseconds since epoch)
         // obj.ts can be either ISO string or number
@@ -226,41 +264,18 @@ export const telemetryIngestPlugin = fp(async (app) => {
           }
         }
         
-        batch.push({ connection_id: String(obj.connection_id), tag_id: Number(obj.tag_id), ts: tsMs, quality, v_num, v_text, v_json });
+        batch.push({ connection_id: String(obj.connection_id), tag_id: tagIdNum, ts: tsMs, quality, v_num, v_text, v_json });
         app.log.info({ batchSize: batch.length, tag_id: obj.tag_id, v_num, tsMs }, 'Added to batch');
         
         // Update in-memory tag cache for instant reads (if RuntimeStateStore is available)
         if (app.runtimeState) {
-          const tagIdNum = Number(obj.tag_id);
-          
           // Determine the actual value based on type
           let value = v_num;
           if (v_num === null && v_text !== null) value = v_text;
           else if (v_num === null && v_text === null && v_json !== null) value = v_json;
           
-          // Get tag_path from metadata cache (query once per tag)
-          let tagPath = null;
-          if (!tagMetadataCache.has(tagIdNum)) {
-            try {
-              const metaResult = await app.db.query(
-                'SELECT tag_path, driver_type FROM tag_metadata WHERE tag_id = $1',
-                [tagIdNum]
-              );
-              if (metaResult.rows.length > 0) {
-                tagMetadataCache.set(tagIdNum, {
-                  tag_path: metaResult.rows[0].tag_path,
-                  driver_type: metaResult.rows[0].driver_type
-                });
-              }
-            } catch (err) {
-              // Ignore metadata query errors, cache will work without tagPath
-            }
-          }
-          
-          const cached = tagMetadataCache.get(tagIdNum);
-          if (cached) {
-            tagPath = cached.tag_path;
-          }
+          // tag_path already loaded into tagMetadataCache above (before classifyValue)
+          const tagPath = tagMetadataCache.get(tagIdNum)?.tag_path || null;
           
           app.runtimeState.setTagValue(
             tagIdNum,
@@ -270,6 +285,9 @@ export const telemetryIngestPlugin = fp(async (app) => {
             String(obj.connection_id),
             tagPath
           );
+
+          // Trigger on_change MQTT publishers watching this tag
+          app.mqttPublisherService?.onTagUpdate(tagIdNum, value);
         }
         
         maybeFlush();

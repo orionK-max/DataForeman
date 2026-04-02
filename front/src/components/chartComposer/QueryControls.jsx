@@ -685,20 +685,24 @@ const QueryControls = () => {
                       value={fromDate}
                       onChange={(newValue) => {
                         setFromDate(newValue);
-                        setTimeRange({ from: newValue, to: toDate }); // Sync with context
                         setHasUnsavedChanges(true);
                       }}
-                      slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                      onAccept={(newValue) => {
+                        setTimeRange({ from: newValue, to: toDate }); // Sync with context only on confirm
+                      }}
+                      slotProps={{ textField: { size: 'small', fullWidth: true, onBlur: () => setTimeRange({ from: fromDate, to: toDate }) } }}
                     />
                     <DateTimePicker
                       label="To"
                       value={toDate}
                       onChange={(newValue) => {
                         setToDate(newValue);
-                        setTimeRange({ from: fromDate, to: newValue }); // Sync with context
                         setHasUnsavedChanges(true);
                       }}
-                      slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                      onAccept={(newValue) => {
+                        setTimeRange({ from: fromDate, to: newValue }); // Sync with context only on confirm
+                      }}
+                      slotProps={{ textField: { size: 'small', fullWidth: true, onBlur: () => setTimeRange({ from: fromDate, to: toDate }) } }}
                     />
                     <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
                       Presets adjust "To" from "From" + duration

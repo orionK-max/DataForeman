@@ -151,6 +151,15 @@ export async function buildServer() {
   await initDemoMode(app);
   // Ensure internal MQTT connection to NanoMQ exists
   await ensureInternalMqttConnection(app);
+
+  // Initialize MQTT publisher service (template-based publish scheduler)
+  {
+    const { MqttPublisherService } = await import('./services/mqtt-publisher-service.js');
+    const pubService = new MqttPublisherService(app);
+    app.decorate('mqttPublisherService', pubService);
+    await pubService.init();
+  }
+
   // Start session retention purge (purges revoked or expired older than retention window)
   registerSessionRetention(app);
 

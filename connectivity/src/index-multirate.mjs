@@ -410,7 +410,7 @@ async function handleConfigUpdate(nc, data) {
       data.conn = { ...data.conn, type: normType };
     }
 
-    if (!data.conn.enabled) {
+    if (data.conn.enabled === false) {
       if (existing) {
         try { await existing.driver.disconnect(); } catch {}
         // Unregister connection from host tracking

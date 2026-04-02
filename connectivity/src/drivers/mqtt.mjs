@@ -290,30 +290,6 @@ export class MQTTDriver {
       return; // No subscription handler for this topic
     }
 
-    // Check device credential if linked to subscription
-    if (sub.device_credential_id && this.deviceCredentialsCache) {
-      const credStatus = this.deviceCredentialsCache.getStatusById(sub.device_credential_id);
-      
-      if (!credStatus) {
-        this.log.warn({ 
-          topic, 
-          device_credential_id: sub.device_credential_id 
-        }, 'Device credential not found in cache - dropping message');
-        return;
-      }
-
-      if (!credStatus.enabled) {
-        this.log.debug({ 
-          topic, 
-          device_credential_id: sub.device_credential_id 
-        }, 'Device credential disabled - dropping message');
-        return;
-      }
-
-      // Update lastSeen timestamp (pass credential ID)
-      this.deviceCredentialsCache.updateLastSeen(sub.device_credential_id);
-    }
-
     let payload;
     try {
       if (sub.payload_format === 'json') {
@@ -359,6 +335,17 @@ export class MQTTDriver {
               tag_id: mapping.tag_id,
               tag_name: mapping.tag_name
             }, 'Extracted field value');
+          }
+
+          // For raw (non-JSON) payloads, evaluate value_expression if provided
+          if (mapping.value_expression && typeof payload === 'string') {
+            try {
+              // eslint-disable-next-line no-new-func
+              value = new Function('payload', `"use strict"; return (${mapping.value_expression});`)(payload);
+            } catch (err) {
+              this.log.warn({ err, expression: mapping.value_expression, tag_name: mapping.tag_name }, 'Expression evaluation failed');
+              value = null;
+            }
           }
 
           // Skip if value is undefined/null
@@ -805,7 +792,6 @@ export class MQTTDriver {
           quality_path: sub.quality_path,
           tag_prefix: sub.tag_prefix,
           message_buffer_size: sub.message_buffer_size,
-          device_credential_id: sub.device_credential_id,
           handler: this.dataHandler
         });
         subscribedCount++;
@@ -1046,17 +1032,16 @@ export class MQTTDriver {
       for (const sub of matchingSubscriptions) {
         if (!sub.subscription_id) continue; // Skip if no subscription ID
 
-        // Insert message into buffer with device_id (if subscription has device_credential_id)
+        // Insert message into buffer
         await this.dbHelper.query(
-          `INSERT INTO mqtt_message_buffer (subscription_id, topic, payload, qos, retained, device_id)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          `INSERT INTO mqtt_message_buffer (subscription_id, topic, payload, qos, retained)
+           VALUES ($1, $2, $3, $4, $5)`,
           [
             sub.subscription_id,
             topic,
             JSON.stringify(payload),
             packet.qos || 0,
-            packet.retain || false,
-            sub.device_credential_id || null
+            packet.retain || false
           ]
         );
 
@@ -1130,7 +1115,8 @@ export class MQTTDriver {
           enabled: row.enabled,
           type_strictness: row.type_strictness,
           on_failure: row.on_failure,
-          default_value: row.default_value
+          default_value: row.default_value,
+          value_expression: row.value_expression || null
         });
       }
 

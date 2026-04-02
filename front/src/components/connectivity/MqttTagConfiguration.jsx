@@ -35,8 +35,11 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ImportExportIcon from '@mui/icons-material/ImportExport';
 import SearchIcon from '@mui/icons-material/Search';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import mqttService from '../../services/mqttService';
 import SavedTagsList from './SavedTagsList';
+import RawFieldModal from './RawFieldModal';
 
 const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections = [], onTagsSaved }) => {
   const [selectedConnection, setSelectedConnection] = useState(initialConnectionId || '');
@@ -49,10 +52,15 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
   const [detectedFields, setDetectedFields] = useState([]);
   const [selectedFields, setSelectedFields] = useState(new Set());
   const [detectedFieldNames, setDetectedFieldNames] = useState({});
+  const [detectedFieldDataTypes, setDetectedFieldDataTypes] = useState({});
   const [detectedFieldsSearch, setDetectedFieldsSearch] = useState('');
   
   // Manual entry
   const [manualFields, setManualFields] = useState([]);
+
+  // Raw field mappings (non-JSON subscriptions)
+  const [rawFields, setRawFields] = useState([]);
+  const [rawFieldModalOpen, setRawFieldModalOpen] = useState(false);
   
   // Existing mappings
   const [existingMappings, setExistingMappings] = useState([]);
@@ -72,13 +80,14 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
   const [savedTagsRefreshKey, setSavedTagsRefreshKey] = useState(0);
 
   useEffect(() => {
-    if (initialConnectionId && initialConnectionId !== selectedConnection) {
+    if (initialConnectionId && !selectedConnection) {
       setSelectedConnection(initialConnectionId);
     }
-  }, [initialConnectionId, selectedConnection]);
+  }, [initialConnectionId]);
 
   useEffect(() => {
     if (selectedConnection) {
+      setSelectedSubscription('');
       loadSubscriptions();
     }
   }, [selectedConnection]);
@@ -115,7 +124,9 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
       // Clear detection state when changing subscriptions
       setDetectedFields([]);
       setSelectedFields(new Set());
+      setDetectedFieldDataTypes({});
       setManualFields([]);
+      setRawFields([]);
       setDetectedFieldsSearch('');
       // Automatically analyze fields when subscription is selected
       handleAnalyzeFields();
@@ -195,7 +206,14 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
           .join('');
       });
       setDetectedFieldNames(defaultNames);
-      
+
+      const defaultTypes = {};
+      (result.combinations || []).forEach(combo => {
+        const key = `${combo.topic}|${combo.field_path}`;
+        defaultTypes[key] = combo.data_type.toLowerCase();
+      });
+      setDetectedFieldDataTypes(defaultTypes);
+
       if (result.combinations.length === 0) {
         setError('No fields detected. Make sure messages are being received.');
       }
@@ -257,7 +275,7 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
           topic: combo.topic,
           field_path: combo.field_path,
           tag_name: detectedFieldNames[key] || combo.field_path.replace(/\./g, '_'),
-          data_type: combo.data_type.toLowerCase(),
+          data_type: detectedFieldDataTypes[key] || combo.data_type.toLowerCase(),
           type_strictness: 'coerce',
           on_failure: 'skip',
           default_value: null,
@@ -273,6 +291,17 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
         type_strictness: f.type_strictness || 'coerce',
         on_failure: f.on_failure || 'skip',
         default_value: f.default_value || null,
+        enabled: true,
+      })),
+      ...rawFields.filter(f => f.topic && f.value_expression && f.tag_name).map(f => ({
+        subscription_id: selectedSubscription,
+        topic: f.topic,
+        tag_name: f.tag_name,
+        data_type: f.data_type.toLowerCase(),
+        value_expression: f.value_expression,
+        type_strictness: 'coerce',
+        on_failure: 'skip',
+        default_value: null,
         enabled: true,
       })),
     ];
@@ -296,12 +325,13 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
       // Create tags from mappings
       const tagResult = await mqttService.createTagsFromMappings(mappingIds);
       
-      setSuccess(true);
+      setSuccess('Tags saved successfully');
       setError(null);
       
       // Clear selections
       setSelectedFields(new Set());
       setManualFields([]);
+      setRawFields([]);
       
       // Reload mappings and refresh saved tags
       await loadExistingMappings();
@@ -314,9 +344,21 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
       // Show results
       const created = tagResult.created || 0;
       const failed = tagResult.failed || 0;
-      setSuccess(`Created ${created} tags${failed > 0 ? `, ${failed} failed` : ''}`);
-      
-      setTimeout(() => setSuccess(false), 3000);
+
+      if (failed > 0 && created === 0) {
+        // All failed — show as error
+        const messages = tagResult.errors?.map(e => e.error).join('\n') || 'Unknown error';
+        setSuccess(false);
+        setError(`Failed to create tag${failed > 1 ? 's' : ''}:\n${messages}`);
+      } else if (failed > 0) {
+        // Partial — show success count + error details
+        const messages = tagResult.errors?.map(e => e.error).join('\n');
+        setSuccess(`Created ${created} tag${created !== 1 ? 's' : ''}`);
+        setError(`${failed} tag${failed > 1 ? 's' : ''} could not be created:\n${messages}`);
+      } else {
+        setSuccess(`Created ${created} tag${created !== 1 ? 's' : ''}`);
+        setTimeout(() => setSuccess(false), 3000);
+      }
 
     } catch (err) {
       console.error('Failed to create mappings:', err);
@@ -394,6 +436,24 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
     return existingMappings.some(m => m.topic === topic && m.field_path === fieldPath);
   };
 
+  // Derived: selected subscription object (for payload_format)
+  const selectedSubObject = subscriptions.find(s => s.id === selectedSubscription);
+  const isRawSubscription = selectedSubObject?.payload_format === 'raw';
+  const subscriptionTopics = selectedSubObject ? [selectedSubObject.topic] : [];
+
+  const getMappingForField = (topic, fieldPath) => {
+    return existingMappings.find(m => m.topic === topic && m.field_path === fieldPath);
+  };
+
+  const handleUnmapField = async (mappingId) => {
+    try {
+      await mqttService.deleteFieldMapping(mappingId);
+      await loadExistingMappings();
+    } catch (err) {
+      console.error('Failed to remove mapping:', err);
+    }
+  };
+
   return (
     <Box sx={{ display: 'flex', gap: 2, height: 'calc(100vh - 280px)', minHeight: 0 }}>
       {/* Left Panel - Configuration */}
@@ -417,9 +477,11 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
                 </Alert>
               )}
 
+
+
               {/* Connection & Subscription Selector */}
               <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-                {!initialConnectionId && (
+                {connections.length > 1 && (
                   <FormControl fullWidth>
                     <InputLabel>MQTT Connection</InputLabel>
                     <Select
@@ -458,122 +520,33 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
 
               {selectedSubscription && (
                 <>
-                  {/* Analyze Fields Section */}
-                  <Box sx={{ mb: 3 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
-                      <Typography variant="subtitle1">
-                        Detected Fields
-                        {detectedFields.length > 0 && (
-                          <> ({filteredDetectedFields.length}/{detectedFields.length})</>
-                        )}
-                      </Typography>
-                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <TextField
-                          size="small"
-                          placeholder="Search detected fields..."
-                          value={detectedFieldsSearch}
-                          onChange={(e) => setDetectedFieldsSearch(e.target.value)}
-                          sx={{ minWidth: 260 }}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <SearchIcon fontSize="small" />
-                              </InputAdornment>
-                            ),
-                          }}
-                        />
-                        <Button
-                          startIcon={analyzing ? <CircularProgress size={16} /> : <RefreshIcon />}
-                          onClick={handleAnalyzeFields}
-                          disabled={analyzing}
-                          size="small"
-                        >
-                          {analyzing ? 'Analyzing...' : 'Analyze Fields'}
-                        </Button>
-                        <Button
-                          startIcon={<ImportExportIcon />}
-                          onClick={handleOpenCsvDialog}
-                          size="small"
-                        >
-                          Import CSV
-                        </Button>
-                      </Box>
-                    </Box>
-
-                    {detectedFields.length > 0 ? (
-                      <TableContainer component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-                        <Table size="small" stickyHeader>
-                          <TableHead>
-                            <TableRow>
-                              <TableCell padding="checkbox">Select</TableCell>
-                              <TableCell>Topic</TableCell>
-                              <TableCell>Field Path</TableCell>
-                              <TableCell>Tag Name</TableCell>
-                              <TableCell>Data Type</TableCell>
-                              <TableCell>Sample Value</TableCell>
-                              <TableCell>Status</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {filteredDetectedFields.map((combo, idx) => {
-                              const alreadyMapped = isFieldAlreadyMapped(combo.topic, combo.field_path);
-                              const key = `${combo.topic}|${combo.field_path}`;
-                              return (
-                                <TableRow key={idx} hover>
-                                  <TableCell padding="checkbox">
-                                    <Checkbox
-                                      checked={isFieldSelected(combo)}
-                                      onChange={() => handleToggleField(combo)}
-                                      disabled={alreadyMapped}
-                                    />
-                                  </TableCell>
-                                  <TableCell>{combo.topic}</TableCell>
-                                  <TableCell><code>{combo.field_path}</code></TableCell>
-                                  <TableCell>
-                                    <TextField
-                                      size="small"
-                                      value={detectedFieldNames[key] || ''}
-                                      onChange={(e) => setDetectedFieldNames({...detectedFieldNames, [key]: e.target.value})}
-                                      disabled={alreadyMapped}
-                                      placeholder="TagName"
-                                      fullWidth
-                                    />
-                                  </TableCell>
-                                  <TableCell>{combo.data_type}</TableCell>
-                                  <TableCell>{JSON.stringify(combo.sample_value)}</TableCell>
-                                  <TableCell>
-                                    {alreadyMapped ? (
-                                      <Chip label="Mapped" size="small" color="default" />
-                                    ) : (
-                                      <Chip label="New" size="small" color="primary" />
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    ) : (
-                      <Alert severity="info">
-                        Click "Analyze Fields" to detect fields from recent messages
-                      </Alert>
-                    )}
-                  </Box>
-
                   {/* Manual Entry Section */}
                   <Box sx={{ mb: 3 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="subtitle1">
                         Manual Field Entry
                       </Typography>
-                      <Button
-                        startIcon={<AddIcon />}
-                        onClick={handleAddManualField}
-                        size="small"
-                      >
-                        Add Field
-                      </Button>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        {isRawSubscription && (
+                          <Button
+                            startIcon={<AddIcon />}
+                            onClick={() => setRawFieldModalOpen(true)}
+                            size="small"
+                            variant="outlined"
+                          >
+                            Add Raw Field
+                          </Button>
+                        )}
+                        {!isRawSubscription && (
+                          <Button
+                            startIcon={<AddIcon />}
+                            onClick={handleAddManualField}
+                            size="small"
+                          >
+                            Add Field
+                          </Button>
+                        )}
+                      </Box>
                     </Box>
 
                     {manualFields.length > 0 && (
@@ -619,6 +592,7 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
                                   />
                                 </TableCell>
                                 <TableCell>
+                                <Box>
                                   <TextField
                                     select
                                     size="small"
@@ -632,6 +606,15 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
                                     <MenuItem value="bool">bool</MenuItem>
                                     <MenuItem value="json">json</MenuItem>
                                   </TextField>
+                                  {field.data_type === 'text' && (
+                                    <Tooltip title="Numeric-looking string values (e.g. &quot;23.5&quot;) will be stored as text, not as numbers. Charts cannot plot text values.">
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, color: 'warning.main' }}>
+                                        <WarningAmberIcon sx={{ fontSize: 14 }} />
+                                        <Typography variant="caption">Stored as text</Typography>
+                                      </Box>
+                                    </Tooltip>
+                                  )}
+                                </Box>
                                 </TableCell>
                                 <TableCell>
                                   <IconButton size="small" onClick={() => handleRemoveManualField(idx)}>
@@ -643,6 +626,163 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
                           </TableBody>
                         </Table>
                       </TableContainer>
+                    )}
+
+                    {/* Raw fields list (for raw-format subscriptions) */}
+                    {rawFields.length > 0 && (
+                      <TableContainer component={Paper} variant="outlined" sx={{ mt: manualFields.length > 0 ? 1 : 0 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Topic</TableCell>
+                              <TableCell>Expression</TableCell>
+                              <TableCell>Tag Name</TableCell>
+                              <TableCell>Type</TableCell>
+                              <TableCell width={50}></TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {rawFields.map((field, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell>{field.topic}</TableCell>
+                                <TableCell>
+                                  <code style={{ fontSize: '0.75rem' }}>{field.value_expression}</code>
+                                </TableCell>
+                                <TableCell>{field.tag_name}</TableCell>
+                                <TableCell>{field.data_type}</TableCell>
+                                <TableCell>
+                                  <IconButton size="small" onClick={() => setRawFields(rawFields.filter((_, i) => i !== idx))}>
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )}
+                  </Box>
+
+                  {/* Analyze Fields Section */}
+                  <Box sx={{ mb: 3 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
+                      <Typography variant="subtitle1">
+                        Detected Fields
+                        {detectedFields.length > 0 && (
+                          <> ({filteredDetectedFields.length}/{detectedFields.length})</>
+                        )}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <TextField
+                          size="small"
+                          placeholder="Search detected fields..."
+                          value={detectedFieldsSearch}
+                          onChange={(e) => setDetectedFieldsSearch(e.target.value)}
+                          sx={{ minWidth: 260 }}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <SearchIcon fontSize="small" />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                        <Button
+                          startIcon={analyzing ? <CircularProgress size={16} /> : <RefreshIcon />}
+                          onClick={handleAnalyzeFields}
+                          disabled={analyzing}
+                          size="small"
+                        >
+                          {analyzing ? 'Refreshing...' : 'Refresh'}
+                        </Button>
+                        <Button
+                          startIcon={<ImportExportIcon />}
+                          onClick={handleOpenCsvDialog}
+                          size="small"
+                        >
+                          Import CSV
+                        </Button>
+                      </Box>
+                    </Box>
+
+                    {detectedFields.length > 0 ? (
+                      <TableContainer component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                        <Table size="small" stickyHeader>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell padding="checkbox">Select</TableCell>
+                              <TableCell>Topic</TableCell>
+                              <TableCell>Field Path</TableCell>
+                              <TableCell>Tag Name</TableCell>
+                              <TableCell>
+                                <Tooltip title="Select a row to change its storage type before saving. The ingestor will coerce values to the chosen type." placement="top">
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'default' }}>
+                                    Data Type <InfoOutlinedIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                                  </Box>
+                                </Tooltip>
+                              </TableCell>
+                              <TableCell>Last Value</TableCell>
+                              <TableCell>Status</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {filteredDetectedFields.map((combo, idx) => {
+                              const alreadyMapped = isFieldAlreadyMapped(combo.topic, combo.field_path);
+                              const key = `${combo.topic}|${combo.field_path}`;
+                              return (
+                                <TableRow key={idx} hover>
+                                  <TableCell padding="checkbox">
+                                    <Checkbox
+                                      checked={isFieldSelected(combo)}
+                                      onChange={() => handleToggleField(combo)}
+                                      disabled={alreadyMapped}
+                                    />
+                                  </TableCell>
+                                  <TableCell>{combo.topic}</TableCell>
+                                  <TableCell><code>{combo.field_path}</code></TableCell>
+                                  <TableCell>
+                                    <TextField
+                                      size="small"
+                                      value={detectedFieldNames[key] || ''}
+                                      onChange={(e) => setDetectedFieldNames({...detectedFieldNames, [key]: e.target.value})}
+                                      disabled={alreadyMapped}
+                                      placeholder="TagName"
+                                      fullWidth
+                                    />
+                                  </TableCell>
+                                  <TableCell sx={{ py: 0 }}>
+                                    <Select
+                                      size="small"
+                                      value={detectedFieldDataTypes[key] || combo.data_type.toLowerCase()}
+                                      onChange={(e) => setDetectedFieldDataTypes(prev => ({ ...prev, [key]: e.target.value }))}
+                                      disabled={alreadyMapped || !isFieldSelected(combo)}
+                                      sx={{ minWidth: 80 }}
+                                    >
+                                      <MenuItem value="real">real</MenuItem>
+                                      <MenuItem value="int">int</MenuItem>
+                                      <MenuItem value="text">text</MenuItem>
+                                      <MenuItem value="bool">bool</MenuItem>
+                                      <MenuItem value="json">json</MenuItem>
+                                    </Select>
+                                  </TableCell>
+                                  <TableCell>{JSON.stringify(combo.sample_value)}</TableCell>
+                                  <TableCell>
+                                    {alreadyMapped ? (
+                                      <Chip label="Mapped" size="small" color="default" />
+                                    ) : (
+                                      <Chip label="New" size="small" color="primary" />
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    ) : (
+                      <Alert severity="info">
+                        Click "Refresh" to detect fields from recent messages
+                      </Alert>
                     )}
                   </Box>
 
@@ -672,7 +812,7 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
                   color="primary"
                   startIcon={creating ? <CircularProgress size={16} /> : <SaveIcon />}
                   onClick={handleCreateMappings}
-                  disabled={creating || (selectedFields.size === 0 && manualFields.length === 0)}
+                  disabled={creating || (selectedFields.size === 0 && manualFields.length === 0 && rawFields.length === 0)}
                 >
                   {creating ? 'Creating...' : 'Create Tags from Mappings'}
                 </Button>
@@ -790,6 +930,15 @@ const MqttTagConfiguration = ({ connectionId: initialConnectionId, connections =
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Raw Field Modal */}
+      <RawFieldModal
+        open={rawFieldModalOpen}
+        onClose={() => setRawFieldModalOpen(false)}
+        onAdd={(field) => setRawFields(prev => [...prev, field])}
+        subscriptionId={selectedSubscription}
+        topics={subscriptionTopics}
+      />
     </Box>
   );
 };

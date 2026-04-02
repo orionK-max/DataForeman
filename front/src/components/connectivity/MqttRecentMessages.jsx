@@ -21,6 +21,7 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
+import ClearAllIcon from '@mui/icons-material/ClearAll';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
@@ -94,6 +95,16 @@ const MqttRecentMessages = ({ subscriptionId, autoRefresh = true, refreshInterva
 
   const toggleAutoRefresh = () => {
     setIsAutoRefresh(!isAutoRefresh);
+  };
+
+  const clearMessages = () => {
+    setMessages([]);
+    setExpandedRows(new Set());
+    // Also clear the backend message buffer so Analyze Fields reflects the cleared state
+    if (subscriptionId) {
+      mqttService.clearSubscriptionMessages(subscriptionId)
+        .catch(err => console.warn('Failed to clear message buffer:', err));
+    }
   };
 
   // Initial load
@@ -177,6 +188,13 @@ const MqttRecentMessages = ({ subscriptionId, autoRefresh = true, refreshInterva
             >
               <AutorenewIcon />
             </IconButton>
+          </Tooltip>
+          <Tooltip title="Clear messages">
+            <span>
+              <IconButton size="small" onClick={clearMessages} disabled={messages.length === 0}>
+                <ClearAllIcon />
+              </IconButton>
+            </span>
           </Tooltip>
           <Tooltip title="Refresh now">
             <IconButton size="small" onClick={handleRefresh}>

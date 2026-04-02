@@ -38,6 +38,9 @@ services:
 
   broker:
     build: ./nanomq
+    restart: always
+    environment:
+      NANOMQ_ALLOW_ANONYMOUS: "false"
     ports:
       - "${NANOMQ_MQTT_PORT:-1883}:1883"        # MQTT
       - "${NANOMQ_MQTTS_PORT:-8883}:8883"       # MQTT over TLS
@@ -47,7 +50,8 @@ services:
       - ./logs/nanomq:/var/log/nanomq
       - ./nanomq/nanomq.conf:/etc/nanomq/nanomq.conf:ro
     depends_on:
-      - core
+      core:
+        condition: service_healthy
 
   tsdb:
     image: timescale/timescaledb:latest-pg16
@@ -102,6 +106,12 @@ services:
       FLOW_ALLOWED_PATHS: ${FLOW_ALLOWED_PATHS:-/tmp,/var/dataforeman/flows}
       # Job dispatcher concurrency (max concurrent jobs)
       MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-20}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
     depends_on:
       - db
       - nats

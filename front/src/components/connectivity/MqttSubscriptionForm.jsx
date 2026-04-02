@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -18,6 +18,7 @@ import {
   Alert,
   Typography,
   InputAdornment,
+  Autocomplete,
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import mqttService from '../../services/mqttService';
@@ -38,24 +39,31 @@ const MqttSubscriptionForm = ({
     tag_prefix: '',
     message_buffer_size: 100,
     enabled: true,
-    device_credential_id: null,
   });
 
   const [error, setError] = useState('');
   const [connections, setConnections] = useState([]);
-  const [deviceCredentials, setDeviceCredentials] = useState([]);
+  const [devices, setDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [selectedConnectionName, setSelectedConnectionName] = useState('');
 
   const tagPrefixHelpText =
     'Optional namespace prepended to generated tag paths (not the MQTT topic). Useful to keep tags distinct when multiple subscriptions/connections use similar topics (e.g., mqtt.brokerA.tele.sensor1.temp). Note: changing this does not rename existing saved tags; it affects newly created tags going forward.';
 
-  // Load connections when form opens if no connectionId is provided
+  // Topics available for the selected device
+  const deviceTopics = useMemo(() => {
+    if (!selectedDeviceId) return [];
+    const dev = devices.find(d => d.id === selectedDeviceId);
+    return (dev?.topics || []).map(t => t.topic).sort();
+  }, [selectedDeviceId, devices]);
+
+  // Load connections and devices when form opens
   useEffect(() => {
-    if (open && !connectionId) {
+    if (!open) return;
+    if (!connectionId) {
       mqttService.getConnections()
         .then(data => {
           setConnections(data);
-          // Find connection name if editing
           if (initialData?.connection_id) {
             const conn = data.find(c => c.id === initialData.connection_id);
             setSelectedConnectionName(conn?.name || '');
@@ -66,12 +74,9 @@ const MqttSubscriptionForm = ({
           setError('Failed to load connections');
         });
     }
-    // Load device credentials for internal broker
-    if (open) {
-      mqttService.getDeviceCredentials()
-        .then(data => setDeviceCredentials(data))
-        .catch(err => console.error('Failed to load device credentials:', err));
-    }
+    mqttService.getDevices()
+      .then(data => setDevices(data))
+      .catch(err => console.error('Failed to load devices:', err));
   }, [open, connectionId, initialData]);
 
   useEffect(() => {
@@ -84,15 +89,15 @@ const MqttSubscriptionForm = ({
         tag_prefix: initialData.tag_prefix || '',
         message_buffer_size: initialData.message_buffer_size ?? 100,
         enabled: initialData.enabled !== false,
-        device_credential_id: initialData.device_credential_id || null,
       });
-      // Find connection name if editing
       if (initialData.connection_name) {
         setSelectedConnectionName(initialData.connection_name);
       }
     } else if (connectionId) {
       setFormData(prev => ({ ...prev, connection_id: connectionId }));
     }
+    // Reset device selection when form reopens
+    setSelectedDeviceId(null);
   }, [initialData, connectionId]);
 
   const handleChange = (field) => (event) => {
@@ -175,41 +180,70 @@ const MqttSubscriptionForm = ({
             </FormControl>
           )}
 
-          {/* Device Credential Link - only show for internal broker */}
+          {/* Link to Device - only show for internal broker */}
           {selectedConnectionName === 'MQTT - Internal' && (
             <FormControl fullWidth>
-              <InputLabel>Link to Device Credential (Optional)</InputLabel>
+              <InputLabel>Filter by Device (Optional)</InputLabel>
               <Select
-                value={formData.device_credential_id || ''}
+                value={selectedDeviceId || ''}
                 onChange={(e) => {
                   const value = e.target.value === '' ? null : e.target.value;
-                  setFormData(prev => ({ ...prev, device_credential_id: value }));
+                  setSelectedDeviceId(value);
+                  // Clear topic when device changes so user picks a known topic or types one
+                  setFormData(prev => ({ ...prev, topic: '' }));
                 }}
-                label="Link to Device Credential (Optional)"
+                label="Filter by Device (Optional)"
               >
                 <MenuItem value="">
-                  <em>None - No device tracking</em>
+                  <em>None</em>
                 </MenuItem>
-                {deviceCredentials.map(cred => (
-                  <MenuItem key={cred.id} value={cred.id}>
-                    {cred.device_name} ({cred.username})
+                {devices.map(dev => (
+                  <MenuItem key={dev.id} value={dev.id}>
+                    {dev.display_name || dev.client_id}
+                    {dev.display_name && dev.display_name !== dev.client_id && (
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                        ({dev.client_id})
+                      </Typography>
+                    )}
                   </MenuItem>
                 ))}
               </Select>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
-                Link this subscription to a device for status tracking and message filtering based on device enabled status
+                Select a device to prefill known topics
               </Typography>
             </FormControl>
           )}
 
-          <TextField
-            label="MQTT Topic"
+          <Autocomplete
+            freeSolo
+            options={deviceTopics}
             value={formData.topic}
-            onChange={handleChange('topic')}
-            fullWidth
-            required
-            placeholder="sensors/temperature or sensors/+/temp or sensors/#"
-            helperText="Use + for single-level wildcard, # for multi-level wildcard at end"
+            onChange={(_, newValue) => {
+              // Fires when user selects an option from the dropdown list
+              if (newValue !== null) {
+                setFormData(prev => ({ ...prev, topic: (newValue || '').trim() }));
+                setError('');
+              }
+            }}
+            onInputChange={(_, newValue, reason) => {
+              // Fires on free-text typing; skip 'reset' (triggered internally on mount/option-select)
+              if (reason !== 'input') return;
+              setFormData(prev => ({ ...prev, topic: (newValue || '').trim() }));
+              setError('');
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="MQTT Topic"
+                required
+                placeholder="sensors/temperature or sensors/+/temp or sensors/#"
+                helperText={
+                  deviceTopics.length > 0
+                    ? `${deviceTopics.length} known topic${deviceTopics.length > 1 ? 's' : ''} from selected device — or type any topic`
+                    : 'Use + for single-level wildcard, # for multi-level wildcard at end'
+                }
+              />
+            )}
           />
 
           <FormControl fullWidth>
@@ -233,8 +267,8 @@ const MqttSubscriptionForm = ({
               label="Payload Format"
             >
               <MenuItem value="json">JSON</MenuItem>
-              <MenuItem value="text">Plain Text</MenuItem>
-              <MenuItem value="binary">Binary</MenuItem>
+              <MenuItem value="raw">Raw (plain text / binary)</MenuItem>
+              <MenuItem value="sparkplug">Sparkplug B</MenuItem>
             </Select>
           </FormControl>
 
