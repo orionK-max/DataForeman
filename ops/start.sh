@@ -65,27 +65,15 @@ if [[ ! -f .gitignore ]]; then
   cp .gitignore.example .gitignore || true
 fi
 
-# Auto-configure for Linux to enable EIP autodiscovery
+# Auto-configure for Linux to enable EIP autodiscovery via compose override
 if [[ "$MODE" == "compose" && "$(uname -s)" == "Linux" ]]; then
-  if ! grep -q "^[[:space:]]*network_mode: host" docker-compose.yml; then
-    echo "🔧 Configuring host networking for Linux (enables EIP autodiscovery)..."
-    
-    # Uncomment network_mode: host in docker-compose.yml
-    sed -i 's|^[[:space:]]*# network_mode: host|    network_mode: host|' docker-compose.yml
-    
-    # Update .env for host networking
-    if ! grep -q "^NATS_URL=nats://localhost:4222" .env; then
-      sed -i 's|^NATS_URL=.*|NATS_URL=nats://localhost:4222|' .env
+  if [[ ! -f docker-compose.override.yml ]]; then
+    if [[ -f docker-compose.override.yml.linux ]]; then
+      echo "🔧 Applying Linux host networking override for EIP autodiscovery..."
+      cp docker-compose.override.yml.linux docker-compose.override.yml
+      echo "✅ docker-compose.override.yml created (host networking enabled)"
+      echo ""
     fi
-    if ! grep -q "^PGHOST=localhost" .env; then
-      sed -i 's|^PGHOST=.*|PGHOST=localhost|' .env
-    fi
-    if ! grep -q "^TSDB_HOST=localhost" .env; then
-      sed -i 's|^TSDB_HOST=.*|TSDB_HOST=localhost|' .env
-    fi
-    
-    echo "✅ Configured for host networking (EIP autodiscovery enabled)"
-    echo ""
   fi
 fi
 

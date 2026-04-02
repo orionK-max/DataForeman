@@ -146,7 +146,17 @@ nano .env
 # Press Ctrl+X, then Y, then Enter to save and exit
 ```
 
-**Step 3: Start DataForeman**
+**Step 3: Enable Host Networking (Required for EIP Autodiscovery)**
+
+Linux supports host networking, which is needed for EIP device autodiscovery (UDP broadcast). Apply the Linux override:
+
+```bash
+cp docker-compose.override.yml.linux docker-compose.override.yml
+```
+
+> **Skip this step** if you don't use EtherNet/IP autodiscovery (you can still connect to PLCs manually by IP address).
+
+**Step 4: Start DataForeman**
 
 ```bash
 # Start all containers (automatically fixes permissions and starts services)
@@ -159,7 +169,7 @@ npm start
 
 Wait for the command to complete. The first time will take longer as it downloads Docker images and builds containers.
 
-**Step 4: Verify Installation**
+**Step 5: Verify Installation**
 
 Check that all containers are running:
 
@@ -169,7 +179,7 @@ docker compose ps
 
 You should see all services with "Up" status (core, front, db, tsdb, nats, connectivity, rotator). If any show "Exited", wait another minute and check again.
 
-**Step 5: Access DataForeman**
+**Step 6: Access DataForeman**
 
 Open your web browser and go to:
 ```
