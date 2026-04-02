@@ -261,7 +261,7 @@ function emitTelemetry(nc, connId, pt) {
     v: pt.v,
     q: pt.q
   };
-  log.info({ topic, payload }, 'Publishing telemetry to NATS');
+  log.debug({ topic, payload }, 'Publishing telemetry to NATS');
   const enc = sc.encode(JSON.stringify(payload));
   // Observe payload size to estimate throughput and publish periodic stats
   try { observeDataAndMaybePublish(nc, connId, enc.byteLength ?? enc.length, pt.ts); } catch {}

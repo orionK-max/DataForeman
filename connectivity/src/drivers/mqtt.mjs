@@ -302,8 +302,7 @@ export class MQTTDriver {
       return;
     }
 
-    // DEBUG: Log processing attempt
-    this.log.info({ 
+    this.log.debug({ 
       topic, 
       subscriptionId: sub.subscription_id,
       hasFieldMappings: this.fieldMappings.has(sub.subscription_id)
@@ -312,15 +311,14 @@ export class MQTTDriver {
     // Check if field mappings are configured for this subscription
     const mappings = this.getFieldMappingsForTopic(sub.subscription_id, topic);
     
-    // DEBUG: Log mapping lookup result
-    this.log.info({ 
+    this.log.debug({ 
       topic, 
       subscriptionId: sub.subscription_id,
       mappingsFound: mappings ? mappings.length : 0
     }, 'Field mapping lookup result');
     
     if (mappings && mappings.length > 0) {
-      this.log.info({ topic, mappingCount: mappings.length }, 'Processing field mappings');
+      this.log.debug({ topic, mappingCount: mappings.length }, 'Processing field mappings');
       
       // Use field mappings to extract and emit individual tag values
       for (const mapping of mappings) {
@@ -329,7 +327,7 @@ export class MQTTDriver {
           let value = payload;
           if (mapping.field_path && typeof payload === 'object') {
             value = this.extractJsonPath(payload, mapping.field_path);
-            this.log.info({ 
+            this.log.debug({ 
               field_path: mapping.field_path, 
               value, 
               tag_id: mapping.tag_id,
@@ -362,9 +360,9 @@ export class MQTTDriver {
           }
 
           // Validate and convert type
-          this.log.info({ value, data_type: mapping.data_type, type_strictness: mapping.type_strictness }, 'Validating type');
+          this.log.debug({ value, data_type: mapping.data_type, type_strictness: mapping.type_strictness }, 'Validating type');
           const result = this.validateAndConvertType(value, mapping.data_type, mapping.type_strictness);
-          this.log.info({ valid: result.valid, convertedValue: result.value, error: result.error }, 'Type validation result');
+          this.log.debug({ valid: result.valid, convertedValue: result.value, error: result.error }, 'Type validation result');
           
           if (!result.valid) {
             if (mapping.on_failure === 'skip') {
@@ -399,7 +397,7 @@ export class MQTTDriver {
 
           // Emit to handler using tag_id if available
           if (sub.handler && mapping.tag_id) {
-            this.log.info({ 
+            this.log.debug({ 
               tagId: mapping.tag_id,
               value,
               quality,

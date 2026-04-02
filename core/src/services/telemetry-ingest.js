@@ -119,10 +119,10 @@ export const telemetryIngestPlugin = fp(async (app) => {
   async function flush() {
     if (flushing) return;
     if (!batch.length) {
-      app.log.info({ batchLength: batch.length }, 'Flush called with empty batch');
+      app.log.debug({ batchLength: batch.length }, 'Flush called with empty batch');
       return;
     }
-    app.log.info({ batchLength: batch.length }, 'Flushing batch to TimescaleDB');
+    app.log.debug({ batchLength: batch.length }, 'Flushing batch to TimescaleDB');
     flushing = true;
     const rows = batch.splice(0, batch.length);
     lastFlush = Date.now();
@@ -195,7 +195,7 @@ export const telemetryIngestPlugin = fp(async (app) => {
     const sub = nats.subscribe(subject, async (msg) => {
       try {
         const obj = typeof msg === 'object' && msg?.connection_id ? msg : sc.decode(msg.data || msg);
-        app.log.info({ obj, hasConnection: !!obj?.connection_id, hasTagId: obj?.tag_id != null, hasTs: obj?.ts != null }, 'Received telemetry message');
+        app.log.debug({ obj, hasConnection: !!obj?.connection_id, hasTagId: obj?.tag_id != null, hasTs: obj?.ts != null }, 'Received telemetry message');
         
         if (!obj || !obj.connection_id || obj.tag_id == null || obj.ts == null) return;
         // Skip if tag is currently deleted (ensure periodic refresh keeps cache fresh)
@@ -265,7 +265,7 @@ export const telemetryIngestPlugin = fp(async (app) => {
         }
         
         batch.push({ connection_id: String(obj.connection_id), tag_id: tagIdNum, ts: tsMs, quality, v_num, v_text, v_json });
-        app.log.info({ batchSize: batch.length, tag_id: obj.tag_id, v_num, tsMs }, 'Added to batch');
+        app.log.debug({ batchSize: batch.length, tag_id: obj.tag_id, v_num, tsMs }, 'Added to batch');
         
         // Update in-memory tag cache for instant reads (if RuntimeStateStore is available)
         if (app.runtimeState) {
