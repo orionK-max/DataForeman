@@ -75,6 +75,22 @@ export default async function mqttRoutes(app) {
   // Auth failure tracking cache: username -> { lastFailedAttempt, failureCount }
   const authFailures = new Map();
 
+  // Debounce caches for webhook last_seen updates.
+  // Without these, every MQTT message triggers a DB write on the same device row,
+  // causing severe row-level lock contention under any meaningful message rate.
+  const DEVICE_LAST_SEEN_TTL = 5_000;   // ms — update device last_seen at most once per 5s
+  const TOPIC_SEEN_TTL       = 30_000;  // ms — re-upsert a device+topic pair at most once per 30s
+  const webhookDeviceTs = new Map();    // clientId   -> last DB-write timestamp (ms)
+  const webhookTopicTs  = new Map();    // "cid\0topic" -> last DB-write timestamp (ms)
+
+  // Prune stale debounce entries every minute to prevent unbounded Map growth
+  const _webhookDebounceTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [k, ts] of webhookDeviceTs) if (now - ts > DEVICE_LAST_SEEN_TTL * 4) webhookDeviceTs.delete(k);
+    for (const [k, ts] of webhookTopicTs)  if (now - ts > TOPIC_SEEN_TTL * 4)       webhookTopicTs.delete(k);
+  }, 60_000);
+  if (_webhookDebounceTimer.unref) _webhookDebounceTimer.unref(); // don't block process exit
+
   /**
    * POST /api/mqtt/auth - Authentication webhook for nanoMQ
    * 
@@ -276,17 +292,30 @@ export default async function mqttRoutes(app) {
       if (!client || client.startsWith('dataforeman-internal-') ||
           !topic || topic.startsWith('$SYS/')) return;
 
-      db.query(
-        `WITH upsert_topic AS (
-           INSERT INTO mqtt_device_topics (device_id, topic, first_seen, last_seen)
-           SELECT d.id, $2, NOW(), NOW()
-           FROM mqtt_devices d
-           WHERE d.client_id = $1
-           ON CONFLICT (device_id, topic) DO UPDATE SET last_seen = NOW()
-         )
-         UPDATE mqtt_devices SET last_seen = NOW() WHERE client_id = $1`,
-        [client, topic]
-      ).catch(err => log.warn({ err, client, topic }, 'webhook: failed to record device topic'));
+      const now = Date.now();
+      const topicKey = `${client}\0${topic}`;
+      const deviceNeedsUpdate = (now - (webhookDeviceTs.get(client) || 0)) >= DEVICE_LAST_SEEN_TTL;
+      const topicNeedsUpdate  = (now - (webhookTopicTs.get(topicKey) || 0)) >= TOPIC_SEEN_TTL;
+
+      if (deviceNeedsUpdate || topicNeedsUpdate) {
+        webhookDeviceTs.set(client, now);
+        if (topicNeedsUpdate) webhookTopicTs.set(topicKey, now);
+
+        const query = topicNeedsUpdate
+          ? `WITH upsert_topic AS (
+               INSERT INTO mqtt_device_topics (device_id, topic, first_seen, last_seen)
+               SELECT d.id, $2, NOW(), NOW()
+               FROM mqtt_devices d
+               WHERE d.client_id = $1
+               ON CONFLICT (device_id, topic) DO UPDATE SET last_seen = NOW()
+             )
+             UPDATE mqtt_devices SET last_seen = NOW() WHERE client_id = $1`
+          : 'UPDATE mqtt_devices SET last_seen = NOW() WHERE client_id = $1';
+
+        const params = topicNeedsUpdate ? [client, topic] : [client];
+        db.query(query, params)
+          .catch(err => log.warn({ err, client, topic }, 'webhook: failed to record device topic'));
+      }
 
     } else if (action === 'client_connected') {
       const client = clientid;
