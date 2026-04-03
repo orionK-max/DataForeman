@@ -218,6 +218,7 @@ const QueryControls = () => {
     }
 
     setTimeDuration(duration);
+    setOriginalTimeWindow(duration); // Keep sliding window in sync with new preset
     setHasUnsavedChanges(true);
 
     // Mode-specific behavior
@@ -603,7 +604,13 @@ const QueryControls = () => {
                   <RadioGroup
                     value={timeMode}
                     onChange={(e) => {
-                      setTimeMode(e.target.value);
+                      const newMode = e.target.value;
+                      setTimeMode(newMode);
+                      if (newMode === 'fixed') {
+                        setAutoRefresh(false);
+                        // Don't null originalTimeWindow here — it needs to survive
+                        // so rolling mode works if user switches back and re-enables Live
+                      }
                       setHasUnsavedChanges(true);
                     }}
                   >
