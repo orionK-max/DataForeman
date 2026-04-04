@@ -5,6 +5,8 @@
  * This connection cannot be edited or deleted by users (is_system = true).
  */
 
+const INTERNAL_CONNECTION_NAME = 'MQTT - Internal';
+
 /**
  * Ensures the internal "Internal" connection exists.
  * Creates it if missing, skips if already exists.
@@ -22,7 +24,7 @@ export async function ensureInternalMqttConnection(app) {
       `SELECT c.id FROM connections c
        JOIN mqtt_connections mc ON mc.connection_id = c.id
        WHERE mc.is_system = true AND c.name = $1`,
-      ['Internal']
+      [INTERNAL_CONNECTION_NAME]
     );
     
     if (existing.rows.length > 0) {
@@ -36,7 +38,7 @@ export async function ensureInternalMqttConnection(app) {
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id`,
       [
-        'MQTT - Internal',
+        INTERNAL_CONNECTION_NAME,
         'mqtt',
         true,
         JSON.stringify({}),

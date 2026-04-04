@@ -81,14 +81,15 @@ export function getInputConfig(metadata, nodeData) {
     };
   }
   
-  // Ultimate fallback
+  // Ultimate fallback - use static inputs length if available
+  const staticCount = metadata?.inputs?.length || 1;
   return {
-    min: 1,
-    max: 1,
-    default: 1,
+    min: staticCount,
+    max: staticCount,
+    default: staticCount,
     canAdd: false,
     canRemove: false,
-    type: 'main',
+    type: metadata?.inputs?.[0]?.type || 'main',
     typeFixed: false
   };
 }

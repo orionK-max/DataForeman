@@ -1530,11 +1530,11 @@ const FlowEditor = () => {
     const adjustment = getRequiredInputAdjustment(metadata, updatedData);
     if (adjustment) {
       // Auto-adjust inputCount if outside min/max range
-      updatedData.inputCount = adjustment.required;
+      updatedData.inputCount = adjustment.inputCount;
       
       // Show notification to user
       showSnackbar(
-        `Input count auto-adjusted to ${adjustment.required} (${adjustment.reason})`,
+        `Input count auto-adjusted to ${adjustment.inputCount}`,
         'info'
       );
     }

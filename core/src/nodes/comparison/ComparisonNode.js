@@ -144,7 +144,50 @@ export class ComparisonNode extends BaseNode {
           title: 'Configuration'
         }
       ]
-    }
+    },
+
+    // Dynamic I/O: numeric operators require number inputs; equality operators accept any type
+    ioRules: [
+      {
+        when: { operation: ['gt', 'lt', 'gte', 'lte'] },
+        inputs: {
+          count: 2,
+          type: 'number',
+          typeFixed: true,
+          required: true
+        },
+        outputs: {
+          count: 1,
+          type: 'boolean'
+        }
+      },
+      {
+        when: { operation: ['eq', 'neq'] },
+        inputs: {
+          count: 2,
+          type: 'any',
+          typeFixed: true,
+          required: true
+        },
+        outputs: {
+          count: 1,
+          type: 'boolean'
+        }
+      },
+      // Default rule (no operation set yet)
+      {
+        inputs: {
+          count: 2,
+          type: 'number',
+          typeFixed: true,
+          required: true
+        },
+        outputs: {
+          count: 1,
+          type: 'boolean'
+        }
+      }
+    ]
   };
 
   /**
@@ -177,6 +220,21 @@ export class ComparisonNode extends BaseNode {
       },
       error: (error) => `Comparison failed: ${error.message}`
     };
+  }
+
+  /**
+   * Extract raw value from input data (preserves type)
+   * @param {*} inputData - Input data (may be wrapped in {value, quality})
+   * @returns {*} - Extracted value (preserves boolean, string, number)
+   */
+  extractRawValue(inputData) {
+    if (inputData === null || inputData === undefined) {
+      return null;
+    }
+    if (typeof inputData === 'object' && 'value' in inputData) {
+      return inputData.value;
+    }
+    return inputData;
   }
 
   /**
@@ -262,25 +320,10 @@ export class ComparisonNode extends BaseNode {
       };
     }
 
-    // Extract values and qualities
-    const value0 = this.extractValue(input0Data);
-    const value1 = this.extractValue(input1Data);
     const quality0 = this.extractQuality(input0Data);
     const quality1 = this.extractQuality(input1Data);
 
-    // Validate numeric values
-    if (value0 === null || value1 === null || isNaN(value0) || isNaN(value1)) {
-      log.warn('Comparison node received non-numeric input', { value0, value1 });
-      return {
-        value: false,
-        quality: 0,
-        operator: operation,
-        error: 'Non-numeric inputs'
-      };
-    }
-
     // Check quality - in OPC UA: 0 = Good, 64-191 = Uncertain, 192+ = Bad
-    // For our purposes: accept quality 0 (Good) and reject quality >= 192 (Bad)
     const minQuality = Math.min(quality0, quality1);
     if (minQuality >= 192) {
       log.warn('Comparison node input quality bad', { minQuality, quality0, quality1 });
@@ -294,35 +337,63 @@ export class ComparisonNode extends BaseNode {
 
     // Perform comparison
     let result;
-    const effectiveTolerance = tolerance !== null && tolerance !== undefined 
-      ? Number(tolerance) 
-      : Number.EPSILON;
+    const isEqualityOp = operation === 'eq' || operation === 'neq';
+
+    if (isEqualityOp) {
+      // For eq/neq: preserve original types (boolean, string, number)
+      const raw0 = this.extractRawValue(input0Data);
+      const raw1 = this.extractRawValue(input1Data);
+      const bothNumeric = typeof raw0 === 'number' && typeof raw1 === 'number';
+
+      if (bothNumeric) {
+        // Numeric equality with tolerance
+        const effectiveTolerance = tolerance !== null && tolerance !== undefined
+          ? Number(tolerance)
+          : Number.EPSILON;
+        result = operation === 'eq'
+          ? Math.abs(raw0 - raw1) < effectiveTolerance
+          : Math.abs(raw0 - raw1) >= effectiveTolerance;
+      } else {
+        // Strict equality for booleans, strings, mixed types
+        result = operation === 'eq' ? raw0 === raw1 : raw0 !== raw1;
+      }
+
+      return {
+        value: result,
+        quality: minQuality,
+        operator: operation,
+        inputs: [raw0, raw1],
+        timestamp: new Date().toISOString()
+      };
+    }
+
+    // Ordering operators (gt, lt, gte, lte) require numeric values
+    const value0 = this.extractValue(input0Data);
+    const value1 = this.extractValue(input1Data);
+
+    if (value0 === null || value1 === null || isNaN(value0) || isNaN(value1)) {
+      log.warn('Comparison node received non-numeric input', { value0, value1 });
+      return {
+        value: false,
+        quality: 0,
+        operator: operation,
+        error: 'Non-numeric inputs'
+      };
+    }
 
     switch (operation) {
       case 'gt':
         result = value0 > value1;
         break;
-      
       case 'lt':
         result = value0 < value1;
         break;
-      
       case 'gte':
         result = value0 >= value1;
         break;
-      
       case 'lte':
         result = value0 <= value1;
         break;
-      
-      case 'eq':
-        result = Math.abs(value0 - value1) < effectiveTolerance;
-        break;
-      
-      case 'neq':
-        result = Math.abs(value0 - value1) >= effectiveTolerance;
-        break;
-      
       default:
         throw new Error(`Unknown comparison operation: ${operation}`);
     }
@@ -367,7 +438,7 @@ export class ComparisonNode extends BaseNode {
       ],
       tips: [
         "Use >= or <= when boundary values should be included in condition",
-        "Comparison supports numeric values only - use type conversion for other types",
+        "Equal (==) and Not Equal (!=) accept booleans, strings, and numbers; ordering operators (>, <, >=, <=) require numbers",
         "Connect output to Gate node to conditionally pass values through",
         "Quality uses 'worst' strategy - bad quality in either input produces bad output"
       ],
