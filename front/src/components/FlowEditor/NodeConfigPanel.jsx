@@ -216,6 +216,11 @@ const NodeConfigPanel = ({ node, flow, onDataChange, onClose, onNodeAction }) =>
                   <MenuItem value="debug">Debug</MenuItem>
                 </Select>
               </FormControl>
+              {(node.data?.logLevel && node.data.logLevel !== 'none') && !flow?.logs_enabled && (
+                <Alert severity="warning" sx={{ mt: 1, py: 0.5, fontSize: '0.75rem' }}>
+                  Execution Logs are disabled for this flow. Enable them in Flow Settings → Execution Logs.
+                </Alert>
+              )}
             </AccordionDetails>
           </Accordion>
         </Box>

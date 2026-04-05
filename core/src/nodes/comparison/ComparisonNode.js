@@ -354,8 +354,12 @@ export class ComparisonNode extends BaseNode {
           ? Math.abs(raw0 - raw1) < effectiveTolerance
           : Math.abs(raw0 - raw1) >= effectiveTolerance;
       } else {
-        // Strict equality for booleans, strings, mixed types
-        result = operation === 'eq' ? raw0 === raw1 : raw0 !== raw1;
+        // Coerce number to boolean when comparing against a boolean
+        // (industrial signals often return 0/1 for false/true)
+        let a = raw0, b = raw1;
+        if (typeof a === 'number' && typeof b === 'boolean') a = a !== 0;
+        if (typeof a === 'boolean' && typeof b === 'number') b = b !== 0;
+        result = operation === 'eq' ? a === b : a !== b;
       }
 
       return {
