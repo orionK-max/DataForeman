@@ -273,6 +273,9 @@ export const telemetryIngestPlugin = fp(async (app) => {
           let value = v_num;
           if (v_num === null && v_text !== null) value = v_text;
           else if (v_num === null && v_text === null && v_json !== null) value = v_json;
+          // Preserve boolean type in the live cache — DB stores booleans as v_num 0/1 but
+          // the in-memory cache has no such constraint. JSON templates need true/false, not 1/0.
+          if (typeof obj.v === 'boolean') value = obj.v;
           
           // tag_path already loaded into tagMetadataCache above (before classifyValue)
           const tagPath = tagMetadataCache.get(tagIdNum)?.tag_path || null;

@@ -776,11 +776,24 @@ export class MQTTDriver {
       // Subscribe to new/updated topics
       let subscribedCount = 0;
       for (const sub of result.rows) {
-        // If already subscribed, unsubscribe first to refresh settings
+        // If already subscribed, skip unsub/resub unless settings have actually changed.
+        // Unconditional unsub+resub causes the broker to redeliver retained messages every cycle.
         if (this.subscriptions.has(sub.topic)) {
+          const existing = this.subscriptions.get(sub.topic);
+          const unchanged =
+            existing.subscription_id === sub.id &&
+            (existing.qos ?? 0) === (sub.qos ?? 0) &&
+            existing.payload_format === sub.payload_format &&
+            existing.value_path === sub.value_path &&
+            existing.timestamp_path === sub.timestamp_path &&
+            existing.quality_path === sub.quality_path &&
+            existing.tag_prefix === sub.tag_prefix;
+          if (unchanged) {
+            continue; // skip — nothing changed, avoid retained-message storm
+          }
           await this.unsubscribe(sub.topic);
         }
-        
+
         await this.subscribe(sub.topic, {
           subscription_id: sub.id,
           qos: sub.qos,

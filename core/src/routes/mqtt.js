@@ -2042,13 +2042,25 @@ export default async function mqttRoutes(app) {
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const { rows } = await db.query(
-        `SELECT tm.tag_id
-         FROM tag_metadata tm
-         JOIN connections c ON c.id = tm.connection_id
-         WHERE c.name = $1 AND tm.tag_name = $2 AND tm.is_deleted = false`,
-        [conn_name, tag_name]
-      );
+      // 'Internal Tags' is a pseudo-connection (injected client-side, no real DB row).
+      // INTERNAL tags are identified by driver_type, not by a connections row.
+      let rows;
+      if (conn_name === 'Internal Tags') {
+        ({ rows } = await db.query(
+          `SELECT tm.tag_id
+           FROM tag_metadata tm
+           WHERE tm.driver_type = 'INTERNAL' AND tm.tag_name = $1 AND tm.is_deleted = false`,
+          [tag_name]
+        ));
+      } else {
+        ({ rows } = await db.query(
+          `SELECT tm.tag_id
+           FROM tag_metadata tm
+           JOIN connections c ON c.id = tm.connection_id
+           WHERE c.name = $1 AND tm.tag_name = $2 AND tm.is_deleted = false`,
+          [conn_name, tag_name]
+        ));
+      }
 
       if (rows.length === 0) {
         errors.push({ token: key, error: 'not_found',

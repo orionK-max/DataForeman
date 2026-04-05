@@ -49,6 +49,10 @@ services:
     volumes:
       - ./logs/nanomq:/var/log/nanomq
       - ./nanomq/nanomq.conf:/etc/nanomq/nanomq.conf:ro
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     depends_on:
       core:
         condition: service_healthy
