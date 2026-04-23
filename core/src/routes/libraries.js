@@ -467,6 +467,166 @@ export default async function libraryRoutes(app) {
   });
 
   /**
+   * POST /api/flows/libraries/:libraryId/update
+   * Update (replace) an installed library with a new version from a ZIP upload.
+   * Does NOT touch flow_library_dependencies — flows remain intact.
+   * Requires 'flows:update' permission
+   */
+  app.post('/api/flows/libraries/:libraryId/update', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    try {
+      const { libraryId } = req.params;
+
+      // Confirm library is installed
+      const existing = await db.query(
+        'SELECT id, name, version FROM node_libraries WHERE library_id = $1',
+        [libraryId]
+      );
+      if (existing.rows.length === 0) {
+        return reply.code(404).send({ error: 'Library not found' });
+      }
+      const previousVersion = existing.rows[0].version;
+
+      const data = await req.file();
+      if (!data) {
+        return reply.code(400).send({ error: 'No file uploaded' });
+      }
+      if (!data.filename.endsWith('.zip')) {
+        return reply.code(400).send({ error: 'Only .zip files are supported' });
+      }
+
+      const tempDir = path.join(__dirname, '../../temp');
+      await fs.mkdir(tempDir, { recursive: true });
+      const tempFile = path.join(tempDir, `library-update-${Date.now()}.zip`);
+      const buffer = await data.toBuffer();
+      await fs.writeFile(tempFile, buffer);
+
+      try {
+        const zip = new AdmZip(tempFile);
+        const entries = zip.getEntries();
+
+        const manifestEntry = entries.find(e => e.entryName.endsWith('library.manifest.json'));
+        if (!manifestEntry) {
+          throw new Error('library.manifest.json not found in zip file');
+        }
+
+        const manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
+
+        const validation = LibraryManager.validateManifest(manifest);
+        if (!validation.valid) {
+          return reply.code(400).send({ error: 'Invalid manifest', details: validation.errors });
+        }
+
+        // Ensure the zip matches the library being updated
+        if (manifest.libraryId !== libraryId) {
+          return reply.code(400).send({
+            error: `Library ID mismatch: zip contains "${manifest.libraryId}" but expected "${libraryId}"`
+          });
+        }
+
+        // Hot-unload current version first
+        try {
+          await LibraryManager.unloadLibrary(libraryId, NodeRegistry, { db });
+          req.log.info({ libraryId }, 'Library hot-unloaded before update');
+        } catch (err) {
+          req.log.warn({ err, libraryId }, 'Failed to hot-unload before update (continuing)');
+        }
+
+        // Replace files on disk
+        const librariesDir = path.join(__dirname, '../nodes/libraries');
+        const libraryDir = path.join(librariesDir, libraryId);
+        const stagingDir = `${libraryDir}__update_staging__`;
+
+        try { await fs.rm(stagingDir, { recursive: true, force: true }); } catch {}
+        zip.extractAllTo(stagingDir, true);
+
+        // Normalise nesting (same logic as install)
+        let extractRoot = stagingDir;
+        try {
+          await fs.access(path.join(stagingDir, 'library.manifest.json'));
+        } catch {
+          const children = (await fs.readdir(stagingDir, { withFileTypes: true })).filter(e => e.isDirectory());
+          if (children.length === 1) {
+            const nested = path.join(stagingDir, children[0].name);
+            try {
+              await fs.access(path.join(nested, 'library.manifest.json'));
+              extractRoot = nested;
+            } catch {}
+          }
+        }
+
+        // Swap old directory for new
+        await fs.rm(libraryDir, { recursive: true, force: true });
+        await fs.rename(extractRoot, libraryDir).catch(async () => {
+          await fs.cp(extractRoot, libraryDir, { recursive: true });
+        });
+        try { await fs.rm(stagingDir, { recursive: true, force: true }); } catch {}
+
+        // Update DB record (preserve flow_library_dependencies intact)
+        await db.query(
+          `UPDATE node_libraries
+           SET name = $1, version = $2, manifest = $3, updated_at = NOW()
+           WHERE library_id = $4`,
+          [manifest.name, manifest.version, manifest, libraryId]
+        );
+
+        // Hot-load the new version
+        if (manifest.type === 'extension') {
+          req.log.info({ libraryId, version: manifest.version }, 'Extension updated; restart required to activate');
+          return reply.send({
+            message: 'Extension updated. Restart core to activate the new version.',
+            libraryId,
+            previousVersion,
+            newVersion: manifest.version,
+            hotReload: false,
+            requiresRestart: true
+          });
+        }
+
+        try {
+          const loadResult = await LibraryManager.loadLibrary(libraryDir, NodeRegistry, { db });
+          if (!loadResult.success) {
+            throw new Error(loadResult.reason || 'Library failed to load after update');
+          }
+          await db.query(
+            `UPDATE node_libraries SET last_loaded_at = NOW(), load_errors = NULL WHERE library_id = $1`,
+            [libraryId]
+          );
+          req.log.info({ libraryId, previousVersion, newVersion: manifest.version }, 'Library updated and hot-reloaded');
+          reply.send({
+            message: 'Library updated and hot-reloaded. Flows using this library remain intact.',
+            libraryId,
+            previousVersion,
+            newVersion: manifest.version,
+            nodeCount: manifest.nodeTypes?.length || 0,
+            hotReload: true
+          });
+        } catch (loadError) {
+          await db.query(
+            `UPDATE node_libraries SET load_errors = $1 WHERE library_id = $2`,
+            [loadError.message, libraryId]
+          );
+          req.log.warn({ err: loadError, libraryId }, 'Library updated on disk but failed to load');
+          reply.send({
+            message: 'Library updated on disk but failed to load',
+            libraryId,
+            previousVersion,
+            newVersion: manifest.version,
+            loadError: loadError.message
+          });
+        }
+      } finally {
+        await fs.unlink(tempFile).catch(() => {});
+      }
+    } catch (error) {
+      req.log.error({ err: error, libraryId: req.params.libraryId }, 'Failed to update library');
+      reply.code(500).send({ error: 'Failed to update library', details: error.message });
+    }
+  });
+
+  /**
    * DELETE /api/flows/libraries/:libraryId
    * Delete (uninstall) a library
    * Requires 'flows:delete' permission

@@ -31,6 +31,7 @@ import {
   Info as InfoIcon,
   Extension as ExtensionIcon,
   Warning as WarningIcon,
+  SystemUpdateAlt as UpdateIcon,
 } from '@mui/icons-material';
 import { usePageTitle } from '../contexts/PageTitleContext';
 import libraryApi from '../services/libraryApi';
@@ -49,6 +50,10 @@ const LibraryManager = () => {
   const [forceDeleteDialogOpen, setForceDeleteDialogOpen] = useState(false);
   const [libraryToDelete, setLibraryToDelete] = useState(null);
   const [forceDeleteData, setForceDeleteData] = useState(null); // { library, flowsUsing }
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [libraryToUpdate, setLibraryToUpdate] = useState(null);
+  const [updateFile, setUpdateFile] = useState(null);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     setPageTitle('Library Manager');
@@ -161,6 +166,49 @@ const LibraryManager = () => {
     } finally {
       setForceDeleteData(null);
       setLibraryToDelete(null);
+    }
+  };
+
+  const handleOpenUpdate = (library) => {
+    setLibraryToUpdate(library);
+    setUpdateFile(null);
+    setUpdateDialogOpen(true);
+  };
+
+  const handleUpdateFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      if (!file.name.endsWith('.zip')) {
+        showSnackbar('Please select a .zip file', 'error');
+        return;
+      }
+      setUpdateFile(file);
+    }
+  };
+
+  const handleConfirmUpdate = async () => {
+    if (!updateFile) {
+      showSnackbar('Please select a file', 'error');
+      return;
+    }
+    try {
+      setUpdating(true);
+      const result = await libraryApi.update(libraryToUpdate.libraryId, updateFile);
+      if (result.loadError) {
+        showSnackbar(`Updated to v${result.newVersion} but failed to load: ${result.loadError}`, 'warning');
+      } else if (result.requiresRestart) {
+        showSnackbar(`Updated to v${result.newVersion}. Restart core to activate.`, 'success');
+      } else {
+        showSnackbar(`Updated from v${result.previousVersion} → v${result.newVersion}. Flows intact.`, 'success');
+      }
+      setUpdateDialogOpen(false);
+      setLibraryToUpdate(null);
+      setUpdateFile(null);
+      loadLibraries();
+    } catch (error) {
+      showSnackbar(error.message || 'Failed to update library', 'error');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -305,6 +353,16 @@ const LibraryManager = () => {
 
                   <Box sx={{ flex: 1 }} />
 
+                  <Tooltip title="Update library">
+                    <IconButton
+                      size="small"
+                      onClick={() => handleOpenUpdate(library)}
+                      color="primary"
+                    >
+                      <UpdateIcon />
+                    </IconButton>
+                  </Tooltip>
+
                   <Tooltip title="Delete">
                     <IconButton
                       size="small"
@@ -320,6 +378,45 @@ const LibraryManager = () => {
           ))}
         </Grid>
       )}
+
+      {/* Update Library Dialog */}
+      <Dialog open={updateDialogOpen} onClose={() => !updating && setUpdateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Update Library</DialogTitle>
+        <DialogContent>
+          <Typography gutterBottom>
+            Upload a new version of <strong>{libraryToUpdate?.name}</strong> (v{libraryToUpdate?.version}).
+            Flows using this library will remain intact.
+          </Typography>
+          <Box sx={{ mt: 2 }}>
+            <Button
+              variant="outlined"
+              component="label"
+              startIcon={<UploadIcon />}
+              disabled={updating}
+            >
+              Select ZIP file
+              <input type="file" accept=".zip" hidden onChange={handleUpdateFileSelect} />
+            </Button>
+            {updateFile && (
+              <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
+                Selected: {updateFile.name}
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUpdateDialogOpen(false)} disabled={updating}>Cancel</Button>
+          <Button
+            onClick={handleConfirmUpdate}
+            variant="contained"
+            color="primary"
+            disabled={!updateFile || updating}
+            startIcon={updating ? <CircularProgress size={16} /> : <UpdateIcon />}
+          >
+            {updating ? 'Updating…' : 'Update'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="xs" fullWidth>

@@ -98,6 +98,30 @@ const libraryApi = {
   },
 
   /**
+   * Update an installed library with a new version ZIP
+   */
+  async update(libraryId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = localStorage.getItem('df_token');
+
+    const response = await fetch(`${API_BASE}/${libraryId}/update`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || body.details || 'Failed to update library');
+    }
+
+    return response.json();
+  },
+
+  /**
    * Delete a library
    */
   async delete(libraryId, force = false) {
