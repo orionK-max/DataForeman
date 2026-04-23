@@ -28,6 +28,13 @@ import {
   Menu,
   ListItemIcon,
   ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Tab,
+  Tabs,
+  Divider,
 } from '@mui/material';
 import {
   FileDownload as DownloadIcon,
@@ -83,7 +90,6 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
   const [message, setMessage] = useState('');
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState('');
-  const [showDeleted, setShowDeleted] = useState(false);
   const [pollGroups, setPollGroups] = useState([]);
   const [selectedPollGroup, setSelectedPollGroup] = useState(5);
   const [units, setUnits] = useState([]);
@@ -104,6 +110,13 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
   const fileInputRef = useRef(null);
   
   const lastAnchorRef = useRef(null);
+
+  // Edit modal state
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editTab, setEditTab] = useState(0);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameError, setRenameError] = useState('');
+  const [renaming, setRenaming] = useState(false);
 
   // Load poll groups and units
   useEffect(() => {
@@ -144,7 +157,7 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
     setSelected(new Set());
 
     try {
-      const result = await connectivityService.getTagsByConnection(connectionId, showDeleted);
+      const result = await connectivityService.getTagsByConnection(connectionId);
       setTags(result.tags || []);
     } catch (err) {
       setError('Failed to load tags: ' + (err.message || 'Unknown error'));
@@ -152,12 +165,12 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
     } finally {
       setLoading(false);
     }
-  }, [connectionId, showDeleted]);
+  }, [connectionId]);
 
   useEffect(() => {
     loadTags();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, showDeleted]); // Only reload when connection or showDeleted changes
+  }, [connectionId]); // Only reload when connection changes
 
   // Reload when refreshTrigger changes (after saving new tags)
   useEffect(() => {
@@ -346,6 +359,38 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
     }
   };
 
+  // Open the edit modal
+  const openEditModal = () => {
+    if (selected.size === 1) {
+      const tag = filteredTags.find(t => selected.has(t.tag_id));
+      setRenameValue(tag?.tag_name || '');
+    } else {
+      setRenameValue('');
+    }
+    setRenameError('');
+    setEditTab(0);
+    setEditModalOpen(true);
+  };
+
+  // Rename a single tag
+  const handleRenameTag = async () => {
+    const tagId = Array.from(selected)[0];
+    if (!tagId) return;
+    setRenaming(true);
+    setRenameError('');
+    try {
+      await connectivityService.renameTag(tagId, renameValue.trim() || null);
+      setMessage('Tag renamed successfully');
+      setEditModalOpen(false);
+      await loadTags();
+      if (onTagsChanged) onTagsChanged();
+    } catch (err) {
+      setRenameError(err.message || 'Failed to rename tag');
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   // Delete selected tags
   const deleteSelected = async () => {
     if (selected.size === 0) return;
@@ -504,17 +549,6 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
               onChange={(e) => setSearch(e.target.value)}
               sx={{ width: 200 }}
             />
-            <FormControlLabel
-              control={
-                <Checkbox
-                  size="small"
-                  checked={showDeleted}
-                  onChange={(e) => setShowDeleted(e.target.checked)}
-                />
-              }
-              label="Deleted"
-              sx={{ fontSize: 12 }}
-            />
             <Tooltip title="Import/Export">
               <IconButton
                 size="small"
@@ -571,7 +605,6 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
                     onChange={toggleAll}
                   />
                 </TableCell>
-                <TableCell>Tag ID</TableCell>
                 <TableCell>Name</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell>Status</TableCell>
@@ -582,7 +615,7 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={hidePollGroup ? 6 : 7} align="center">
+                  <TableCell colSpan={hidePollGroup ? 5 : 6} align="center">
                     <CircularProgress size={20} />
                   </TableCell>
                 </TableRow>
@@ -590,7 +623,7 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
               
               {!loading && filteredTags.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={hidePollGroup ? 6 : 7} align="center">
+                  <TableCell colSpan={hidePollGroup ? 5 : 6} align="center">
                     <Typography variant="body2" color="text.secondary">
                       No tags found
                     </Typography>
@@ -621,8 +654,19 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
                         sx={{ p: 0.5 }}
                       />
                     </TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.813rem' }}>{tag.tag_id}</TableCell>
-                    <TableCell sx={{ fontSize: '0.813rem' }}>{tag.tag_name || '—'}</TableCell>
+                    <TableCell sx={{ fontSize: '0.813rem' }}>
+                      <Tooltip
+                        title={
+                          <Box>
+                            <Typography variant="caption" display="block"><strong>Source:</strong> {tag.tag_path || '—'}</Typography>
+                            <Typography variant="caption" display="block"><strong>ID:</strong> {tag.tag_id}</Typography>
+                          </Box>
+                        }
+                        placement="right"
+                      >
+                        <span style={{ cursor: 'default' }}>{tag.tag_name || '—'}</span>
+                      </Tooltip>
+                    </TableCell>
                     <TableCell sx={{ fontSize: '0.813rem' }}>{tag.data_type || '—'}</TableCell>
                     <TableCell sx={{ fontSize: '0.813rem' }}>
                       <TagStatusBadge status={tag.status} />
@@ -676,154 +720,29 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
         {message && <Alert severity="success" sx={{ mb: 1, py: 0.5 }}>{message}</Alert>}
         {error && <Alert severity="error" sx={{ mb: 1, py: 0.5 }}>{error}</Alert>}
         
-        {/* Batch Operation Controls */}
+        {/* Batch Actions Bar */}
         {selected.size > 0 && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1 }}>
-            {/* Poll Group and Unit Row */}
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              {!hidePollGroup && (
-                <>
-                  <Typography variant="caption" color="text.secondary">Poll Group:</Typography>
-                  <FormControl size="small" sx={{ minWidth: 150 }}>
-                    <Select
-                      value={selectedPollGroup}
-                      onChange={(e) => setSelectedPollGroup(e.target.value)}
-                      size="small"
-                      sx={{ fontSize: '0.813rem', height: 28 }}
-                    >
-                      {pollGroups.map(pg => (
-                        <MenuItem key={pg.group_id} value={pg.group_id}>
-                          {pg.name} ({formatPollRate(pg.poll_rate_ms)})
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={applyPollGroup}
-                    disabled={busy}
-                    sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
-                  >
-                    Apply
-                  </Button>
-                </>
-              )}
-              
-              <Typography variant="caption" color="text.secondary" sx={{ ml: hidePollGroup ? 0 : 2 }}>Unit:</Typography>
-              <Autocomplete
-                size="small"
-                value={selectedUnit}
-                onChange={(e, newValue) => setSelectedUnit(newValue)}
-                options={units}
-                groupBy={(option) => option.category}
-                getOptionLabel={(option) => `${option.name} (${option.symbol})`}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    placeholder="Select unit..."
-                    size="small"
-                  />
-                )}
-                sx={{ minWidth: 220 }}
-                componentsProps={{
-                  popper: {
-                    sx: { fontSize: '0.813rem' }
-                  }
-                }}
-              />
-              
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={applyUnit}
-                disabled={busy}
-                sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
-              >
-                Apply
-              </Button>
-            </Box>
-
-            {/* Write on Change Row */}
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <Tooltip title="Only save tag values to database when they change, reducing writes for stable values">
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={changeDetectionEnabled}
-                      onChange={(e) => setChangeDetectionEnabled(e.target.checked)}
-                      size="small"
-                    />
-                  }
-                  label={<Typography variant="caption">Write on Change</Typography>}
-                  sx={{ mr: 1 }}
-                />
-              </Tooltip>
-              
-              {changeDetectionEnabled && (
-                <>
-                  <Typography variant="caption" color="text.secondary">Deadband:</Typography>
-                  <Tooltip title="Minimum change required to trigger a write. For absolute: fixed value difference. For percent: percentage of previous value.">
-                    <TextField
-                      size="small"
-                      type="number"
-                      value={deadband}
-                      onChange={(e) => setDeadband(Number(e.target.value))}
-                      inputProps={{ min: 0, step: 0.1 }}
-                      sx={{ width: 80, '& input': { fontSize: '0.813rem', py: 0.5 } }}
-                    />
-                  </Tooltip>
-                  
-                  <Tooltip title="Absolute: fixed value difference (e.g., 0.5). Percent: percentage of previous value (e.g., 1 = 1%).">
-                    <FormControl size="small" sx={{ minWidth: 100 }}>
-                      <Select
-                        value={deadbandType}
-                        onChange={(e) => setDeadbandType(e.target.value)}
-                        sx={{ fontSize: '0.813rem', height: 28 }}
-                      >
-                        <MenuItem value="absolute">Absolute</MenuItem>
-                        <MenuItem value="percent">Percent</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Tooltip>
-                  
-                  <Typography variant="caption" color="text.secondary">Heartbeat (s):</Typography>
-                  <Tooltip title="Force a write after this interval even if value hasn't changed, ensuring connection is alive (heartbeat)">
-                    <TextField
-                      size="small"
-                      type="number"
-                      value={forcePublishInterval}
-                      onChange={(e) => setForcePublishInterval(Number(e.target.value))}
-                      inputProps={{ min: 0, step: 1 }}
-                      sx={{ width: 100, '& input': { fontSize: '0.813rem', py: 0.5 } }}
-                    />
-                  </Tooltip>
-                </>
-              )}
-              
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={applyChangeDetection}
-                disabled={busy}
-                sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
-              >
-                Apply
-              </Button>
-              
-              <Button
-                size="small"
-                variant="contained"
-                color="error"
-                onClick={deleteSelected}
-                disabled={busy || hasActiveDeletion}
-                title={hasActiveDeletion ? 'Cannot delete tags with active deletion' : ''}
-                sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5, ml: 'auto' }}
-              >
-                Delete
-              </Button>
-            </Box>
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 1, mb: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={openEditModal}
+              disabled={busy}
+              sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
+            >
+              Edit {selected.size} Tag{selected.size > 1 ? 's' : ''}
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              color="error"
+              onClick={deleteSelected}
+              disabled={busy || hasActiveDeletion}
+              title={hasActiveDeletion ? 'Cannot delete tags with active deletion' : ''}
+              sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
+            >
+              Delete
+            </Button>
           </Box>
         )}
       </CardContent>
@@ -838,6 +757,171 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
         confirmText="Delete"
         confirmColor="error"
       />
+
+      {/* Edit Tags Modal */}
+      <Dialog open={editModalOpen} onClose={() => setEditModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit {selected.size} Tag{selected.size > 1 ? 's' : ''}</DialogTitle>
+        <Tabs value={editTab} onChange={(_, v) => setEditTab(v)} sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Tab label="General" />
+          <Tab label="Write on Change" />
+          <Tab label="Units" />
+        </Tabs>
+        <DialogContent>
+          {/* General tab — rename (single) + poll group */}
+          {editTab === 0 && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+              {selected.size === 1 ? (() => {
+                const tag = filteredTags.find(t => selected.has(t.tag_id));
+                return (
+                  <>
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                      <TextField
+                        label="Source (tag_path)"
+                        value={tag?.tag_path || ''}
+                        size="small"
+                        fullWidth
+                        InputProps={{ readOnly: true }}
+                        helperText="Physical address — never changes"
+                      />
+                      <TextField
+                        label="Tag ID"
+                        value={tag?.tag_id || ''}
+                        size="small"
+                        sx={{ width: 100 }}
+                        InputProps={{ readOnly: true }}
+                      />
+                    </Box>
+                    <TextField
+                      label="Display Name"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      size="small"
+                      fullWidth
+                      helperText="Leave blank to reset to the source address"
+                      error={Boolean(renameError)}
+                    />
+                    {renameError && (
+                      <Alert severity="error" sx={{ py: 0.5 }}>{renameError}</Alert>
+                    )}
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button size="small" variant="contained" onClick={handleRenameTag} disabled={renaming}>
+                        {renaming ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
+                        Save Name
+                      </Button>
+                    </Box>
+                    {!hidePollGroup && <Divider />}
+                  </>
+                );
+              })() : (
+                <Alert severity="info" sx={{ py: 0.5 }}>Select a single tag to rename it.</Alert>
+              )}
+              {!hidePollGroup && (
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  <Typography variant="body2" sx={{ minWidth: 90 }}>Poll Group:</Typography>
+                  <FormControl size="small" sx={{ flex: 1 }}>
+                    <Select
+                      value={selectedPollGroup}
+                      onChange={(e) => setSelectedPollGroup(e.target.value)}
+                    >
+                      {pollGroups.map(pg => (
+                        <MenuItem key={pg.group_id} value={pg.group_id}>
+                          {pg.name} ({formatPollRate(pg.poll_rate_ms)})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Button size="small" variant="outlined" onClick={applyPollGroup} disabled={busy}>
+                    Apply
+                  </Button>
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {/* Write on Change tab */}
+          {editTab === 1 && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+              <Tooltip title="Only save tag values to database when they change, reducing writes for stable values">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={changeDetectionEnabled}
+                      onChange={(e) => setChangeDetectionEnabled(e.target.checked)}
+                    />
+                  }
+                  label="Write on Change"
+                />
+              </Tooltip>
+              {changeDetectionEnabled && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <Typography variant="body2" sx={{ minWidth: 90 }}>Deadband:</Typography>
+                    <Tooltip title="Minimum change required to trigger a write. Absolute: fixed value difference. Percent: percentage of previous value.">
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={deadband}
+                        onChange={(e) => setDeadband(Number(e.target.value))}
+                        inputProps={{ min: 0, step: 0.1 }}
+                        sx={{ width: 100 }}
+                      />
+                    </Tooltip>
+                    <FormControl size="small" sx={{ minWidth: 110 }}>
+                      <Select value={deadbandType} onChange={(e) => setDeadbandType(e.target.value)}>
+                        <MenuItem value="absolute">Absolute</MenuItem>
+                        <MenuItem value="percent">Percent</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <Typography variant="body2" sx={{ minWidth: 90 }}>Heartbeat (s):</Typography>
+                    <Tooltip title="Force a write after this interval even if value hasn't changed (heartbeat).">
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={forcePublishInterval}
+                        onChange={(e) => setForcePublishInterval(Number(e.target.value))}
+                        inputProps={{ min: 0, step: 1 }}
+                        sx={{ width: 100 }}
+                      />
+                    </Tooltip>
+                  </Box>
+                </Box>
+              )}
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button size="small" variant="outlined" onClick={applyChangeDetection} disabled={busy}>
+                  Apply
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          {/* Units tab */}
+          {editTab === 2 && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ minWidth: 90 }}>Unit:</Typography>
+                <Autocomplete
+                  size="small"
+                  value={selectedUnit}
+                  onChange={(_, newValue) => setSelectedUnit(newValue)}
+                  options={units}
+                  groupBy={(option) => option.category}
+                  getOptionLabel={(option) => `${option.name} (${option.symbol})`}
+                  renderInput={(params) => <TextField {...params} placeholder="Select unit..." size="small" />}
+                  sx={{ flex: 1 }}
+                />
+                <Button size="small" variant="outlined" onClick={applyUnit} disabled={busy}>
+                  Apply
+                </Button>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditModalOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Card>
   );
 };

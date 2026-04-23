@@ -266,11 +266,11 @@ class PyComm3Worker:
         if not self.connected or not self.plc:
             raise ConnectionError("Not connected to PLC")
         
-        tag_name = params.get('tag_name')
+        tag_name = params.get('tag_path') or params.get('tag_name')  # tag_path is the PLC address
         value = params.get('value')
         
         if not tag_name:
-            raise ValueError('tag_name parameter required')
+            raise ValueError('tag_path parameter required')
         if value is None:
             raise ValueError('value parameter required')
         
@@ -858,6 +858,7 @@ class PyComm3Worker:
             tag_id = tag['tag_id']
             self.tag_map[tag_id] = {
                 'tag_id': tag_id,
+                'tag_path': tag.get('tag_path', tag['tag_name']),  # PLC address; fall back to tag_name for legacy data
                 'tag_name': tag['tag_name'],
                 'data_type': tag.get('data_type', 'UNKNOWN'),
                 'poll_group_id': tag['poll_group_id'],
@@ -1231,7 +1232,7 @@ class PyComm3Worker:
                         continue
                     
                     tag_info = self.tag_map[tag_id]
-                    tag_name = tag_info['tag_name']
+                    tag_name = tag_info['tag_path']  # Use tag_path as the physical PLC address
                     
                     # Check if this is an array element (e.g., ARR_DINT[123])
                     if '[' in tag_name and ']' in tag_name:

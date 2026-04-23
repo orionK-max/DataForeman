@@ -30,7 +30,7 @@ function createTagsAPI(app, flowId, nodeOutputs) {
       
       // Query tag by path
       const result = await app.db.query(
-        'SELECT tag_id, data_type FROM tag_metadata WHERE tag_path = $1 AND is_deleted = false',
+        'SELECT tag_id, data_type FROM tag_metadata WHERE tag_path = $1',
         [tagPath]
       );
       
@@ -62,7 +62,7 @@ function createTagsAPI(app, flowId, nodeOutputs) {
       
       // Get tag ID
       const tagResult = await app.db.query(
-        'SELECT tag_id FROM tag_metadata WHERE tag_path = $1 AND is_deleted = false',
+        'SELECT tag_id FROM tag_metadata WHERE tag_path = $1',
         [tagPath]
       );
       

@@ -1728,7 +1728,7 @@ export default async function mqttRoutes(app) {
         // Pre-check: reject duplicate tag_name before INSERT (avoid aborting the transaction)
         const { rows: nameRows } = await db.query(
           `SELECT 1 FROM tag_metadata
-           WHERE connection_id = $1 AND tag_name = $2 AND is_deleted = false
+           WHERE connection_id = $1 AND tag_name = $2
            LIMIT 1`,
           [mapping.connection_id, mapping.tag_name]
         );
@@ -1751,37 +1751,12 @@ export default async function mqttRoutes(app) {
         );
 
         let tagId = null;
-        let revived = false;
 
         if (existingRows.length > 0) {
-          const existing = existingRows[0];
-          if (existing.status === 'deleted') {
-            tagId = existing.tag_id;
-            revived = true;
-
-            await db.query(
-              `UPDATE tag_metadata
-               SET
-                 status = NULL,
-                 is_deleted = false,
-                 deleted_at = NULL,
-                 delete_job_id = NULL,
-                 delete_started_at = NULL,
-                 original_subscribed = NULL,
-                 is_subscribed = true,
-                 poll_group_id = 5,
-                 tag_name = $1,
-                 data_type = $2,
-                 description = $3
-               WHERE tag_id = $4`,
-              [mapping.tag_name, mapping.data_type, desc, tagId]
-            );
-          } else {
-            // Tag path already active — delete orphaned mapping and skip
-            await db.query('DELETE FROM mqtt_field_mappings WHERE id = $1 AND tag_id IS NULL', [mappingId]);
-            errors.push({ mapping_id: mappingId, error: 'Tag path already exists' });
-            continue;
-          }
+          // Tag path already active — delete orphaned mapping and skip
+          await db.query('DELETE FROM mqtt_field_mappings WHERE id = $1 AND tag_id IS NULL', [mappingId]);
+          errors.push({ mapping_id: mappingId, error: 'Tag path already exists' });
+          continue;
         } else {
           const { rows: tagRows } = await db.query(
             `INSERT INTO tag_metadata (
@@ -1813,7 +1788,6 @@ export default async function mqttRoutes(app) {
           mapping_id: mappingId,
           tag_id: tagId,
           tag_path: tagPath,
-          revived,
           success: true
         });
       }
@@ -1900,7 +1874,6 @@ export default async function mqttRoutes(app) {
         FROM tag_metadata tm
         JOIN connections c ON c.id = tm.connection_id
         WHERE tm.is_subscribed = true
-          AND tm.is_deleted = false
           AND c.deleted_at IS NULL
       `;
       const params = [];
@@ -2049,7 +2022,7 @@ export default async function mqttRoutes(app) {
         ({ rows } = await db.query(
           `SELECT tm.tag_id
            FROM tag_metadata tm
-           WHERE tm.driver_type = 'INTERNAL' AND tm.tag_name = $1 AND tm.is_deleted = false`,
+           WHERE tm.driver_type = 'INTERNAL' AND tm.tag_name = $1`,
           [tag_name]
         ));
       } else {
@@ -2057,7 +2030,7 @@ export default async function mqttRoutes(app) {
           `SELECT tm.tag_id
            FROM tag_metadata tm
            JOIN connections c ON c.id = tm.connection_id
-           WHERE c.name = $1 AND tm.tag_name = $2 AND tm.is_deleted = false`,
+           WHERE c.name = $1 AND tm.tag_name = $2`,
           [conn_name, tag_name]
         ));
       }

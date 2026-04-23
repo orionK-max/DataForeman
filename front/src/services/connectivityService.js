@@ -313,7 +313,16 @@ export const connectivityService = {
    */
   updateTagOnChange: (payload) =>
     apiClient.patch('/connectivity/tags/on-change', payload),
-  
+
+  /**
+   * Rename a single tag (display name only; tag_path is never changed)
+   * @param {number} tagId
+   * @param {string|null} tagName - new display name, or null to clear
+   * @returns {Promise}
+   */
+  renameTag: (tagId, tagName) =>
+    apiClient.patch(`/connectivity/tags/${tagId}/name`, { tag_name: tagName }),
+
   /**
    * Export tags for a connection as JSON
    * @param {string} connectionId - Connection ID

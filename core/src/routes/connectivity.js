@@ -1012,7 +1012,7 @@ export async function connectivityRoutes(app) {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12, $13)
             ON CONFLICT (connection_id, tag_path, driver_type) 
             DO UPDATE SET
-              tag_name = EXCLUDED.tag_name,
+              tag_name = CASE WHEN tag_metadata.tag_name IS NULL THEN EXCLUDED.tag_name ELSE tag_metadata.tag_name END,
               data_type = EXCLUDED.data_type,
               poll_group_id = EXCLUDED.poll_group_id,
               is_subscribed = EXCLUDED.is_subscribed OR tag_metadata.is_subscribed,
@@ -1433,6 +1433,53 @@ export async function connectivityRoutes(app) {
     } catch (e) {
       req.log.error({ err: e }, 'failed to update tag write on change');
       return reply.code(500).send({ error: 'failed_to_update_on_change' });
+    }
+  });
+
+  // Rename a single tag (update display name only; tag_path is never changed)
+  app.patch('/tags/:tagId/name', async (req, reply) => {
+    const tagId = parseInt(req.params.tagId, 10);
+    const { tag_name } = req.body || {};
+
+    if (!Number.isFinite(tagId)) {
+      return reply.code(400).send({ error: 'invalid_tag_id' });
+    }
+    if (tag_name !== null && (typeof tag_name !== 'string' || !tag_name.trim())) {
+      return reply.code(400).send({ error: 'invalid_tag_name' });
+    }
+    const newName = tag_name === null ? null : tag_name.trim();
+
+    try {
+      // Fetch the tag to get its connection_id and verify it exists
+      const { rows: tagRows } = await app.db.query(
+        `SELECT tag_id, connection_id FROM tag_metadata WHERE tag_id = $1`,
+        [tagId]
+      );
+      if (!tagRows.length) {
+        return reply.code(404).send({ error: 'tag_not_found' });
+      }
+      const { connection_id } = tagRows[0];
+
+      // Check uniqueness within this connection (only active tags; deleted rows are hard-deleted)
+      if (newName !== null) {
+        const { rows: dupeRows } = await app.db.query(
+          `SELECT 1 FROM tag_metadata WHERE connection_id = $1 AND tag_name = $2 AND tag_id <> $3 LIMIT 1`,
+          [connection_id, newName, tagId]
+        );
+        if (dupeRows.length) {
+          return reply.code(409).send({ error: 'tag_name_already_exists' });
+        }
+      }
+
+      await app.db.query(
+        `UPDATE tag_metadata SET tag_name = $1, updated_at = now() WHERE tag_id = $2`,
+        [newName, tagId]
+      );
+
+      return { ok: true, tag_id: tagId, tag_name: newName };
+    } catch (e) {
+      req.log.error({ err: e, tagId }, 'failed to rename tag');
+      return reply.code(500).send({ error: 'failed_to_rename_tag' });
     }
   });
 
