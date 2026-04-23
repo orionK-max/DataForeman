@@ -106,6 +106,7 @@ export class NodeTemplate extends BaseNode {
          * Label shown in UI for this input
          */
         displayName: 'First Value',
+      },
       {
         /**
          * Is this input required for execution?

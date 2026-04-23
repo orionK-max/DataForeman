@@ -45,6 +45,10 @@ const LibraryManager = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [forceDeleteDialogOpen, setForceDeleteDialogOpen] = useState(false);
+  const [libraryToDelete, setLibraryToDelete] = useState(null);
+  const [forceDeleteData, setForceDeleteData] = useState(null); // { library, flowsUsing }
 
   useEffect(() => {
     setPageTitle('Library Manager');
@@ -121,19 +125,42 @@ const LibraryManager = () => {
     }
   };
 
-  const handleDelete = async (library) => {
-    if (!window.confirm(`Are you sure you want to delete ${library.name}? This cannot be undone.`)) {
-      return;
-    }
+  const handleDelete = (library) => {
+    setLibraryToDelete(library);
+    setDeleteDialogOpen(true);
+  };
 
+  const handleConfirmDelete = async () => {
+    setDeleteDialogOpen(false);
     try {
-      const deleteResult = await libraryApi.delete(library.libraryId);
+      const deleteResult = await libraryApi.delete(libraryToDelete.libraryId);
       const deleteMsg = deleteResult.requiresRestart ? 'Restart core to fully unload.' : 'Library hot-unloaded.';
-      showSnackbar(`${library.name} deleted. ${deleteMsg}`, 'success');
+      showSnackbar(`${libraryToDelete.name} deleted. ${deleteMsg}`, 'success');
+      setLibraryToDelete(null);
       loadLibraries();
     } catch (error) {
       console.error('Delete failed:', error);
-      showSnackbar('Failed to delete library', 'error');
+      if (error.status === 409 && error.data?.flowsUsing?.length > 0) {
+        setForceDeleteData({ library: libraryToDelete, flowsUsing: error.data.flowsUsing });
+        setForceDeleteDialogOpen(true);
+      } else {
+        showSnackbar(error.message || 'Failed to delete library', 'error');
+        setLibraryToDelete(null);
+      }
+    }
+  };
+
+  const handleForceDelete = async () => {
+    setForceDeleteDialogOpen(false);
+    try {
+      await libraryApi.delete(forceDeleteData.library.libraryId, true);
+      showSnackbar(`${forceDeleteData.library.name} force-deleted.`, 'warning');
+      loadLibraries();
+    } catch (forceError) {
+      showSnackbar(forceError.message || 'Force delete failed', 'error');
+    } finally {
+      setForceDeleteData(null);
+      setLibraryToDelete(null);
     }
   };
 
@@ -293,6 +320,50 @@ const LibraryManager = () => {
           ))}
         </Grid>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete Library</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete <strong>{libraryToDelete?.name}</strong>? This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleConfirmDelete} color="error" variant="contained">Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Force Delete Dialog (library in use) */}
+      <Dialog open={forceDeleteDialogOpen} onClose={() => setForceDeleteDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="warning" />
+          Library In Use
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <strong>{forceDeleteData?.library?.name}</strong> cannot be deleted because it is used by the following flow(s):
+          </Alert>
+          <List dense disablePadding>
+            {forceDeleteData?.flowsUsing?.map((flow) => (
+              <ListItem key={flow.id} disableGutters>
+                <ListItemText
+                  primary={flow.name}
+                  secondary={`${flow.node_count} node(s) from this library`}
+                />
+              </ListItem>
+            ))}
+          </List>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Remove library nodes from those flows and save, then try again. Alternatively, force-delete will remove the library immediately and break the flows that use it.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setForceDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleForceDelete} color="error" variant="outlined">Force Delete</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Upload Dialog */}
       <Dialog open={uploadDialogOpen} onClose={() => !uploading && setUploadDialogOpen(false)} maxWidth="sm" fullWidth>

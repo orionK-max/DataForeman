@@ -721,6 +721,16 @@ export default async function flowRoutes(app) {
       }
     }
 
+    // Keep library dependencies in sync whenever definition is saved
+    if (definition !== undefined) {
+      try {
+        const { updateFlowLibraryDependencies } = await import('../services/flow-executor.js');
+        await updateFlowLibraryDependencies(app, id, definition);
+      } catch (err) {
+        req.log.warn({ err, flowId: id }, 'Failed to update flow library dependencies on save');
+      }
+    }
+
     reply.send({ flow });
   });
 

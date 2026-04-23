@@ -100,14 +100,19 @@ const libraryApi = {
   /**
    * Delete a library
    */
-  async delete(libraryId) {
-    const response = await fetch(`${API_BASE}/${libraryId}`, {
+  async delete(libraryId, force = false) {
+    const url = force ? `${API_BASE}/${libraryId}?force=true` : `${API_BASE}/${libraryId}`;
+    const response = await fetch(url, {
       method: 'DELETE',
       headers: getHeaders(),
     });
 
     if (!response.ok) {
-      throw new Error('Failed to delete library');
+      const body = await response.json().catch(() => ({}));
+      const err = new Error(body.message || body.error || 'Failed to delete library');
+      err.status = response.status;
+      err.data = body;
+      throw err;
     }
 
     return response.json();
