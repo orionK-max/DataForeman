@@ -227,8 +227,36 @@ export default async function libraryRoutes(app) {
           // Ignore if doesn't exist
         }
 
-        // Extract zip
-        zip.extractAllTo(libraryDir, true);
+        // Extract zip to a temp staging directory first, then normalise structure.
+        // This handles zips where the user zipped the folder itself (one extra nesting level).
+        const stagingDir = `${libraryDir}__staging__`;
+        try { await fs.rm(stagingDir, { recursive: true, force: true }); } catch {}
+        zip.extractAllTo(stagingDir, true);
+
+        // Detect nesting: if stagingDir has no library.manifest.json but exactly one
+        // subdirectory that does, use that subdirectory as the real root.
+        let extractRoot = stagingDir;
+        try {
+          await fs.access(path.join(stagingDir, 'library.manifest.json'));
+        } catch {
+          // manifest not at root – look one level deeper
+          const children = (await fs.readdir(stagingDir, { withFileTypes: true })).filter(e => e.isDirectory());
+          if (children.length === 1) {
+            const nested = path.join(stagingDir, children[0].name);
+            try {
+              await fs.access(path.join(nested, 'library.manifest.json'));
+              extractRoot = nested;
+            } catch { /* leave extractRoot as stagingDir */ }
+          }
+        }
+
+        // Move resolved root to libraryDir
+        await fs.rename(extractRoot, libraryDir).catch(async () => {
+          // rename may fail across devices; fall back to cp+rm
+          await fs.cp(extractRoot, libraryDir, { recursive: true });
+        });
+        // Clean up staging dir (if different from what we moved)
+        try { await fs.rm(stagingDir, { recursive: true, force: true }); } catch {}
 
         // Save to database
         await db.query(
@@ -254,7 +282,11 @@ export default async function libraryRoutes(app) {
 
         // Node libraries: load immediately
         try {
-          await LibraryManager.loadLibrary(libraryDir, NodeRegistry, { db });
+          const loadResult = await LibraryManager.loadLibrary(libraryDir, NodeRegistry, { db });
+
+          if (!loadResult.success) {
+            throw new Error(loadResult.reason || 'Library failed to load (unknown reason)');
+          }
           
           await db.query(
             `UPDATE node_libraries 

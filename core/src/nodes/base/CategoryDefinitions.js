@@ -76,8 +76,8 @@ export const CATEGORIES = {
       },
       ADVANCED: {
         key: 'ADVANCED',
-        displayName: 'Scripts',
-        description: 'Custom JavaScript logic',
+        displayName: 'Advanced Math',
+        description: 'Advanced mathematical computations',
         order: 5
       }
     }
@@ -161,6 +161,12 @@ export const CATEGORIES = {
         displayName: 'Basic',
         description: 'General utilities',
         order: 1
+      },
+      SCRIPTS: {
+        key: 'SCRIPTS',
+        displayName: 'Scripts',
+        description: 'Custom JavaScript logic',
+        order: 2
       }
     }
   },

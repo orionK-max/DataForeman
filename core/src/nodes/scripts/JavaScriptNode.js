@@ -24,7 +24,7 @@ export class JavaScriptNode extends BaseNode {
     name: 'script-js',
     version: 1,
     description: 'Execute custom JavaScript code with access to flow context and APIs',
-    category: 'LOGIC_MATH',
+    category: 'UTILITY',
     section: 'SCRIPTS',
     icon: '📜',
     color: '#F57C00',

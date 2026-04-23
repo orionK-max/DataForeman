@@ -84,8 +84,14 @@ const LibraryManager = () => {
 
     try {
       setUploading(true);
-      await libraryApi.upload(selectedFile);
-      showSnackbar('Library uploaded successfully. Restart required.', 'success');
+      const result = await libraryApi.upload(selectedFile);
+      if (result.loadError) {
+        showSnackbar(`Library installed but failed to load: ${result.loadError}`, 'warning');
+      } else if (result.requiresRestart) {
+        showSnackbar('Library installed. Restart core to activate it.', 'success');
+      } else {
+        showSnackbar('Library installed and activated. No restart required.', 'success');
+      }
       setUploadDialogOpen(false);
       setSelectedFile(null);
       loadLibraries();
@@ -100,11 +106,13 @@ const LibraryManager = () => {
   const handleToggleEnabled = async (library) => {
     try {
       if (library.enabled) {
-        await libraryApi.disable(library.libraryId);
-        showSnackbar(`${library.name} disabled. Restart required.`, 'info');
+        const disableResult = await libraryApi.disable(library.libraryId);
+        const disableMsg = disableResult.requiresRestart ? 'Restart core to deactivate.' : 'Library hot-unloaded.';
+        showSnackbar(`${library.name} disabled. ${disableMsg}`, 'info');
       } else {
-        await libraryApi.enable(library.libraryId);
-        showSnackbar(`${library.name} enabled. Restart required.`, 'info');
+        const enableResult = await libraryApi.enable(library.libraryId);
+        const enableMsg = enableResult.requiresRestart ? 'Restart core to activate.' : 'Library hot-loaded.';
+        showSnackbar(`${library.name} enabled. ${enableMsg}`, 'info');
       }
       loadLibraries();
     } catch (error) {
@@ -119,8 +127,9 @@ const LibraryManager = () => {
     }
 
     try {
-      await libraryApi.delete(library.libraryId);
-      showSnackbar(`${library.name} deleted. Restart required.`, 'success');
+      const deleteResult = await libraryApi.delete(library.libraryId);
+      const deleteMsg = deleteResult.requiresRestart ? 'Restart core to fully unload.' : 'Library hot-unloaded.';
+      showSnackbar(`${library.name} deleted. ${deleteMsg}`, 'success');
       loadLibraries();
     } catch (error) {
       console.error('Delete failed:', error);
@@ -170,7 +179,7 @@ const LibraryManager = () => {
 
       {/* Info Alert */}
       <Alert severity="info" sx={{ mb: 3 }}>
-        Changes to libraries (install, enable, disable, delete) require restarting the core service to take effect.
+        Node libraries support hot-reload and activate immediately. Extensions require a core service restart.
       </Alert>
 
       {/* Libraries Grid */}

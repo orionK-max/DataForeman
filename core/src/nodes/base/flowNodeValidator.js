@@ -48,11 +48,15 @@ export class FlowNodeValidator {
       errors.push('displayName is required and must be a string');
     }
 
-    // Validate name (should match nodeType)
+    // Validate name (should match nodeType, or the un-namespaced suffix for library nodes)
     if (!description.name || typeof description.name !== 'string') {
       errors.push('name is required and must be a string');
-    } else if (description.name !== nodeType) {
-      warnings.push(`name "${description.name}" does not match node type "${nodeType}"`);
+    } else {
+      // For namespaced types (e.g. "advanced-math:rate-of-change"), accept the short name suffix
+      const expectedName = nodeType.includes(':') ? nodeType.split(':').pop() : nodeType;
+      if (description.name !== nodeType && description.name !== expectedName) {
+        warnings.push(`name "${description.name}" does not match node type "${nodeType}"`);
+      }
     }
 
     // Validate name format (kebab-case)
