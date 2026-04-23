@@ -24,6 +24,7 @@ export class MQTTDriver {
     this.messageCount = 0;
     this.errorCount = 0;
     this.successfulBrokerHost = null; // Cached successful broker host for fast reconnection
+    this._eventHandlersSetup = false;
   }
 
   /**
@@ -186,6 +187,7 @@ export class MQTTDriver {
     return new Promise((resolve, reject) => {
       try {
         this.client = mqtt.connect(brokerUrl, options);
+        this._eventHandlersSetup = false;
 
         const connectTimeout = setTimeout(() => {
           if (this.isConnecting) {
@@ -229,6 +231,10 @@ export class MQTTDriver {
    * Set up event handlers for the MQTT client
    */
   setupEventHandlers() {
+    // mqtt.js emits 'connect' on every reconnect; ensure we don't attach duplicate listeners.
+    if (this._eventHandlersSetup) return;
+    this._eventHandlersSetup = true;
+
     this.client.on('message', (topic, message, packet) => {
       this.handleMessage(topic, message, packet);
     });

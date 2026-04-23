@@ -418,6 +418,15 @@ const ChartRenderer = React.forwardRef(({
           itemStyle: {
             color: tagConfig.color || '#3b82f6',
           },
+          emphasis: {
+            focus: 'series',
+            blurScope: 'coordinateSystem',
+          },
+          blur: {
+            lineStyle: {
+              opacity: 0.15,
+            },
+          },
           connectNulls: false, // Changed to false so gaps beyond heartbeat show as breaks
           yAxisIndex: yAxisIndex,
         };
@@ -701,32 +710,53 @@ const ChartRenderer = React.forwardRef(({
           // Display time header
           let html = `<div style="font-weight: 600; margin-bottom: 4px;">${timeStr}.${ms}</div>`;
           
-          // Track unique series to avoid duplicates
-          const uniqueSeries = new Map();
-          
-          // Only show series data (vertical axis values), filter out any non-series data
+          // Build map from params (series that ECharts snapped to)
+          const snappedMap = new Map();
           params.forEach(param => {
-            // Only show if it's a series with actual data value
             if (param.componentType === 'series' && param.value && param.value[1] !== null && param.value[1] !== undefined) {
-              const seriesName = param.seriesName;
-              const value = param.value[1];
-              
-              // Only add if we haven't seen this series yet, or update with latest value
-              if (!uniqueSeries.has(seriesName)) {
-                uniqueSeries.set(seriesName, {
-                  color: param.color,
-                  value: value
-                });
+              if (!snappedMap.has(param.seriesName)) {
+                snappedMap.set(param.seriesName, { color: param.color, value: param.value[1] });
               }
             }
           });
           
-          // Render unique series
-          uniqueSeries.forEach((data, seriesName) => {
+          // For ALL visible series, find the last-known value at or before cursor time
+          // This ensures all tags are shown even if they have no nearby data point
+          const allValues = new Map();
+          echartsData.series.forEach(s => {
+            if (s.name.startsWith('_refline_dummy_')) return;
+            if (snappedMap.has(s.name)) {
+              allValues.set(s.name, snappedMap.get(s.name));
+              return;
+            }
+            // Binary search for last data point with timestamp <= cursor time
+            const data = s.data;
+            if (!data || data.length === 0) return;
+            let lo = 0, hi = data.length - 1, found = null;
+            while (lo <= hi) {
+              const mid = (lo + hi) >> 1;
+              if (data[mid][0] <= time) {
+                found = data[mid];
+                lo = mid + 1;
+              } else {
+                hi = mid - 1;
+              }
+            }
+            if (found && found[1] !== null && found[1] !== undefined) {
+              const color = s.itemStyle?.color || s.lineStyle?.color || '#3b82f6';
+              allValues.set(s.name, { color, value: found[1] });
+            }
+          });
+          
+          // Render in series order
+          echartsData.series.forEach(s => {
+            if (s.name.startsWith('_refline_dummy_')) return;
+            const entry = allValues.get(s.name);
+            if (!entry) return;
             html += `
               <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${data.color};"></span>
-                <span>${seriesName}: <strong>${data.value.toFixed(2)}</strong></span>
+                <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${entry.color};"></span>
+                <span>${s.name}: <strong>${entry.value.toFixed(2)}</strong></span>
               </div>
             `;
           });
