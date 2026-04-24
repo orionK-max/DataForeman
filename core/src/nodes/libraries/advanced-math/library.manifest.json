@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "libraryId": "advanced-math",
+  "name": "Advanced Math",
+  "version": "1.0.0",
+  "description": "Advanced mathematical processing nodes: rate of change detection and rolling average smoothing for time-series signals.",
+  "author": "DataForeman",
+  "authorEmail": "",
+  "homepage": "",
+  "requirements": {
+    "dataforemanVersion": ">=0.2.0",
+    "nodeSchemaVersion": 1,
+    "requiresSubscription": false
+  },
+  "provides": {
+    "nodeTypes": [
+      "advanced-math:rate-of-change",
+      "advanced-math:rolling-average"
+    ],
+    "categories": {}
+  },
+  "metadata": {
+    "tags": ["math", "statistics", "signal-processing", "analytics"],
+    "license": "MIT"
+  }
+}
