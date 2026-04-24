@@ -1,5 +1,7 @@
 import React from 'react';
 import { Box, Typography, useTheme } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import { resolveNodeIcon } from '../../../constants/nodeIcons';
 
 /**
  * HeaderBlock - Node header with icon, title, and badges
@@ -46,15 +48,16 @@ export const HeaderBlock = ({ icon, title, color, badges = [], executionOrder })
           width: 28,
           height: 28,
           borderRadius: '6px',
-          backgroundColor: color || '#666666',
+          backgroundColor: alpha(color || '#666666', 0.18),
+          color: color || '#666666',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: 16,
-          flexShrink: 0
+          flexShrink: 0,
+          '& .MuiSvgIcon-root': { fontSize: '1rem' },
         }}
       >
-        {icon}
+        {resolveNodeIcon(icon)}
       </Box>
 
       {/* Title */}

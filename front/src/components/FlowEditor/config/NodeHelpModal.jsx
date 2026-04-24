@@ -18,6 +18,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined';
 import LinkIcon from '@mui/icons-material/Link';
+import { alpha } from '@mui/material/styles';
+import { resolveNodeIcon } from '../../../constants/nodeIcons';
 
 /**
  * Modal displaying help documentation for a node type
@@ -49,14 +51,14 @@ const NodeHelpModal = ({ open, onClose, metadata }) => {
               width: 40,
               height: 40,
               borderRadius: 1,
-              bgcolor: metadata.color || '#666',
+              bgcolor: alpha(metadata.color || '#666', 0.14),
+              color: metadata.color || '#666',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '1.5rem',
             }}
           >
-            {metadata.icon || '📦'}
+            {resolveNodeIcon(metadata.icon || '📦')}
           </Box>
           <Box>
             <Typography variant="h6">{metadata.displayName}</Typography>

@@ -1434,7 +1434,6 @@ const FlowEditor = () => {
 
       setNodes((nds) => nds.concat(newNode));
       setHasUnsavedChanges(true); // Mark as having unsaved changes
-      setNodeBrowserOpen(false); // Close browser after adding node
     },
     [reactFlowInstance, setNodes]
   );
@@ -1500,7 +1499,6 @@ const FlowEditor = () => {
 
     setNodes((nds) => nds.concat(newNode));
     setHasUnsavedChanges(true); // Mark as having unsaved changes
-    setNodeBrowserOpen(false); // Close browser after adding node
   }, [reactFlowInstance, setNodes]);
 
   // Handle node selection

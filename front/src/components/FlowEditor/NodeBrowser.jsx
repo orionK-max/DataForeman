@@ -11,8 +11,9 @@ import {
   AccordionDetails,
   List,
   Divider,
-  Chip,
+  Grid,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   Close as CloseIcon,
   Search as SearchIcon,
@@ -24,7 +25,9 @@ import {
   searchNodes,
   getOrganizedNodes,
   getCategories,
+  getNodeMetadata,
 } from '../../constants/nodeTypes';
+import { resolveNodeIcon } from '../../constants/nodeIcons';
 import NodeItem from './NodeItem';
 
 /**
@@ -170,19 +173,72 @@ const NodeBrowser = ({ open, onClose, onAddNode }) => {
           {/* Recent Nodes Section */}
           {!debouncedSearchTerm && recentNodes.length > 0 && (
             <Box sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
-                📍 RECENT
+              <Typography
+                variant="caption"
+                sx={{ mb: 1, display: 'block', color: 'text.secondary', fontWeight: 700, letterSpacing: '0.05em' }}
+              >
+                RECENT
               </Typography>
-              <List disablePadding>
-                {recentNodes.map(nodeType => (
-                  <NodeItem
-                    key={nodeType}
-                    nodeType={nodeType}
-                    onAddNode={handleAddNode}
-                    onDragStart={handleDragStart}
-                  />
-                ))}
-              </List>
+              <Grid container spacing={1}>
+                {recentNodes.map(nodeType => {
+                  const meta = getNodeMetadata(nodeType);
+                  return (
+                    <Grid item xs={6} key={nodeType}>
+                      <Box
+                        onClick={() => handleAddNode(nodeType)}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, nodeType)}
+                        sx={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 0.75,
+                          p: 1.25,
+                          borderRadius: 1.5,
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          cursor: 'grab',
+                          userSelect: 'none',
+                          '&:hover': {
+                            borderColor: meta.color,
+                            bgcolor: 'action.hover',
+                          },
+                          '&:active': { cursor: 'grabbing' },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 1.5,
+                            bgcolor: alpha(meta.color, 0.14),
+                            color: meta.color,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {resolveNodeIcon(meta.icon, { fontSize: 'medium' })}
+                        </Box>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            textAlign: 'center',
+                            fontWeight: 500,
+                            lineHeight: 1.2,
+                            overflow: 'hidden',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                          }}
+                        >
+                          {meta.displayName}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  );
+                })}
+              </Grid>
               <Divider sx={{ mt: 2, mb: 2 }} />
             </Box>
           )}
@@ -238,9 +294,25 @@ const NodeBrowser = ({ open, onClose, onAddNode }) => {
                     '&.Mui-expanded': { minHeight: 48 },
                   }}
                 >
-                  <Typography variant="subtitle2">
-                    {category.icon} {category.displayName}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box
+                      sx={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 0.75,
+                        bgcolor: 'action.selected',
+                        color: 'text.secondary',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        '& .MuiSvgIcon-root': { fontSize: '0.85rem' },
+                      }}
+                    >
+                      {resolveNodeIcon(category.icon)}
+                    </Box>
+                    <Typography variant="subtitle2">{category.displayName}</Typography>
+                  </Box>
                 </AccordionSummary>
                 <AccordionDetails sx={{ px: 1, pt: 0 }}>
                   {Object.entries(category.sections).map(([sectionKey, section]) => {
