@@ -1,5 +1,6 @@
 import { LocalAuthProvider } from '../services/auth-provider.js';
 import { getDemoInfo, createNewDemoUser } from '../services/demo-mode.js';
+import { getConfig } from '../services/config-items.js';
 
 const prov = new LocalAuthProvider();
 
@@ -69,12 +70,17 @@ export async function authRoutes(app) {
   });
 
   // Self-service password change
-  app.post('/password', async (req) => {
+  app.post('/password', async (req, reply) => {
     const { current_password, new_password } = req.body || {};
     const userId = req.user?.sub;
     
     if (!userId) {
       return reply.code(401).send({ error: 'unauthorized' });
+    }
+
+    const minLen = (await getConfig(app, 'auth.local', 'min_length', 8)) ?? 8;
+    if (!new_password || String(new_password).length < minLen) {
+      return reply.code(400).send({ error: `Password must be at least ${minLen} characters` });
     }
     
     // Verify current password
@@ -214,12 +220,17 @@ export async function authRoutes(app) {
     return { ok: true };
   });
 
-  app.post('/admin/users/:id/password', { preHandler: requireAdmin }, async (req) => {
+  app.post('/admin/users/:id/password', { preHandler: requireAdmin }, async (req, reply) => {
     const { password } = req.body || {};
     const targetUserId = req.params.id;
     const currentUserId = req.user?.sub;
-    
-    const hash = await (await import('argon2')).default.hash(String(password || ''), { type: (await import('argon2')).default.argon2id });
+
+    const minLen = (await getConfig(app, 'auth.local', 'min_length', 8)) ?? 8;
+    if (!password || String(password).length < minLen) {
+      return reply.code(400).send({ error: `Password must be at least ${minLen} characters` });
+    }
+
+    const hash = await (await import('argon2')).default.hash(String(password), { type: (await import('argon2')).default.argon2id });
     // upsert auth identity for local
     const { rows } = await app.db.query('select id from auth_identities where user_id=$1 and provider=$2', [targetUserId, 'local']);
     if (rows.length === 0) {
