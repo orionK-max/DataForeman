@@ -52,12 +52,15 @@ export class NodeExecutionContext {
     // If InputStateManager is available (continuous execution), read from it
     if (this.inputStateManager) {
       const edges = this._getIncomingEdges();
-      
-      if (edges.length === 0 || index >= edges.length) {
-        return null;
-      }
-      
-      const edge = edges[index];
+      if (edges.length === 0) return null;
+
+      // Find edge by targetHandle index (e.g. 'input-1'), not array position
+      const edge = edges.find(e => {
+        const idx = e.targetHandle ? parseInt(e.targetHandle.split('-')[1]) : 0;
+        return idx === index;
+      });
+      if (!edge) return null;
+
       const portName = edge.targetHandle || 'input';
       const inputData = this.inputStateManager.getInput(this.node.id, portName);
       
@@ -67,12 +70,15 @@ export class NodeExecutionContext {
     
     // Fallback to traditional edge-based reading (manual execution)
     const edges = this._getIncomingEdges();
-    
-    if (edges.length === 0 || index >= edges.length) {
-      return null;
-    }
-    
-    const edge = edges[index];
+    if (edges.length === 0) return null;
+
+    // Find edge by targetHandle index (e.g. 'input-1'), not array position
+    const edge = edges.find(e => {
+      const idx = e.targetHandle ? parseInt(e.targetHandle.split('-')[1]) : 0;
+      return idx === index;
+    });
+    if (!edge) return null;
+
     return this.nodeOutputs.get(edge.source) || null;
   }
 
