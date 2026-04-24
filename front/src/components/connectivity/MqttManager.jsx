@@ -80,6 +80,9 @@ const MqttManager = () => {
   
   // Delete confirmation
   const [deleteDialog, setDeleteDialog] = useState({ open: false, type: null, item: null });
+
+  // Require Auth confirmation
+  const [authConfirmDialog, setAuthConfirmDialog] = useState({ open: false, pendingValue: false });
   
   // Notifications
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -321,37 +324,33 @@ const MqttManager = () => {
 
   return (
     <Box>
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, display: 'flex', alignItems: 'center' }}>
-        <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)} sx={{ flex: 1 }}>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+        <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)}>
           <Tab icon={<SecurityIcon />} label="Credential Groups" iconPosition="start" />
           <Tab icon={<CloudIcon />} label="Devices" iconPosition="start" />
           <Tab icon={<RouterIcon />} label="Brokers" iconPosition="start" />
           <Tab icon={<SubscriptionsIcon />} label="Subscriptions" iconPosition="start" />
           <Tab icon={<PublishIcon />} label="Publishers" iconPosition="start" />
         </Tabs>
-        <Tooltip title="When enabled, devices must provide valid credentials to connect. Disabling allows anonymous connections. Changing this setting will restart the broker and disconnect all clients." placement="bottom-end">
-          <FormControlLabel
-          control={<Switch checked={requireAuth} onChange={async () => {
-            try {
-              const newValue = !requireAuth;
-              await mqttService.updateAuthSetting(newValue);
-              setRequireAuth(newValue);
-              showSnackbar(
-                newValue ? 'Authentication enabled. Devices must provide credentials.' : 'Anonymous mode active. Any device can connect.',
-                'success'
-              );
-            } catch (err) {
-              showSnackbar('Failed to update authentication setting', 'error');
-            }
-          }} color="primary" size="small" />}
-          label="Require Auth"
-          sx={{ mr: 1, mb: 0, whiteSpace: 'nowrap' }}
-        />
-        </Tooltip>
       </Box>
 
       {/* Credential Groups Tab */}
       <TabPanel value={tabValue} index={0}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="h6">Credential Groups</Typography>
+          <Tooltip title="When enabled, devices must provide valid credentials to connect. Disabling allows anonymous connections. Changing this setting will restart the broker and disconnect all clients.">
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={requireAuth}
+                  onChange={() => setAuthConfirmDialog({ open: true, pendingValue: !requireAuth })}
+                  color="primary"
+                />
+              }
+              label="Require Auth"
+            />
+          </Tooltip>
+        </Box>
         <MqttDeviceCredentials section="credentials" onNotify={showSnackbar} requireAuth={requireAuth} onAuthChange={setRequireAuth} />
       </TabPanel>
 
@@ -786,6 +785,45 @@ const MqttManager = () => {
             variant="contained"
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Require Auth Confirmation Dialog */}
+      <Dialog open={authConfirmDialog.open} onClose={() => setAuthConfirmDialog({ open: false, pendingValue: false })}>
+        <DialogTitle>
+          {authConfirmDialog.pendingValue ? 'Enable Authentication?' : 'Disable Authentication?'}
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            {authConfirmDialog.pendingValue
+              ? 'Enabling authentication will require all devices to provide valid credentials to connect. The broker will restart and all currently connected clients will be disconnected.'
+              : 'Disabling authentication will allow any device to connect without credentials (anonymous mode). Currently connected clients will remain connected.'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAuthConfirmDialog({ open: false, pendingValue: false })}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color={authConfirmDialog.pendingValue ? 'primary' : 'warning'}
+            onClick={async () => {
+              const newValue = authConfirmDialog.pendingValue;
+              setAuthConfirmDialog({ open: false, pendingValue: false });
+              try {
+                await mqttService.updateAuthSetting(newValue);
+                setRequireAuth(newValue);
+                showSnackbar(
+                  newValue ? 'Authentication enabled. Devices must provide credentials.' : 'Anonymous mode active. Any device can connect.',
+                  'success'
+                );
+              } catch (err) {
+                showSnackbar('Failed to update authentication setting', 'error');
+              }
+            }}
+          >
+            Confirm
           </Button>
         </DialogActions>
       </Dialog>
