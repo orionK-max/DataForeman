@@ -170,7 +170,10 @@ const MqttManager = () => {
 
   const handleUpdateConnection = async (formData) => {
     try {
-      await mqttService.updateConnection(editingConnection.id, formData);
+      const payload = { ...formData };
+      // Don't send empty password - backend treats undefined as "no change"
+      if (!payload.password) delete payload.password;
+      await mqttService.updateConnection(editingConnection.id, payload);
       showSnackbar('Connection updated successfully');
       loadConnections();
       setConnectionFormOpen(false);
@@ -612,7 +615,7 @@ const MqttManager = () => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => handleOpenPublisherForm(connections[0]?.id || null)}
+            onClick={() => handleOpenPublisherForm(null)}
             disabled={connections.length === 0}
           >
             New Publisher

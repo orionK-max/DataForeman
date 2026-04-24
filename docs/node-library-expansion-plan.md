@@ -185,8 +185,8 @@ These are specialized node collections that users can install based on their spe
 - **Trigonometry** - sin, cos, tan, asin, acos, atan, atan2
 - **Statistics** - min, max, average, median, sum, std dev, variance
 - **Scale/Map** - Linear scaling between input/output ranges
-- **Moving Average** - Simple/weighted/exponential moving averages
-- **Rate of Change** - Calculate change per time unit
+- ✅ **Moving Average (Rolling Average)** - Sample-count and time-window modes, Enable input, Disable Behaviour, Partial Buffer Behaviour
+- ✅ **Rate of Change** - Calculate change per time unit, Enable input, configurable time unit
 - **Totalizer** - Accumulate/integrate values over time
   - Configurable units (flow, energy, counts, time)
   - Reset input for batch operations

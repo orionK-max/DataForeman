@@ -535,7 +535,11 @@ export default async function mqttRoutes(app) {
 
     try {
       const { rows } = await db.query(
-        `SELECT c.*, mc.*
+        `SELECT c.id, c.name, c.type, c.enabled, c.created_at, c.updated_at,
+                mc.broker_host, mc.broker_port, mc.protocol, mc.use_tls, mc.tls_verify_cert,
+                mc.tls_ca_cert, mc.tls_client_cert, mc.tls_client_key,
+                mc.username, mc.client_id_prefix, mc.keep_alive, mc.clean_session,
+                mc.reconnect_period, mc.connect_timeout, mc.is_system
          FROM connections c
          JOIN mqtt_connections mc ON mc.connection_id = c.id
          WHERE c.id = $1 AND c.type = 'mqtt' AND c.deleted_at IS NULL`,
@@ -546,9 +550,8 @@ export default async function mqttRoutes(app) {
         return reply.code(404).send({ error: 'not_found' });
       }
 
-      // Don't expose password in response
+      // Password intentionally excluded from response
       const connection = { ...rows[0] };
-      delete connection.password;
 
       return reply.send({ connection });
     } catch (err) {
@@ -749,6 +752,7 @@ export default async function mqttRoutes(app) {
       enabled,
       broker_host,
       broker_port,
+      protocol,
       use_tls,
       tls_verify_cert,
       tls_ca_cert,
@@ -800,6 +804,7 @@ export default async function mqttRoutes(app) {
 
       if (broker_host !== undefined) { mqttFields.push(`broker_host = $${paramCount++}`); mqttValues.push(broker_host); }
       if (broker_port !== undefined) { mqttFields.push(`broker_port = $${paramCount++}`); mqttValues.push(broker_port); }
+      if (protocol !== undefined) { mqttFields.push(`protocol = $${paramCount++}`); mqttValues.push(protocol); }
       if (use_tls !== undefined) { mqttFields.push(`use_tls = $${paramCount++}`); mqttValues.push(use_tls); }
       if (tls_verify_cert !== undefined) { mqttFields.push(`tls_verify_cert = $${paramCount++}`); mqttValues.push(tls_verify_cert); }
       if (tls_ca_cert !== undefined) { mqttFields.push(`tls_ca_cert = $${paramCount++}`); mqttValues.push(tls_ca_cert); }
@@ -1020,7 +1025,7 @@ export default async function mqttRoutes(app) {
     }
 
     const { id } = req.params;
-    const { topic, qos, tag_prefix, payload_format, value_path, timestamp_path, quality_path, enabled } = req.body;
+    const { topic, qos, tag_prefix, payload_format, message_buffer_size, value_path, timestamp_path, quality_path, enabled } = req.body;
 
     try {
       const fields = [];
@@ -1031,6 +1036,7 @@ export default async function mqttRoutes(app) {
       if (qos !== undefined) { fields.push(`qos = $${paramCount++}`); values.push(qos); }
       if (tag_prefix !== undefined) { fields.push(`tag_prefix = $${paramCount++}`); values.push(tag_prefix); }
       if (payload_format !== undefined) { fields.push(`payload_format = $${paramCount++}`); values.push(payload_format); }
+      if (message_buffer_size !== undefined) { fields.push(`message_buffer_size = $${paramCount++}`); values.push(message_buffer_size); }
       if (value_path !== undefined) { fields.push(`value_path = $${paramCount++}`); values.push(value_path); }
       if (timestamp_path !== undefined) { fields.push(`timestamp_path = $${paramCount++}`); values.push(timestamp_path); }
       if (quality_path !== undefined) { fields.push(`quality_path = $${paramCount++}`); values.push(quality_path); }

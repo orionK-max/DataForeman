@@ -43,6 +43,8 @@ export default function MqttPublisherForm({ open, onClose, onSave, connectionId,
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // MQTT brokers list — for the broker selector
+  const [mqttBrokers, setMqttBrokers] = useState([]);
   // Connections list (all sources — for tag insertion)
   const [connections, setConnections] = useState([]);
   // Insert-tag panel state
@@ -87,8 +89,12 @@ export default function MqttPublisherForm({ open, onClose, onSave, connectionId,
 
   const loadConnections = async () => {
     try {
-      const res = await api.get('/connectivity/connections');
-      setConnections(res.items || []);
+      const [connRes, mqttRes] = await Promise.all([
+        api.get('/connectivity/connections'),
+        api.get('/mqtt/connections'),
+      ]);
+      setConnections(connRes.items || []);
+      setMqttBrokers((mqttRes.connections || []).filter(c => c.enabled !== false));
     } catch { /* silently ignore */ }
   };
 
@@ -202,6 +208,7 @@ export default function MqttPublisherForm({ open, onClose, onSave, connectionId,
 
   // ── Submit ───────────────────────────────────────────────────
   const handleSubmit = async () => {
+    if (!formData.connection_id) { setError('Broker is required'); return; }
     if (!formData.name.trim()) { setError('Publisher name is required'); return; }
     if (!formData.mqtt_topic.trim()) { setError('MQTT topic is required'); return; }
     if (!formData.payload_template.trim()) { setError('Payload body is required'); return; }
@@ -240,6 +247,25 @@ export default function MqttPublisherForm({ open, onClose, onSave, connectionId,
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+
+          {/* ── Broker selector (only when not preset by parent) ── */}
+          {!connectionId && (
+            <FormControl fullWidth required>
+              <InputLabel>MQTT Broker</InputLabel>
+              <Select
+                value={formData.connection_id || ''}
+                label="MQTT Broker"
+                onChange={e => set('connection_id', e.target.value)}
+                disabled={!!publisher}
+              >
+                {mqttBrokers.map(b => (
+                  <MenuItem key={b.id} value={b.id}>
+                    {b.name} ({b.broker_host}:{b.broker_port})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
           {/* ── Basic settings ── */}
           <TextField

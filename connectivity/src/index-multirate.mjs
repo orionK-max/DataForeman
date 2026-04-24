@@ -791,32 +791,90 @@ async function handleMQTTConfigUpdate(nc, id, config, existing) {
       }, 'MQTT connection established');
 
     } else {
-      // Refresh subscriptions and publishers for existing connection
-      log.info({ connectionId: id }, 'Refreshing MQTT subscriptions and publishers from database');
-      
-      // Stop existing interval publishers
-      for (const [publisherId, _] of existing.driver.publishers) {
-        existing.driver.stopIntervalPublishing(publisherId);
+      // Fetch fresh broker config from database to detect credential/host changes
+      const mqttConfigResult = await dbHelper.query(
+        `SELECT * FROM mqtt_connections WHERE connection_id = $1`,
+        [id]
+      );
+
+      if (mqttConfigResult.rows.length === 0) {
+        log.warn({ connectionId: id }, 'MQTT connection config not found in database during refresh');
+        await publishStatus(nc, id, 'error', 'MQTT configuration not found');
+        return;
       }
-      
-      await existing.driver.loadSubscriptions();
-      
-      // Reload field mappings
-      await existing.driver.loadFieldMappings();
-      
-      // Reload and restart publishers
-      const publishers = await existing.driver.loadPublishers();
-      for (const pub of publishers) {
-        if (pub.publish_mode === 'interval' || pub.publish_mode === 'both') {
-          existing.driver.startIntervalPublishing(pub.id);
+
+      const mqttConfig = mqttConfigResult.rows[0];
+      const prev = existing.driver.config || {};
+
+      // Check if broker connection params changed (host, port, credentials, TLS, protocol)
+      const brokerChanged =
+        prev.broker_host !== mqttConfig.broker_host ||
+        prev.broker_port !== mqttConfig.broker_port ||
+        prev.username !== mqttConfig.username ||
+        prev.password !== mqttConfig.password ||
+        prev.use_tls !== mqttConfig.use_tls ||
+        prev.protocol !== mqttConfig.protocol;
+
+      if (brokerChanged) {
+        log.info({ connectionId: id }, 'MQTT broker config changed — reconnecting with new settings');
+
+        // Stop interval publishers and disconnect
+        for (const [publisherId, _] of existing.driver.publishers) {
+          existing.driver.stopIntervalPublishing(publisherId);
         }
+        try { await existing.driver.disconnect(); } catch {}
+
+        // Reconnect with fresh config
+        existing.driver.successfulBrokerHost = null; // clear cached host
+        await existing.driver.connect(id, mqttConfig);
+        await existing.driver.loadSubscriptions();
+        await existing.driver.loadFieldMappings();
+
+        const publishers = await existing.driver.loadPublishers();
+        for (const pub of publishers) {
+          if (pub.publish_mode === 'interval' || pub.publish_mode === 'both') {
+            existing.driver.startIntervalPublishing(pub.id);
+          }
+        }
+
+        // Update stored config
+        connections.set(id, { driver: existing.driver, config, connecting: false });
+        await publishStatus(nc, id, 'connected');
+        log.info({ connectionId: id }, 'MQTT connection re-established with updated broker config');
+      } else {
+        // Broker config unchanged — just refresh subscriptions and publishers
+        log.info({ connectionId: id }, 'Refreshing MQTT subscriptions and publishers from database');
+
+        // Stop existing interval publishers
+        for (const [publisherId, _] of existing.driver.publishers) {
+          existing.driver.stopIntervalPublishing(publisherId);
+        }
+
+        await existing.driver.loadSubscriptions();
+
+        // Reload field mappings
+        await existing.driver.loadFieldMappings();
+
+        // Reload and restart publishers
+        const publishers = await existing.driver.loadPublishers();
+        for (const pub of publishers) {
+          if (pub.publish_mode === 'interval' || pub.publish_mode === 'both') {
+            existing.driver.startIntervalPublishing(pub.id);
+          }
+        }
+
+        await publishStatus(nc, id, 'connected');
       }
-      
-      await publishStatus(nc, id, 'connected');
     }
   } catch (err) {
     log.error({ connectionId: id, err: String(err?.message || err) }, 'MQTT config update failed');
-    await publishStatus(nc, id, 'error', err.message);
+    // Remove stale entry from map so the next config republish retries the connection from scratch
+    const failedEntry = connections.get(id);
+    if (failedEntry) {
+      try { await failedEntry.driver.disconnect(); } catch {}
+      connections.delete(id);
+    }
+    await publishStatus(nc, id, 'error', err.message).catch(() => {});
   }
 }
 
@@ -1017,9 +1075,33 @@ async function main() {
     }
   }, Math.min(TAG_RECONCILE_INTERVAL_MS, 30_000));
 
+  // MQTT publish requests from core publisher service : df.mqtt.publish.v1
+  const mqttPublishSub = nc.subscribe('df.mqtt.publish.v1');
+  log.info('MQTT publish request subscription created');
+  (async () => {
+    for await (const m of mqttPublishSub) {
+      try {
+        const data = JSON.parse(sc.decode(m.data));
+        const { connection_id, topic, payload, qos, retain } = data;
+        const entry = connections.get(connection_id);
+        if (!entry?.driver) {
+          log.warn({ connection_id, topic }, 'MQTT publish: connection not found or not active');
+          continue;
+        }
+        if (typeof entry.driver.publish !== 'function') {
+          log.warn({ connection_id, topic }, 'MQTT publish: driver does not support publish');
+          continue;
+        }
+        await entry.driver.publish(topic, payload, { qos: qos ?? 0, retain: retain ?? false });
+        log.info({ connection_id, topic }, 'MQTT publish: delivered via driver');
+      } catch (err) {
+        log.error({ err: String(err?.message || err) }, 'MQTT publish: delivery failed');
+      }
+    }
+  })();
+
   // EIP device discovery : df.connectivity.eip.discover.v1
   const subEipDiscover = nc.subscribe('df.connectivity.eip.discover.v1');
-  log.info({ subject: 'df.connectivity.eip.discover.v1' }, 'Subscribed to EIP discovery NATS subject');
   (async () => {
     log.info('Starting EIP discovery subscription loop');
     for await (const m of subEipDiscover) {

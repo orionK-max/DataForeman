@@ -231,16 +231,12 @@ Visit https://github.com/orionK-max/DataForeman/releases and find the latest rel
 Open a terminal in DataForeman folder and run these commands one at a time:
 
 ```bash
-# Stop DataForeman
-docker compose down
-
 # Download the new version (replace v1.2.0 with your version)
 git fetch --tags
 git checkout v1.2.0
 
-# Rebuild and start with the new version
-docker compose build
-docker compose up -d
+# Rebuild and restart (database migrations run automatically on startup)
+npm run start:rebuild
 ```
 
 **Step 3: Wait and Access**
@@ -250,6 +246,7 @@ Wait about 1-2 minutes for the update to complete, then access DataForeman at ht
 **Important Notes:**
 - ✅ Your databases and configurations are safely preserved during the update
 - ✅ All your dashboards, devices, and historical data remain intact
+- ✅ Database migrations run automatically when core starts — no manual step needed
 - ⏱️ The update process may take a few minutes (downloading and building)
 - 📖 Always check the [release notes on GitHub](https://github.com/orionK-max/DataForeman/releases) for important information
 
@@ -260,10 +257,8 @@ You can always go back to the previous version.
 Open a terminal in DataForeman folder and type:
 
 ```bash
-docker compose down
 git checkout v1.1.0  # Replace with your previous version
-docker compose build
-docker compose up -d
+npm run start:rebuild
 ```
 
 ### Starting and Stopping DataForeman

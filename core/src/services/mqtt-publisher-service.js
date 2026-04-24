@@ -55,7 +55,10 @@ export class MqttPublisherService {
     let rows;
     try {
       ({ rows } = await this.app.db.query(
-        'SELECT * FROM mqtt_publishers WHERE enabled = true'
+        `SELECT p.*, mc.is_system AS broker_is_system
+         FROM mqtt_publishers p
+         JOIN mqtt_connections mc ON mc.connection_id = p.connection_id
+         WHERE p.enabled = true`
       ));
     } catch (err) {
       this.app.log.error({ err }, 'MqttPublisherService: failed to load publishers');
@@ -127,7 +130,7 @@ export class MqttPublisherService {
     if (!pub || !pub.mqtt_topic || !pub.payload_template) return;
 
     const payload = this._resolveTemplate(pub);
-    await this._mqttPublish(pub.mqtt_topic, payload, pub.qos ?? 0, pub.retain ?? false);
+    await this._mqttPublish(pub.mqtt_topic, payload, pub.qos ?? 0, pub.retain ?? false, pub);
     pub.lastPublished = Date.now();
   }
 
@@ -149,8 +152,20 @@ export class MqttPublisherService {
     });
   }
 
-  /** Publish a message via the NanoMQ HTTP REST API. */
-  async _mqttPublish(topic, payload, qos, retain) {
+  /** Publish a message to the right broker.
+   *  - Internal broker (NanoMQ): use HTTP REST API directly.
+   *  - External broker: route via NATS → connectivity service.
+   */
+  async _mqttPublish(topic, payload, qos, retain, pub) {
+    if (pub.broker_is_system) {
+      await this._mqttPublishInternal(topic, payload, qos, retain);
+    } else {
+      await this._mqttPublishExternal(topic, payload, qos, retain, pub.connection_id);
+    }
+  }
+
+  /** Publish via NanoMQ HTTP REST API (internal broker only). */
+  async _mqttPublishInternal(topic, payload, qos, retain) {
     const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
@@ -173,6 +188,8 @@ export class MqttPublisherService {
       });
       if (!res.ok) {
         this.app.log.warn({ topic, status: res.status }, 'MQTT publish: HTTP error from broker');
+      } else {
+        this.app.log.debug({ topic, payloadLength: String(payload).length }, 'MQTT publish: OK');
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -181,5 +198,23 @@ export class MqttPublisherService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Route publish via NATS to the connectivity service (external brokers). */
+  async _mqttPublishExternal(topic, payload, qos, retain, connectionId) {
+    if (!this.app.nats?.healthy?.()) {
+      this.app.log.warn({ topic, connectionId }, 'MQTT publish: NATS not available, message dropped');
+      return;
+    }
+    this.app.nats.publish('df.mqtt.publish.v1', {
+      schema: 'mqtt.publish@v1',
+      ts: new Date().toISOString(),
+      connection_id: connectionId,
+      topic,
+      payload: String(payload),
+      qos: qos ?? 0,
+      retain: retain ?? false,
+    });
+    this.app.log.info({ topic, connectionId, payloadLength: String(payload).length }, 'MQTT publish: routed via NATS');
   }
 }
