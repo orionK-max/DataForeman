@@ -710,41 +710,54 @@ const ChartRenderer = React.forwardRef(({
           // Display time header
           let html = `<div style="font-weight: 600; margin-bottom: 4px;">${timeStr}.${ms}</div>`;
           
-          // Build map from params (series that ECharts snapped to)
-          const snappedMap = new Map();
-          params.forEach(param => {
-            if (param.componentType === 'series' && param.value && param.value[1] !== null && param.value[1] !== undefined) {
-              if (!snappedMap.has(param.seriesName)) {
-                snappedMap.set(param.seriesName, { color: param.color, value: param.value[1] });
-              }
-            }
-          });
-          
-          // For ALL visible series, find the last-known value at or before cursor time
-          // This ensures all tags are shown even if they have no nearby data point
+          // For ALL visible series, compute the value at cursor time matching the series
+          // interpolation mode so the tooltip agrees with the drawn line:
+          //   step='start' (stepBefore) → hold last known value
+          //   step='end'   (stepAfter)  → hold next value
+          //   no step (linear/smooth)   → linearly interpolate between surrounding points
           const allValues = new Map();
           echartsData.series.forEach(s => {
             if (s.name.startsWith('_refline_dummy_')) return;
-            if (snappedMap.has(s.name)) {
-              allValues.set(s.name, snappedMap.get(s.name));
-              return;
-            }
-            // Binary search for last data point with timestamp <= cursor time
             const data = s.data;
             if (!data || data.length === 0) return;
-            let lo = 0, hi = data.length - 1, found = null;
+
+            // Binary search: find last index with timestamp <= cursor time
+            let lo = 0, hi = data.length - 1, prevIdx = -1;
             while (lo <= hi) {
               const mid = (lo + hi) >> 1;
-              if (data[mid][0] <= time) {
-                found = data[mid];
-                lo = mid + 1;
-              } else {
-                hi = mid - 1;
-              }
+              if (data[mid][0] <= time) { prevIdx = mid; lo = mid + 1; }
+              else { hi = mid - 1; }
             }
-            if (found && found[1] !== null && found[1] !== undefined) {
-              const color = s.itemStyle?.color || s.lineStyle?.color || '#3b82f6';
-              allValues.set(s.name, { color, value: found[1] });
+
+            const color = s.itemStyle?.color || s.lineStyle?.color || '#3b82f6';
+            const nextIdx = prevIdx + 1;
+
+            if (s.step === 'end') {
+              // stepAfter: display the upcoming value
+              const pt = nextIdx < data.length ? data[nextIdx] : (prevIdx >= 0 ? data[prevIdx] : null);
+              if (pt && pt[1] !== null && pt[1] !== undefined) {
+                allValues.set(s.name, { color, value: pt[1] });
+              }
+            } else if (s.step) {
+              // stepBefore / step='start': last known value
+              if (prevIdx >= 0 && data[prevIdx][1] !== null && data[prevIdx][1] !== undefined) {
+                allValues.set(s.name, { color, value: data[prevIdx][1] });
+              }
+            } else {
+              // linear / smooth: interpolate between surrounding points
+              if (
+                prevIdx >= 0 && nextIdx < data.length &&
+                data[prevIdx][1] !== null && data[prevIdx][1] !== undefined &&
+                data[nextIdx][1] !== null && data[nextIdx][1] !== undefined
+              ) {
+                const t0 = data[prevIdx][0], v0 = data[prevIdx][1];
+                const t1 = data[nextIdx][0], v1 = data[nextIdx][1];
+                const frac = (time - t0) / (t1 - t0);
+                allValues.set(s.name, { color, value: v0 + frac * (v1 - v0) });
+              } else if (prevIdx >= 0 && data[prevIdx][1] !== null && data[prevIdx][1] !== undefined) {
+                // Past the last data point — show last value
+                allValues.set(s.name, { color, value: data[prevIdx][1] });
+              }
             }
           });
           
