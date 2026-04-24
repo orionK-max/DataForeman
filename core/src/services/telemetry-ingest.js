@@ -283,7 +283,7 @@ export const telemetryIngestPlugin = fp(async (app) => {
           app.runtimeState.setTagValue(
             tagIdNum,
             value,
-            obj.q,
+            quality,
             tsMs,
             String(obj.connection_id),
             tagPath

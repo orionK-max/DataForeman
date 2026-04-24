@@ -197,14 +197,19 @@ export class TagInputNode extends BaseNode {
     if (context.runtimeState) {
       const cached = context.runtimeState.getTagValue(tagId);
       if (cached) {
-        // Check data age if maxDataAge is set
-        if (maxDataAge >= 0) {
+        const hasCachedValue = cached.value !== null && cached.value !== undefined;
+
+        // If no valid cached value, fall through to DB query
+        if (!hasCachedValue) {
+          // fall through
+        } else if (maxDataAge >= 0) {
+          // Check data age if maxDataAge is set
           const ageSeconds = (Date.now() - new Date(cached.timestamp).getTime()) / 1000;
           // Treat 0 as "live data only" with 1 second tolerance
           const effectiveMaxAge = maxDataAge === 0 ? 1 : maxDataAge;
           if (ageSeconds > effectiveMaxAge) {
             context.logWarn({ tagId, ageSeconds, maxDataAge }, 'Cached data too old, falling back to DB');
-            // Fall through to DB query below
+            // fall through to DB query below
           } else {
             // Cache hit with acceptable age - get tag name for logging
             const metaResult = await context.query(
@@ -212,7 +217,6 @@ export class TagInputNode extends BaseNode {
               [tagId]
             );
             const tagName = metaResult.rows.length > 0 ? metaResult.rows[0].tag_name : cached.tagPath;
-            
             return {
               value: cached.value,
               quality: cached.quality,
@@ -223,13 +227,12 @@ export class TagInputNode extends BaseNode {
             };
           }
         } else {
-          // No age restriction, use cached value - get tag name for logging
+          // No age restriction, valid cached value - get tag name for logging
           const metaResult = await context.query(
             'SELECT tag_name FROM tag_metadata WHERE tag_id = $1',
             [tagId]
           );
           const tagName = metaResult.rows.length > 0 ? metaResult.rows[0].tag_name : cached.tagPath;
-          
           return {
             value: cached.value,
             quality: cached.quality,
