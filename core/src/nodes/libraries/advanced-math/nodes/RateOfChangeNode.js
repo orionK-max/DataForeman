@@ -212,7 +212,10 @@ export class RateOfChangeNode extends BaseNode {
 
     const rawValue  = valueInput?.value ?? valueInput;
     const quality   = valueInput?.quality ?? 0;
-    const now       = Date.now();
+    // Use the tag's own timestamp so elapsed time reflects the actual interval
+    // between sensor updates, not the 1-second flow scan cycle.
+    const tagTs = valueInput?.timestamp ? new Date(valueInput.timestamp).getTime() : null;
+    const now = (tagTs && !isNaN(tagTs)) ? tagTs : Date.now();
 
     const numValue = Number(rawValue);
     if (isNaN(numValue) || !isFinite(numValue)) {
