@@ -395,6 +395,11 @@ export class TagOutputNode extends BaseNode {
       return { value: null, quality: 0 };
     }
 
+    // Skip write when upstream node signals no valid value
+    if (inputValue.value === null || inputValue.value === undefined) {
+      return { value: null, quality: inputValue.quality ?? 1, writeSkipped: true, skipReason: 'null_input_value' };
+    }
+
     // Verify tag exists and is INTERNAL type (with caching)
     let tagMetadata = this._tagMetadataCache.get(tagId);
     

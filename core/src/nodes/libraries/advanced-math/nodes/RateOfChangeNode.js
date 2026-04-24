@@ -162,7 +162,9 @@ export class RateOfChangeNode extends BaseNode {
     if (!this.nodeStates.has(nodeId)) {
       this.nodeStates.set(nodeId, {
         lastValue: null,
-        lastTimestamp: null
+        lastTimestamp: null,
+        lastTagTimestamp: null,
+        lastOutput: null
       });
     }
     return this.nodeStates.get(nodeId);
@@ -212,10 +214,8 @@ export class RateOfChangeNode extends BaseNode {
 
     const rawValue  = valueInput?.value ?? valueInput;
     const quality   = valueInput?.quality ?? 0;
-    // Use the tag's own timestamp so elapsed time reflects the actual interval
-    // between sensor updates, not the 1-second flow scan cycle.
-    const tagTs = valueInput?.timestamp ? new Date(valueInput.timestamp).getTime() : null;
-    const now = (tagTs && !isNaN(tagTs)) ? tagTs : Date.now();
+    const tagTimestamp = valueInput?.timestamp ?? null;
+    const now = Date.now();
 
     const numValue = Number(rawValue);
     if (isNaN(numValue) || !isFinite(numValue)) {
@@ -231,8 +231,17 @@ export class RateOfChangeNode extends BaseNode {
     if (state.lastValue === null) {
       state.lastValue = numValue;
       state.lastTimestamp = now;
+      state.lastTagTimestamp = tagTimestamp;
       const firstValue = outputOnFirst ? 0 : null;
       return { value: firstValue, quality: firstValue === null ? 1 : quality };
+    }
+
+    // For time-based mode: only compute when a new tag reading has actually arrived.
+    // Between source updates the cache entry is unchanged, so valueInput.timestamp
+    // stays constant across scan cycles. A new reading always brings a new timestamp.
+    if (mode === 'time-based' && tagTimestamp && tagTimestamp === state.lastTagTimestamp) {
+      // Same reading as last cycle — return the last computed output unchanged
+      return state.lastOutput || { value: null, quality: 1 };
     }
 
     let rate;
@@ -263,13 +272,16 @@ export class RateOfChangeNode extends BaseNode {
     // Update state
     state.lastValue = numValue;
     state.lastTimestamp = now;
+    state.lastTagTimestamp = tagTimestamp;
 
-    return {
+    const output = {
       value: rate,
       quality,
       mode,
       timestamp: new Date().toISOString()
     };
+    state.lastOutput = output;
+    return output;
   }
 
   static get help() {
