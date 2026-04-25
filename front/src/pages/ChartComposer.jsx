@@ -246,14 +246,30 @@ const ChartComposerContent = () => {
   const handleZoomIn = React.useCallback(() => {
     if (chartRef.current) {
       const chart = chartRef.current.getEchartsInstance();
-      chart?.dispatchAction({ type: 'dataZoom', start: 10, end: 90 });
+      if (!chart) return;
+      const dz = chart.getOption()?.dataZoom?.[0];
+      const start = dz?.start ?? 0;
+      const end   = dz?.end   ?? 100;
+      const center = (start + end) / 2;
+      const half   = (end - start) / 2 * 0.6; // shrink to 60% of current range
+      chart.dispatchAction({ type: 'dataZoom', start: center - half, end: center + half });
     }
   }, []);
 
   const handleZoomOut = React.useCallback(() => {
     if (chartRef.current) {
       const chart = chartRef.current.getEchartsInstance();
-      chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+      if (!chart) return;
+      const dz = chart.getOption()?.dataZoom?.[0];
+      const start = dz?.start ?? 0;
+      const end   = dz?.end   ?? 100;
+      const center = (start + end) / 2;
+      const half   = Math.min((end - start) / 2 / 0.6, 50); // expand inverse of zoom-in, clamped
+      chart.dispatchAction({
+        type: 'dataZoom',
+        start: Math.max(0, center - half),
+        end:   Math.min(100, center + half),
+      });
     }
   }, []);
 

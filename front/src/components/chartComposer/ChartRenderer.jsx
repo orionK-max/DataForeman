@@ -300,9 +300,28 @@ const ChartRenderer = React.forwardRef(({
       const meta = tagMetadata?.[tagId];
       
       if (!meta?.on_change_enabled) {
-        // Not a write-on-change tag - return data as-is, sorted by timestamp
+        // Not a write-on-change tag - anchor line to left/right edges of the chart window
         const timestamps = Array.from(tagData.keys()).sort((a, b) => a - b);
-        return timestamps.map(time => [time, tagData.get(time)]);
+        if (timestamps.length === 0) {
+          // No data in range at all — keep empty
+          return [];
+        }
+        const now = Date.now();
+        const queryStartTime = requestedTimeRange ? new Date(requestedTimeRange.from).getTime() : (now - 3600000);
+        const queryEndTime   = requestedTimeRange ? new Date(requestedTimeRange.to).getTime()   : now;
+        const result = timestamps.map(time => [time, tagData.get(time)]);
+        // Left anchor: prepend a point at the query start using the last known value before the window
+        const lvb = lastValuesBefore?.[tagId];
+        if (lvb) {
+          const leftValue = Number(lvb.v);
+          if (Number.isFinite(leftValue)) {
+            result.unshift([queryStartTime, leftValue]);
+          }
+        }
+        // Right anchor: extend last point to query end
+        const lastValue = result[result.length - 1][1];
+        result.push([queryEndTime, lastValue]);
+        return result;
       }
       
       const now = Date.now();
