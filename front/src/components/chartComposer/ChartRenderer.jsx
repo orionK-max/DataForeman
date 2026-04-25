@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, CardContent, Box, CircularProgress, Typography, IconButton, Stack, Tooltip, Switch, FormControlLabel, TextField, MenuItem, useTheme } from '@mui/material';
-import { ZoomIn, ZoomOut, RestartAlt, Settings, DashboardCustomize } from '@mui/icons-material';
+import { ZoomIn, ZoomOut, RestartAlt, Settings, DashboardCustomize, ChevronLeft, ChevronRight } from '@mui/icons-material';
 import ReactECharts from 'echarts-for-react';
 import ChartConfigPanel from './ChartConfigPanel';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
@@ -47,6 +47,7 @@ const ChartRenderer = React.forwardRef(({
   updateChartConfig = null,
   onPreferencesClose = null,
   onResetZoom = null,
+  onScrollTime = null, // (direction: 'back' | 'forward') => void — shift time window by 50%, stops live mode
   onToggleCompactMode = null,
   // New props for external control
   externalShowPreferences = null,
@@ -1038,6 +1039,20 @@ const ChartRenderer = React.forwardRef(({
             {/* Zoom Controls - Only show when not in preferences mode */}
             {!showPreferences && (
               <>
+                {onScrollTime && (
+                  <>
+                    <Tooltip title="Scroll Back 50%">
+                      <IconButton size="small" onClick={() => onScrollTime('back')}>
+                        <ChevronLeft fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Scroll Forward 50%">
+                      <IconButton size="small" onClick={() => onScrollTime('forward')}>
+                        <ChevronRight fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </>
+                )}
                 <Tooltip title="Zoom In">
                   <IconButton size="small" onClick={handleZoomIn}>
                     <ZoomIn fontSize="small" />
