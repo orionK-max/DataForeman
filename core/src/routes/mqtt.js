@@ -1962,7 +1962,7 @@ export default async function mqttRoutes(app) {
 
       // Tag refs: resolved {{tag_id:N}} → tag metadata for display decoding
       const { rows: tagRefs } = await app.db.query(
-        `SELECT tr.token_key, tr.tag_id, tm.tag_name, tm.tag_path, c.name as connection_name
+        `SELECT tr.token_key, tr.tag_id, tm.tag_name, tm.tag_path, tm.driver_type, c.name as connection_name
          FROM mqtt_publisher_tag_refs tr
          LEFT JOIN tag_metadata tm ON tm.tag_id = tr.tag_id
          LEFT JOIN connections c ON c.id = tm.connection_id
@@ -1972,13 +1972,17 @@ export default async function mqttRoutes(app) {
       );
 
       // Build display template: replace {{tag_id:N}} → {{ConnName|TagName}} for UI
+      // INTERNAL tags are stored under the 'System' connection in the DB but the UI
+      // uses the pseudo-connection name 'Internal Tags' for insertion, so we must
+      // restore that name here to keep the round-trip consistent.
       let payload_template_display = rows[0].payload_template || '';
       for (const ref of tagRefs) {
         if (ref.tag_id && ref.connection_name) {
           const displayName = ref.tag_name || ref.tag_path || `tag_id:${ref.tag_id}`;
+          const connLabel = ref.driver_type === 'INTERNAL' ? 'Internal Tags' : ref.connection_name;
           payload_template_display = payload_template_display.replace(
             new RegExp(`\\{\\{tag_id:${ref.tag_id}\\}\\}`, 'g'),
-            `{{${ref.connection_name}|${displayName}}}`
+            `{{${connLabel}|${displayName}}}`
           );
         }
       }

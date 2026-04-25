@@ -911,6 +911,12 @@ export async function connectivityRoutes(app) {
         return reply.code(400).send({ error: 'missing conn.type' });
       }
 
+      // Prevent using reserved internal names
+      const RESERVED_CONNECTION_NAMES = ['system', 'internal tags', 'internal'];
+      if (RESERVED_CONNECTION_NAMES.includes(name.trim().toLowerCase())) {
+        return reply.code(400).send({ error: 'reserved_name', message: `Connection name "${name.trim()}" is reserved and cannot be used` });
+      }
+
       // Prevent modification of system connections
       const existing = await loadConnectionConfig(app.db, id);
       if (existing?.is_system_connection) {
