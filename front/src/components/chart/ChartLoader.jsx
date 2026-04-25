@@ -60,6 +60,9 @@ const ChartLoader = ({
   // Write-on-change metadata for heartbeat feature
   const [tagMetadata, setTagMetadata] = useState({});
   const [lastValuesBefore, setLastValuesBefore] = useState({});
+
+  // Smart compression fallback warning
+  const [compressionError, setCompressionError] = useState(false);
   
   // Auto-refresh
   const [isAutoRefresh, setIsAutoRefresh] = useState(false);
@@ -208,6 +211,7 @@ const ChartLoader = ({
       setLoading(true);
     }
     setError('');
+    setCompressionError(false);
 
     try {
       // Get tag IDs
@@ -275,6 +279,10 @@ const ChartLoader = ({
         // Store last values before query range for write-on-change tags
         if (response.last_values_before) {
           Object.assign(lastValsBeforeObj, response.last_values_before);
+        }
+
+        if (response.compression_error) {
+          setCompressionError(true);
         }
       }
       
@@ -413,7 +421,13 @@ const ChartLoader = ({
   });
 
   return (
-    <ChartRenderer
+    <>
+      {compressionError && (
+        <Alert severity="warning" sx={{ mb: 1 }}>
+          Smart compression encountered an error and fell back to a basic query. Some tags may show incomplete data. Try turning off Smart Compression.
+        </Alert>
+      )}
+      <ChartRenderer
       data={chartData}
       tagConfigs={mappedTagConfigs}
       axes={chartConfig.axes || []}
@@ -445,6 +459,7 @@ const ChartLoader = ({
         show: true,
       }}
     />
+    </>
   );
 };
 

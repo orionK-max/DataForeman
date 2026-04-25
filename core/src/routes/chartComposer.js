@@ -465,7 +465,14 @@ export async function chartComposerRoutes(app) {
           }
         }
         
-        const q = envelopeQueries.join(' UNION ALL ') + ' ORDER BY tag_id ASC, ts ASC';
+        // For a single tag, the envelope query is already wrapped in parens with its own
+        // ORDER BY + LIMIT. Appending an outer ORDER BY creates "multiple ORDER BY clauses"
+        // in PostgreSQL. Strip the outer parens so it becomes a plain CTE query.
+        // For 2+ tags joined with UNION ALL, each member's ORDER BY is scoped to its
+        // parenthesized select, so the outer ORDER BY is valid.
+        const q = envelopeQueries.length === 1
+          ? envelopeQueries[0].trim().replace(/^\(/, '').replace(/\)$/, '')
+          : envelopeQueries.join(' UNION ALL ') + ' ORDER BY tag_id ASC, ts ASC';
         
         // Build adjusted params: envelope queries use literal tag_ids, so we only need connection_id, from, to
         // Original params array: [connection_id?, tag_ids_array, from, to]
@@ -598,7 +605,8 @@ export async function chartComposerRoutes(app) {
           limitHit: rows.length === requestedLimit, 
           tagLimitHits: [],
           tag_metadata: tagMetadata,
-          last_values_before: lastValuesBefore
+          last_values_before: lastValuesBefore,
+          compression_error: true
         };
       }
     }
