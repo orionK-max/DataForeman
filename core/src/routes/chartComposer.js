@@ -401,32 +401,41 @@ export async function chartComposerRoutes(app) {
             envelopeWhere.push(`connection_id = $${paramIdx++}`);
           }
           envelopeWhere.push(`tv.tag_id = ${tag_id}`); // Literal tag_id
-          if (from) envelopeWhere.push(`ts >= $${paramIdx++}`);
-          if (to) envelopeWhere.push(`ts <= $${paramIdx++}`);
-          
+          let fromParamIdx = null, toParamIdx = null;
+          if (from) { fromParamIdx = paramIdx++; envelopeWhere.push(`ts >= $${fromParamIdx}`); }
+          if (to)   { toParamIdx   = paramIdx++; envelopeWhere.push(`ts <= $${toParamIdx}`); }
+
+          // Use time-based width_bucket() when both boundaries are known so that bucket
+          // assignment is stable across sliding-window refreshes (fixes spike flickering).
+          // Each spike always falls in the same time slice regardless of row count changes.
+          // Fall back to ntile() only when time boundaries are unavailable.
+          const bucketExpr = (fromParamIdx != null && toParamIdx != null)
+            ? `LEAST(width_bucket(EXTRACT(EPOCH FROM tv.ts)::numeric, EXTRACT(EPOCH FROM $${fromParamIdx}::timestamptz)::numeric, EXTRACT(EPOCH FROM $${toParamIdx}::timestamptz)::numeric, ${bucketsPerTag}), ${bucketsPerTag})`
+            : `ntile(${bucketsPerTag}) OVER (ORDER BY tv.ts ASC)`;
+
           if (useSystemMetricsTable) {
             envelopeQueries.push(`
               (WITH tag_data AS (
                 SELECT tv.ts, tv.tag_id, tv.v_num,
-                       ntile(${bucketsPerTag}) OVER (ORDER BY tv.ts ASC) as bucket
+                       ${bucketExpr} AS bucket
                 FROM ${tableName} tv
                 WHERE ${envelopeWhere.join(' AND ')}
                   AND tv.v_num IS NOT NULL
               ),
               min_max AS (
                 SELECT DISTINCT ON (bucket, extreme)
-                  ts, tag_id, v_num, bucket,
-                  CASE WHEN rk = 1 THEN 'min' ELSE 'max' END as extreme
+                  ts, tag_id, v_num, extreme
                 FROM (
-                  SELECT ts, tag_id, v_num, bucket,
-                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC) as rk
+                  SELECT ts, tag_id, v_num, bucket, 'min' AS extreme,
+                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC) AS rk
                   FROM tag_data
                   UNION ALL
-                  SELECT ts, tag_id, v_num, bucket,
-                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num DESC) as rk
+                  SELECT ts, tag_id, v_num, bucket, 'max' AS extreme,
+                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num DESC) AS rk
                   FROM tag_data
                 ) sub
                 WHERE rk = 1
+                ORDER BY bucket, extreme, ts
               )
               SELECT DISTINCT ts, tag_id, v_num
               FROM min_max
@@ -436,29 +445,33 @@ export async function chartComposerRoutes(app) {
           } else {
             envelopeQueries.push(`
               (WITH tag_data AS (
-                SELECT tv.ts, tv.connection_id, tv.tag_id, tv.quality as q, 
+                SELECT tv.ts, tv.connection_id, tv.tag_id, tv.quality AS q,
                        tv.v_num, tv.v_text, tv.v_json,
-                       ntile(${bucketsPerTag}) OVER (ORDER BY tv.ts ASC) as bucket
+                       ${bucketExpr} AS bucket
                 FROM ${tableName} tv
                 WHERE ${envelopeWhere.join(' AND ')}
               ),
-              sampled AS (
-                SELECT DISTINCT ON (bucket, sample_type)
-                  ts, connection_id, tag_id, q, v_num, v_text, v_json,
-                  CASE WHEN rk <= 2 THEN rk ELSE 0 END as sample_type
+              min_max AS (
+                SELECT DISTINCT ON (bucket, extreme)
+                  ts, connection_id, tag_id, q, v_num, v_text, v_json, extreme
                 FROM (
-                  SELECT *, ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY 
-                    CASE WHEN v_num IS NOT NULL THEN v_num ELSE 0 END ASC) as rk
+                  SELECT ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket,
+                         'min' AS extreme,
+                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC NULLS LAST) AS rk
                   FROM tag_data
+                  WHERE v_num IS NOT NULL
                   UNION ALL
-                  SELECT *, ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY 
-                    CASE WHEN v_num IS NOT NULL THEN v_num ELSE 0 END DESC) as rk
+                  SELECT ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket,
+                         'max' AS extreme,
+                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num DESC NULLS LAST) AS rk
                   FROM tag_data
+                  WHERE v_num IS NOT NULL
                 ) sub
-                WHERE rk <= 2
+                WHERE rk = 1
+                ORDER BY bucket, extreme, ts
               )
               SELECT DISTINCT ts, connection_id, tag_id, q, v_num, v_text, v_json
-              FROM sampled
+              FROM min_max
               ORDER BY ts ASC
               LIMIT ${quota})
             `);
