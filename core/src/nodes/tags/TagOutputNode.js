@@ -173,7 +173,7 @@ export class TagOutputNode extends BaseNode {
         displayName: 'Heartbeat Interval (ms)',
         name: 'heartbeatMs',
         type: 'number',
-        default: 60000,
+        default: 0,
         description: 'Force save after this interval even if unchanged (0 = disabled)',
         displayOptions: {
           show: {
@@ -266,7 +266,7 @@ export class TagOutputNode extends BaseNode {
                       type: 'number',
                       property: 'heartbeatMs',
                       label: 'Heartbeat Interval (ms)',
-                      default: 60000,
+                      default: 0,
                       min: 0,
                       step: 1000,
                       helperText: 'Force save after this interval even if unchanged (0 = disabled)'

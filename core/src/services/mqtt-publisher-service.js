@@ -43,6 +43,13 @@ export class MqttPublisherService {
     await this.reload();
   }
 
+  /** Compare two values for equality (handles null, number, boolean, string). */
+  _valuesEqual(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null) return false;
+    return String(a) === String(b);
+  }
+
   /** Reload all publishers (called after any publisher CUD operation). */
   async reload() {
     // Stop existing interval timers
@@ -115,23 +122,33 @@ export class MqttPublisherService {
       if (!pub) continue;
       if (pub.publish_mode !== 'on_change' && pub.publish_mode !== 'both') continue;
 
+      // Skip if this tag's value hasn't actually changed since last publish
+      const lastVal = pub.lastPublishedValues?.get(tagId);
+      if (lastVal !== undefined && this._valuesEqual(lastVal, value)) continue;
+
       // Throttle to min_interval_ms (default 500ms)
       const minMs = pub.min_interval_ms ?? 500;
       if (now - pub.lastPublished < minMs) continue;
 
-      this._publishNow(pubId).catch(err => {
+      this._publishNow(pubId, tagId, value).catch(err => {
         this.app.log.warn({ err, pubId }, 'MQTT on_change publish error');
       });
     }
   }
 
-  async _publishNow(pubId) {
+  async _publishNow(pubId, triggerTagId, triggerValue) {
     const pub = this.publishers.get(pubId);
     if (!pub || !pub.mqtt_topic || !pub.payload_template) return;
 
     const payload = this._resolveTemplate(pub);
     await this._mqttPublish(pub.mqtt_topic, payload, pub.qos ?? 0, pub.retain ?? false, pub);
     pub.lastPublished = Date.now();
+
+    // Record the value that triggered this publish so we can skip duplicates
+    if (triggerTagId !== undefined) {
+      if (!pub.lastPublishedValues) pub.lastPublishedValues = new Map();
+      pub.lastPublishedValues.set(triggerTagId, triggerValue);
+    }
   }
 
   /** Resolve all {{tag_id:N}} tokens in the template using runtimeState cache. */
