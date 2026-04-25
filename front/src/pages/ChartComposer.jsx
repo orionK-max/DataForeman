@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button, Paper, Toolbar, Divider, Chip, Tooltip, Switch, FormControlLabel, TextField, MenuItem } from '@mui/material';
-import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight } from '@mui/icons-material';
+import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight, ScatterPlot } from '@mui/icons-material';
 import { ChartComposerProvider, useChartComposer } from '../contexts/ChartComposerContext';
 import ChartRenderer from '../components/chartComposer/ChartRenderer';
 import PointsTable from '../components/chartComposer/PointsTable';
@@ -72,6 +72,7 @@ const ChartComposerContent = () => {
 
   const [chartHeight, setChartHeight] = React.useState(720);
   const [isResizing, setIsResizing] = React.useState(false);
+  const [showDataPoints, setShowDataPoints] = React.useState(false);
   const [visibleTimeRange, setVisibleTimeRange] = React.useState(null); // [min, max] timestamps from chart zoom
   const [pointsExpanded, setPointsExpanded] = React.useState(false); // Points table expansion state
   const [compactMode, setCompactMode] = React.useState(false); // Preview compact dashboard view
@@ -371,6 +372,18 @@ const ChartComposerContent = () => {
               DATA
             </Typography>
             <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+              <Tooltip title="Show/hide data points on chart lines">
+                <Button
+                  size="small"
+                  variant={showDataPoints ? 'contained' : 'outlined'}
+                  color={showDataPoints ? 'primary' : 'inherit'}
+                  startIcon={<ScatterPlot />}
+                  onClick={() => setShowDataPoints(v => !v)}
+                  sx={{ minWidth: 100 }}
+                >
+                  Points
+                </Button>
+              </Tooltip>
               <Tooltip title="Live auto-refresh">
                 <Button
                   size="small"
@@ -570,6 +583,7 @@ const ChartComposerContent = () => {
                   externalCrosshairEnabled={crosshairEnabled}
                   externalSetCrosshairEnabled={setCrosshairEnabled}
                   hideInternalControls={true}
+                  showDataPoints={showDataPoints}
                 />
                 
                 {/* Resize handle */}

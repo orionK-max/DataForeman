@@ -52,37 +52,31 @@ export async function chartComposerRoutes(app) {
           };
         }
         
-        // For write-on-change tags with a time range, fetch last value before range
-        if (from && Object.keys(tagMetadata).some(tid => tagMetadata[tid].on_change_enabled)) {
-          const writeOnChangeTagIds = Object.keys(tagMetadata)
-            .filter(tid => tagMetadata[tid].on_change_enabled)
-            .map(tid => Number(tid));
+        // For all tags with a time range, fetch last value before range start
+        if (from && tagIds.length > 0) {
+          // Build individual subqueries per tag and UNION them
+          const subqueries = tagIds.map(tagId => 
+            useSystemMetricsTable
+              ? `(SELECT ${tagId} as tag_id, ts, v_num as v
+                  FROM ${tableName}
+                  WHERE tag_id = ${tagId} AND ts < $1
+                  ORDER BY ts DESC
+                  LIMIT 1)`
+              : `(SELECT ${tagId} as tag_id, ts, 
+                         COALESCE(v_json::text, v_num::text, v_text) as v
+                  FROM ${tableName}
+                  WHERE tag_id = ${tagId} AND ts < $1
+                  ORDER BY ts DESC
+                  LIMIT 1)`
+          );
           
-          if (writeOnChangeTagIds.length > 0) {
-            // Build individual subqueries per tag and UNION them
-            const subqueries = writeOnChangeTagIds.map(tagId => 
-              useSystemMetricsTable
-                ? `(SELECT ${tagId} as tag_id, ts, v_num as v
-                    FROM ${tableName}
-                    WHERE tag_id = ${tagId} AND ts < $1
-                    ORDER BY ts DESC
-                    LIMIT 1)`
-                : `(SELECT ${tagId} as tag_id, ts, 
-                           COALESCE(v_json::text, v_num::text, v_text) as v
-                    FROM ${tableName}
-                    WHERE tag_id = ${tagId} AND ts < $1
-                    ORDER BY ts DESC
-                    LIMIT 1)`
-            );
-            
-            const lastValueQuery = subqueries.join(' UNION ALL ');
-            const lastValueResult = await (app.tsdb || app.db).query(lastValueQuery, [from]);
-            for (const row of lastValueResult.rows) {
-              lastValuesBefore[row.tag_id] = {
-                ts: row.ts,
-                v: row.v
-              };
-            }
+          const lastValueQuery = subqueries.join(' UNION ALL ');
+          const lastValueResult = await (app.tsdb || app.db).query(lastValueQuery, [from]);
+          for (const row of lastValueResult.rows) {
+            lastValuesBefore[row.tag_id] = {
+              ts: row.ts,
+              v: row.v
+            };
           }
         }
       } catch (err) {
@@ -772,40 +766,34 @@ export async function chartComposerRoutes(app) {
           };
         }
         
-        // For write-on-change tags with a time range, fetch last value before range
-        if (from && Object.keys(tagMetadata).some(tid => tagMetadata[tid].on_change_enabled)) {
-          const writeOnChangeTagIds = Object.keys(tagMetadata)
-            .filter(tid => tagMetadata[tid].on_change_enabled)
-            .map(tid => Number(tid));
+        // For all tags with a time range, fetch last value before range start
+        if (from && selectedTagIds.length > 0) {
+          const lastValueQuery = useSystemMetricsTable
+            ? `SELECT DISTINCT ON (tag_id) tag_id, ts, v_num as v
+               FROM ${tableName}
+               WHERE tag_id = ANY($1::int[]) AND ts < $2
+               ORDER BY tag_id, ts DESC`
+            : `SELECT DISTINCT ON (tag_id) tag_id, ts, 
+                 COALESCE(v_json, v_num, v_text) as v, quality as q
+               FROM ${tableName}
+               WHERE tag_id = ANY($1::int[]) AND ts < $2
+               ${!useSystemMetricsTable && conn_id ? 'AND connection_id = $3' : ''}
+               ORDER BY tag_id, ts DESC`;
           
-          if (writeOnChangeTagIds.length > 0) {
-            const lastValueQuery = useSystemMetricsTable
-              ? `SELECT DISTINCT ON (tag_id) tag_id, ts, v_num as v
-                 FROM ${tableName}
-                 WHERE tag_id = ANY($1::int[]) AND ts < $2
-                 ORDER BY tag_id, ts DESC`
-              : `SELECT DISTINCT ON (tag_id) tag_id, ts, 
-                   COALESCE(v_json, v_num, v_text) as v, quality as q
-                 FROM ${tableName}
-                 WHERE tag_id = ANY($1::int[]) AND ts < $2
-                 ${!useSystemMetricsTable && conn_id ? 'AND connection_id = $3' : ''}
-                 ORDER BY tag_id, ts DESC`;
-            
-            const lastValueParams = useSystemMetricsTable || !conn_id 
-              ? [writeOnChangeTagIds, from]
-              : [writeOnChangeTagIds, from, conn_id];
-            
-            const { rows: lastValueRows } = await db.query(lastValueQuery, lastValueParams);
-            
-            for (const row of lastValueRows) {
-              lastValuesBefore[row.tag_id] = {
-                ts: row.ts,
-                v: useSystemMetricsTable 
-                  ? (row.v != null ? Number(row.v) : null)
-                  : (typeof row.v === 'object' ? row.v : (row.v != null ? Number(row.v) : null)),
-                q: row.q || 192
-              };
-            }
+          const lastValueParams = useSystemMetricsTable || !conn_id 
+            ? [selectedTagIds, from]
+            : [selectedTagIds, from, conn_id];
+          
+          const { rows: lastValueRows } = await db.query(lastValueQuery, lastValueParams);
+          
+          for (const row of lastValueRows) {
+            lastValuesBefore[row.tag_id] = {
+              ts: row.ts,
+              v: useSystemMetricsTable 
+                ? (row.v != null ? Number(row.v) : null)
+                : (typeof row.v === 'object' ? row.v : (row.v != null ? Number(row.v) : null)),
+              q: row.q || 192
+            };
           }
         }
       } catch (err) {

@@ -55,6 +55,7 @@ const ChartRenderer = React.forwardRef(({
   externalCrosshairEnabled = null,
   externalSetCrosshairEnabled = null,
   hideInternalControls = false,
+  showDataPoints = false,
 }, ref) => {
   // Get MUI theme for background color
   const theme = useTheme();
@@ -310,14 +311,11 @@ const ChartRenderer = React.forwardRef(({
         const queryStartTime = requestedTimeRange ? new Date(requestedTimeRange.from).getTime() : (now - 3600000);
         const queryEndTime   = requestedTimeRange ? new Date(requestedTimeRange.to).getTime()   : now;
         const result = timestamps.map(time => [time, tagData.get(time)]);
-        // Left anchor: prepend a point at the query start using the last known value before the window
+        // Left anchor: prepend a point at the query start using the last known value before the window,
+        // or fall back to the first in-window value (mirrors right anchor behaviour)
         const lvb = lastValuesBefore?.[tagId];
-        if (lvb) {
-          const leftValue = Number(lvb.v);
-          if (Number.isFinite(leftValue)) {
-            result.unshift([queryStartTime, leftValue]);
-          }
-        }
+        const leftValue = lvb ? Number(lvb.v) : NaN;
+        result.unshift([queryStartTime, Number.isFinite(leftValue) ? leftValue : result[0][1]]);
         // Right anchor: extend last point to query end
         const lastValue = result[result.length - 1][1];
         result.push([queryEndTime, lastValue]);
@@ -453,7 +451,7 @@ const ChartRenderer = React.forwardRef(({
       });
     
     return { series, axisIndexMap };
-  }, [data, tagConfigs, axes, tagMetadata, lastValuesBefore]);
+  }, [data, tagConfigs, axes, tagMetadata, lastValuesBefore, requestedTimeRange]);
 
   // Build ECharts option
   const option = React.useMemo(() => {
@@ -583,6 +581,11 @@ const ChartRenderer = React.forwardRef(({
       // Find which axis this series uses
       const seriesAxisIndex = series.yAxisIndex;
       
+      // Apply showDataPoints toggle
+      const seriesWithPoints = showDataPoints
+        ? { ...series, showSymbol: true, symbolSize: 6 }
+        : series;
+      
       // Find reference lines for this axis
       const axisId = axesArray[seriesAxisIndex]?.id || 'default';
       const linesForThisSeries = referenceLines.filter(line => {
@@ -598,7 +601,7 @@ const ChartRenderer = React.forwardRef(({
       
       if (isFirstSeriesForAxis && linesForThisSeries.length > 0) {
         return {
-          ...series,
+          ...seriesWithPoints,
           markLine: {
             symbol: 'none',
             silent: false,
@@ -631,7 +634,7 @@ const ChartRenderer = React.forwardRef(({
         };
       }
       
-      return series;
+      return seriesWithPoints;
     });
     
     // If there are reference lines but no series, we need to add them differently
@@ -865,6 +868,7 @@ const ChartRenderer = React.forwardRef(({
           type: 'inside',
           start: requestedTimeRange ? 0 : undefined,
           end: requestedTimeRange ? 100 : undefined,
+          filterMode: 'none',
           zoomOnMouseWheel: true,
           moveOnMouseMove: true,
         },
@@ -873,6 +877,7 @@ const ChartRenderer = React.forwardRef(({
           show: !compactMode,
           start: requestedTimeRange ? 0 : undefined,
           end: requestedTimeRange ? 100 : undefined,
+          filterMode: 'none',
           height: 20,
           bottom: compactMode ? 5 : 45,
           handleIcon: 'path://M10.7,11.9H9.3c-4.9,0.3-8.8,4.4-8.8,9.4c0,5,3.9,9.1,8.8,9.4h1.3c4.9-0.3,8.8-4.4,8.8-9.4C19.5,16.3,15.6,12.2,10.7,11.9z',
@@ -891,7 +896,7 @@ const ChartRenderer = React.forwardRef(({
         },
       ],
     };
-  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme]);
+  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme, showDataPoints]);
 
   // Loading state
   if (loading) {
