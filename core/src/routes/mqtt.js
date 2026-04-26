@@ -1545,6 +1545,17 @@ export default async function mqttRoutes(app) {
         return reply.code(404).send({ error: 'mapping_not_found' });
       }
 
+      // Keep tag_metadata.data_type in sync when data_type changes
+      if (data_type !== undefined) {
+        await db.query(
+          `UPDATE tag_metadata tm
+           SET data_type = $1
+           FROM mqtt_field_mappings fm
+           WHERE fm.id = $2 AND fm.tag_id = tm.tag_id`,
+          [data_type, id]
+        );
+      }
+
       // Notify connectivity service to reload mappings
       if (app.nats?.healthy?.() === true) {
         app.nats.publish('df.connectivity.reload-field-mappings.v1', {

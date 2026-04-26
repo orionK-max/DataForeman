@@ -1232,6 +1232,19 @@ export class MQTTDriver {
             return { valid: true, value: Boolean(value) };
           }
           return { valid: false, error: 'Cannot convert to boolean' };
+
+        case 'json':
+          if (currentType === 'object') {
+            return { valid: true, value };
+          }
+          if (currentType === 'string') {
+            try {
+              return { valid: true, value: JSON.parse(value) };
+            } catch {
+              return { valid: false, error: 'Cannot parse string as JSON' };
+            }
+          }
+          return { valid: false, error: 'Cannot convert to JSON' };
         
         default:
           return { valid: false, error: `Unknown data type: ${normalizedType} (original: ${dataType})` };

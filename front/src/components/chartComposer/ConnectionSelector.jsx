@@ -19,6 +19,7 @@ import {
   Chip,
   TablePagination,
   Autocomplete,
+  Alert,
 } from '@mui/material';
 import { Add } from '@mui/icons-material';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
@@ -346,6 +347,16 @@ const ConnectionSelector = () => {
             {error}
           </Typography>
         )}
+
+        {(() => {
+          const textTags = savedTags
+            .filter(t => selectedTagIds.includes(t.tag_id) && String(t.data_type || '').toLowerCase() === 'text');
+          return textTags.length > 0 ? (
+            <Alert severity="warning" sx={{ mb: 1, py: 0.5, fontSize: '0.75rem' }}>
+              Text-type tags won&apos;t plot on the chart: {textTags.map(t => t.tag_name).join(', ')}
+            </Alert>
+          ) : null;
+        })()}
 
         <Box sx={{ 
           flex: 1, 

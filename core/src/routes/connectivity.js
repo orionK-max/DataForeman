@@ -1259,6 +1259,7 @@ export async function connectivityRoutes(app) {
           u.symbol as unit_symbol,
           u.category as unit_category,
           -- MQTT subscription info
+          mfm.id as field_mapping_id,
           mfm.subscription_id,
           ms.topic as subscription_topic
         FROM tag_metadata tm

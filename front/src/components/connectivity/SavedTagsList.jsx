@@ -42,6 +42,7 @@ import {
   MoreVert as MoreVertIcon,
 } from '@mui/icons-material';
 import connectivityService from '../../services/connectivityService';
+import mqttService from '../../services/mqttService';
 import ConfirmDialog from '../common/ConfirmDialog';
 
 /**
@@ -117,6 +118,8 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
   const [renameValue, setRenameValue] = useState('');
   const [renameError, setRenameError] = useState('');
   const [renaming, setRenaming] = useState(false);
+  const [dataTypeValue, setDataTypeValue] = useState('real');
+  const [dataTypeSaving, setDataTypeSaving] = useState(false);
 
   // Load poll groups and units
   useEffect(() => {
@@ -364,12 +367,32 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
     if (selected.size === 1) {
       const tag = filteredTags.find(t => selected.has(t.tag_id));
       setRenameValue(tag?.tag_name || '');
+      setDataTypeValue(tag?.data_type || 'real');
     } else {
       setRenameValue('');
+      setDataTypeValue('real');
     }
     setRenameError('');
     setEditTab(0);
     setEditModalOpen(true);
+  };
+
+  // Save data type for a single MQTT tag
+  const handleSaveDataType = async () => {
+    const tag = filteredTags.find(t => selected.has(t.tag_id));
+    if (!tag?.field_mapping_id) return;
+    setDataTypeSaving(true);
+    try {
+      await mqttService.updateFieldMapping(tag.field_mapping_id, { data_type: dataTypeValue });
+      setMessage('Data type updated. Existing data in the old column remains — re-query to see the change.');
+      setEditModalOpen(false);
+      await loadTags();
+      if (onTagsChanged) onTagsChanged();
+    } catch (err) {
+      setRenameError(err.message || 'Failed to update data type');
+    } finally {
+      setDataTypeSaving(false);
+    }
   };
 
   // Rename a single tag
@@ -809,6 +832,37 @@ const SavedTagsList = ({ connectionId, onTagsChanged, refreshTrigger, hidePollGr
                         Save Name
                       </Button>
                     </Box>
+                    {tag?.driver_type === 'MQTT' && tag?.field_mapping_id && (
+                      <>
+                        <Divider />
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                          <FormControl size="small" sx={{ flex: 1 }}>
+                            <InputLabel>Data Type</InputLabel>
+                            <Select
+                              label="Data Type"
+                              value={dataTypeValue}
+                              onChange={(e) => setDataTypeValue(e.target.value)}
+                            >
+                              <MenuItem value="real">real</MenuItem>
+                              <MenuItem value="int">int</MenuItem>
+                              <MenuItem value="text">text</MenuItem>
+                              <MenuItem value="bool">bool</MenuItem>
+                              <MenuItem value="json">json</MenuItem>
+                            </Select>
+                          </FormControl>
+                          <Button size="small" variant="outlined" onClick={handleSaveDataType} disabled={dataTypeSaving || dataTypeValue === tag.data_type}>
+                            {dataTypeSaving ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
+                            Apply
+                          </Button>
+                        </Box>
+                        {dataTypeValue !== tag.data_type && (
+                          <Alert severity="warning" sx={{ py: 0.5, fontSize: '0.75rem' }}>
+                            Changing data type only affects new incoming values.
+                            Existing historical data stored in the old column will not be migrated automatically.
+                          </Alert>
+                        )}
+                      </>
+                    )}
                     {!hidePollGroup && <Divider />}
                   </>
                 );
