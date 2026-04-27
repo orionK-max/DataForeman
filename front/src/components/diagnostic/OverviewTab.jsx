@@ -81,7 +81,7 @@ function buildHealthRows(summary, servicesStatus) {
     label: 'MQTT Local',
     ok: summary?.broker?.ok === true,
     text: summary?.broker?.ok === true ? 'OK' : (summary?.broker?.ok === null || summary?.broker?.ok === undefined ? 'UNKNOWN' : 'DOWN'),
-    desc: 'NanoMQ MQTT broker for device connections.',
+    desc: 'Local MQTT broker for device connections.',
     restartable: true,
     serviceName: 'broker',
     containerRunning: summary?.broker?.ok !== false,
