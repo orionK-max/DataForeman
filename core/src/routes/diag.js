@@ -218,7 +218,15 @@ export async function diagRoutes(app) {
       clearTimeout(to);
       broker = { ok: res.ok };
     } catch (e) {
-      broker = { ok: false, error: e?.name === 'AbortError' ? 'timeout' : (e?.message || 'error') };
+      // DNS resolution failure (EAI_AGAIN / EAI_NONAME) means broker is still starting up —
+      // treat as unknown (ok: null) rather than confirmed down (ok: false) to avoid a
+      // false-alarm banner during normal docker compose startup sequencing.
+      const isTransientDns = e?.code === 'EAI_AGAIN' || e?.code === 'EAI_NONAME' ||
+        (e?.cause?.code === 'EAI_AGAIN') || (e?.cause?.code === 'EAI_NONAME');
+      broker = {
+        ok: isTransientDns ? null : false,
+        error: e?.name === 'AbortError' ? 'timeout' : (e?.message || 'error'),
+      };
     }
 
     const response = {
