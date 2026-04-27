@@ -1,5 +1,5 @@
 :80 {
-  handle_path /api/* {
+  handle /api/* {
     reverse_proxy core:3000
   }
   handle {
