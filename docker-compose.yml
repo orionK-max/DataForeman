@@ -47,7 +47,7 @@ services:
       - "${NANOMQ_WS_PORT:-8081}:8081"          # WebSocket
       - "${NANOMQ_HTTP_PORT:-8001}:8001"        # HTTP API
     volumes:
-      - ./logs/nanomq:/var/log/nanomq
+      - ./logs/broker:/var/log/broker
       - ./nanomq/nanomq.conf:/etc/nanomq/nanomq.conf:ro
     ulimits:
       nofile:

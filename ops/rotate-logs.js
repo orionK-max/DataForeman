@@ -52,6 +52,30 @@ function copyTruncate(file) {
   try { fs.truncateSync(file, 0); } catch {}
 }
 
+// Rotate by copying current content to a dated file, then truncating the original.
+// The process keeps its file descriptor open on the same inode — no restart needed.
+// Appends to the dated file in case rotation runs more than once in the same period.
+function rotateCopyTruncate(dir, baseName) {
+  const label = getPeriodLabel();
+  const current = path.join(dir, `${baseName}.current`);
+  const dated = path.join(dir, `${baseName}-${label}.log`);
+  ensureDir(dir);
+  if (!fs.existsSync(current)) {
+    fs.closeSync(fs.openSync(current, 'a')); // ensure file exists for the process
+    return { current, dated: null };
+  }
+  try {
+    const st = fs.statSync(current);
+    if (st.size > 0) {
+      const content = fs.readFileSync(current);
+      fs.appendFileSync(dated, content);
+      try { fs.chmodSync(dated, 0o666); } catch {}
+    }
+    fs.truncateSync(current, 0);
+  } catch {}
+  return { current, dated };
+}
+
 function signal(container, signal) {
   try { child_process.execSync(`docker compose exec -T ${container} sh -lc 'kill -s ${signal} 1 || true'`, { stdio: 'ignore' }); } catch {}
 }
@@ -63,17 +87,20 @@ function signalNodeByPattern(container, signal, pattern) {
 
 function main() {
   const base = resolveBase();
-  // Components: core, front(access/error), nats, ops. Postgres already uses date files.
-  const map = [
+  // Symlink rotation (process reopens file on SIGHUP/USR1):
+  const symlinkMap = [
     { dir: path.join(base, 'core'), name: 'core' },
     { dir: path.join(base, 'front'), name: 'access' },
     { dir: path.join(base, 'front'), name: 'error' },
-    { dir: path.join(base, 'nats'), name: 'nats' },
     { dir: path.join(base, 'ops'), name: 'ops' },
     { dir: path.join(base, 'connectivity'), name: 'connectivity' },
     { dir: path.join(base, 'ingestor'), name: 'ingestor' },
   ];
-  for (const m of map) rotateSymlink(m.dir, m.name);
+  for (const m of symlinkMap) rotateSymlink(m.dir, m.name);
+
+  // Copy-truncate rotation (process keeps fd open, no restart needed):
+  rotateCopyTruncate(path.join(base, 'nats'), 'nats');
+  rotateCopyTruncate(path.join(base, 'broker'), 'broker');
 
   // Signal processes to reopen:
   // Core: signal node process (not PID 1 shell) so pino can reopen
@@ -85,8 +112,6 @@ function main() {
   // Ingestor: signal node process to reopen
   // Updated to reflect renamed simple-ingestor -> ingestor; keep simple-ingestor for backward compat during transition
   signalNodeByPattern('ingestor', 'HUP', 'node .*src/(index|simple-ingestor|ingestor)\.mjs');
-  // For NATS, restart to reopen log file descriptor and follow new symlink
-  try { child_process.execSync('docker compose restart -t 0 nats', { stdio: 'ignore' }); } catch {}
   // Ops logs are appended by short-lived processes; nothing to signal
 }
 

@@ -75,6 +75,18 @@ function buildHealthRows(summary, servicesStatus) {
     restartable: false,
   });
 
+  // MQTT Broker (NanoMQ)
+  rows.push({
+    key: 'broker',
+    label: 'MQTT Local',
+    ok: summary?.broker?.ok === true,
+    text: summary?.broker?.ok === true ? 'OK' : (summary?.broker?.ok === null || summary?.broker?.ok === undefined ? 'UNKNOWN' : 'DOWN'),
+    desc: 'NanoMQ MQTT broker for device connections.',
+    restartable: true,
+    serviceName: 'broker',
+    containerRunning: summary?.broker?.ok !== false,
+  });
+
   // TimescaleDB
   rows.push({
     key: 'tsdb',
@@ -165,13 +177,14 @@ export default function OverviewTab() {
   const [expandedRows, setExpandedRows] = useState(new Set());
 
   const componentOptions = [
-    'core',
-    'connectivity',
-    'nats',
-    'ops',
-    'postgres',
-    'tsdb',
-    'frontend',
+    { value: 'core',         label: 'core' },
+    { value: 'connectivity', label: 'connectivity' },
+    { value: 'nats',        label: 'nats' },
+    { value: 'broker',      label: 'MQTT Local' },
+    { value: 'ops',         label: 'ops' },
+    { value: 'postgres',    label: 'postgres' },
+    { value: 'tsdb',        label: 'tsdb' },
+    { value: 'frontend',    label: 'frontend' },
   ];
 
   const levels = ['', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'];
@@ -438,7 +451,7 @@ export default function OverviewTab() {
             sx={{ minWidth: 140, fontSize: '0.75rem' }}
           >
             {componentOptions.map((c) => (
-              <MenuItem key={c} value={c}>{c}</MenuItem>
+              <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
             ))}
           </Select>
 
