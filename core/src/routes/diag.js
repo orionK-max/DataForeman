@@ -205,12 +205,29 @@ export async function diagRoutes(app) {
       }
     } catch {}
 
+    // MQTT broker health: probe NanoMQ's HTTP API
+    let broker = { ok: null };
+    try {
+      const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
+      const ac = new AbortController();
+      const to = setTimeout(() => ac.abort(), 1500);
+      const res = await fetch(`${nanoMqUrl}/api/v4/clients?page=1&limit=1`, {
+        signal: ac.signal,
+        headers: { 'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64') }
+      });
+      clearTimeout(to);
+      broker = { ok: res.ok };
+    } catch (e) {
+      broker = { ok: false, error: e?.name === 'AbortError' ? 'timeout' : (e?.message || 'error') };
+    }
+
     const response = {
       core: { health, ready, uptime },
       db,
       nats,
       tsdb,
       connectivity,
+      broker,
       front: { ok: !!frontTcp.ok },
       caddy: { ok: !!caddyTcp.ok },
       coreIngestion,
@@ -636,7 +653,7 @@ export async function diagRoutes(app) {
     }
 
     const { serviceName } = req.params;
-    const allowedServices = ['ingestor', 'connectivity'];
+    const allowedServices = ['ingestor', 'connectivity', 'broker'];
     
     if (!allowedServices.includes(serviceName)) {
       return reply.code(400).send({ error: 'invalid_service', message: `Service must be one of: ${allowedServices.join(', ')}` });
