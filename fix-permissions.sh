@@ -42,7 +42,7 @@ mkdir -p "$SCRIPT_DIR/logs/postgres"
 chmod 0777 "$SCRIPT_DIR/logs/postgres"
 
 # Ensure all standard log directories exist
-for dir in core connectivity front nats ops ingestor; do
+for dir in core connectivity front nats ops ingestor broker; do
   mkdir -p "$SCRIPT_DIR/logs/$dir"
   chmod 0755 "$SCRIPT_DIR/logs/$dir"
 done

@@ -74,7 +74,7 @@ try {
     $varPath = Join-Path $InstallDir "var"
     
     # Create main directories
-    @("logs/core", "logs/connectivity", "logs/front", "logs/nats", "logs/postgres", "logs/ops", "var") | ForEach-Object {
+    @("logs/core", "logs/connectivity", "logs/front", "logs/nats", "logs/postgres", "logs/ops", "logs/ingestor", "logs/broker", "var") | ForEach-Object {
         $fullPath = Join-Path $InstallDir $_
         if (-not (Test-Path $fullPath)) {
             New-Item -ItemType Directory -Path $fullPath -Force | Out-Null

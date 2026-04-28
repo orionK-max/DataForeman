@@ -231,6 +231,9 @@ Visit https://github.com/orionK-max/DataForeman/releases and find the latest rel
 Open a terminal in DataForeman folder and run these commands one at a time:
 
 ```bash
+# Stop the running stack
+docker compose down
+
 # Download the new version (replace vX.X.X with your version)
 git fetch --tags
 git checkout vX.X.X
