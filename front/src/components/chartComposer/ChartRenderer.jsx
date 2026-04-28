@@ -295,6 +295,19 @@ const ChartRenderer = React.forwardRef(({
       tagDataMap.get(tagId).set(time, value);
     });
     
+    // Whether to extend anchor ghost points beyond the chart edges to preserve smooth curve shape
+    const extendCurveEdges = options?.extendCurveEdges ?? true;
+
+    // Returns the amount (ms) to push anchor points outside the chart boundary.
+    // Uses average inter-sample interval when possible, otherwise 10% of the query range.
+    const computeEdgeExtension = (timestamps, qStart, qEnd) => {
+      if (!extendCurveEdges) return 0;
+      if (timestamps.length >= 2) {
+        return (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1);
+      }
+      return Math.max((qEnd - qStart) * 0.1, 60000);
+    };
+
     // Helper: Fill gaps for write-on-change tags (updated 2025-10-23)
     // Persists last heartbeat and keeps it anchored at query start (left edge)
     const fillWriteOnChangeGaps = (tagId, tagData) => {
@@ -311,14 +324,37 @@ const ChartRenderer = React.forwardRef(({
         const queryStartTime = requestedTimeRange ? new Date(requestedTimeRange.from).getTime() : (now - 3600000);
         const queryEndTime   = requestedTimeRange ? new Date(requestedTimeRange.to).getTime()   : now;
         const result = timestamps.map(time => [time, tagData.get(time)]);
-        // Left anchor: prepend a point at the query start using the last known value before the window,
-        // or fall back to the first in-window value (mirrors right anchor behaviour)
-        const lvb = lastValuesBefore?.[tagId];
-        const leftValue = lvb ? Number(lvb.v) : NaN;
-        result.unshift([queryStartTime, Number.isFinite(leftValue) ? leftValue : result[0][1]]);
-        // Right anchor: extend last point to query end
-        const lastValue = result[result.length - 1][1];
-        result.push([queryEndTime, lastValue]);
+        const edgeExt = computeEdgeExtension(timestamps, queryStartTime, queryEndTime);
+        // Left anchor: only when extendCurveEdges is enabled.
+        // Interpolate between the last known value before the window and the first chart point
+        // to find the natural curve value at queryStartTime.
+        if (extendCurveEdges) {
+          let edgeValue;
+          const lvb = lastValuesBefore?.[tagId];
+          if (lvb && result.length >= 1) {
+            const tPrev = new Date(lvb.ts).getTime();
+            const vPrev = Number(lvb.v);
+            const [t0, v0] = result[0];
+            const span = t0 - tPrev;
+            edgeValue = span > 0
+              ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span) // interpolate
+              : v0;
+          } else if (result.length >= 2) {
+            const [t0, v0] = result[0];
+            const [t1, v1] = result[1];
+            const slope = (v1 - v0) / (t1 - t0);
+            edgeValue = v0 + slope * (queryStartTime - t0); // fallback: extrapolate
+          } else {
+            edgeValue = result[0][1];
+          }
+          result.unshift([queryStartTime, edgeValue]);           // visible anchor at left edge
+          result.unshift([queryStartTime - edgeExt, edgeValue]); // ghost beyond left edge
+        }
+        // Right anchor: only when extendCurveEdges is enabled
+        if (extendCurveEdges) {
+          const lastValue = result[result.length - 1][1];
+          result.push([queryEndTime + edgeExt, lastValue]);
+        }
         return result;
       }
       
@@ -373,11 +409,32 @@ const ChartRenderer = React.forwardRef(({
       
       // Strategy: Always show horizontal line for persisted heartbeat (sliding window)
       // This ensures the line appears at the left edge and slides with the window in Live mode
-      
+      const edgeExt = computeEdgeExtension(timestamps, queryStartTime, queryEndTime);
+
       if (persistedHeartbeat) {
-        // We have a valid persisted heartbeat - create horizontal line across entire visible range
-        // Add horizontal line from query start (left edge) to query end (right edge)
-        result.push([queryStartTime, persistedHeartbeat.value]);
+        // We have a valid persisted heartbeat - create horizontal line across the visible range.
+        // Ghost + anchor on the left: interpolate between lastValuesBefore and first chart
+        // point to find the natural curve value at the left edge.
+        if (extendCurveEdges) {
+          let edgeValue = persistedHeartbeat.value;
+          const lvb = lastValuesBefore?.[tagId];
+          if (lvb && timestamps.length >= 1) {
+            const tPrev = new Date(lvb.ts).getTime();
+            const vPrev = Number(lvb.v);
+            const t0 = timestamps[0], v0 = tagData.get(t0);
+            const span = t0 - tPrev;
+            edgeValue = span > 0
+              ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span)
+              : v0;
+          } else if (timestamps.length >= 2) {
+            const t0 = timestamps[0], v0 = tagData.get(t0);
+            const t1 = timestamps[1], v1 = tagData.get(t1);
+            const slope = (v1 - v0) / (t1 - t0);
+            edgeValue = v0 + slope * (queryStartTime - t0);
+          }
+          result.push([queryStartTime - edgeExt, edgeValue]); // ghost
+          result.push([queryStartTime, edgeValue]);            // visible anchor
+        }
         
         // Add all actual data points from current query (if any)
         for (let i = 0; i < timestamps.length; i++) {
@@ -386,8 +443,10 @@ const ChartRenderer = React.forwardRef(({
           result.push([time, value]);
         }
         
-        // Extend to query end (right edge)
-        result.push([queryEndTime, persistedHeartbeat.value]);
+        // Right anchor: only when extendCurveEdges is enabled
+        if (extendCurveEdges) {
+          result.push([queryEndTime + edgeExt, persistedHeartbeat.value]);
+        }
       } else if (timestamps.length > 0) {
         // No persisted heartbeat, but we have data - render it normally
         for (let i = 0; i < timestamps.length; i++) {
@@ -396,9 +455,11 @@ const ChartRenderer = React.forwardRef(({
           result.push([time, value]);
         }
         
-        // Extend last point to query end (right edge)
-        const lastValue = result[result.length - 1][1];
-        result.push([queryEndTime, lastValue]);
+        // Right anchor: only when extendCurveEdges is enabled
+        if (extendCurveEdges) {
+          const lastValue = result[result.length - 1][1];
+          result.push([queryEndTime + edgeExt, lastValue]);
+        }
       }
       
       return result;
@@ -451,7 +512,7 @@ const ChartRenderer = React.forwardRef(({
       });
     
     return { series, axisIndexMap };
-  }, [data, tagConfigs, axes, tagMetadata, lastValuesBefore, requestedTimeRange]);
+  }, [data, tagConfigs, axes, tagMetadata, lastValuesBefore, requestedTimeRange, options]);
 
   // Build ECharts option
   const option = React.useMemo(() => {
@@ -1113,7 +1174,8 @@ const ChartRenderer = React.forwardRef(({
                   grid,
                   background,
                   display,
-                  xAxisTickCount: options?.xAxisTickCount ?? 5
+                  xAxisTickCount: options?.xAxisTickCount ?? 5,
+                  extendCurveEdges: options?.extendCurveEdges ?? true,
                 }}
                 onUpdateTagConfig={updateTagConfig}
                 onUpdateAxis={updateAxis}

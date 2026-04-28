@@ -450,6 +450,18 @@ const ChartConfigPanel = ({
                 label="Tooltip"
                 sx={{ m: 0, ml: 2, '& .MuiFormControlLabel-label': { fontSize: '0.75rem' } }}
               />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={chartConfig.extendCurveEdges !== false}
+                    onChange={(e) => updateChartConfig({ extendCurveEdges: e.target.checked })}
+                    sx={{ p: 0.5, '& .MuiSvgIcon-root': { fontSize: 20 } }}
+                  />
+                }
+                label="Extend curve edges"
+                title="Extends anchor points beyond chart boundaries so smooth curves don't bend toward the edges"
+                sx={{ m: 0, ml: 2, '& .MuiFormControlLabel-label': { fontSize: '0.75rem' } }}
+              />
             </Box>
 
             {/* Header Row */}

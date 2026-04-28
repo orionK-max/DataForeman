@@ -177,7 +177,7 @@ Check that all containers are running:
 docker compose ps
 ```
 
-You should see all services with "Up" status (core, front, db, tsdb, nats, connectivity, rotator). If any show "Exited", wait another minute and check again.
+You should see all services with "Up" status (core, front, db, tsdb, nats, broker, connectivity, rotator). If any show "Exited", wait another minute and check again.
 
 **Step 6: Access DataForeman**
 
@@ -587,7 +587,7 @@ If you're a regular user just wanting to use DataForeman, you can stop reading h
 - **Frontend**: React 18 + Material UI v5 + React Router v6 + Vite
 - **Messaging**: NATS with JetStream
 - **Caching**: In-memory RuntimeStateStore for zero-latency tag value reads
-- **Containers**: Docker Compose (postgres, nats, tsdb, core, connectivity, rotator)
+- **Containers**: Docker Compose (db, tsdb, nats, broker, core, connectivity, front, rotator)
 
 ### Data Flow Architecture
 
@@ -700,7 +700,7 @@ See `.env.example` for all variables. Key settings:
 
 - **db** (postgres:16-alpine): Primary database, exposes 5432
 - **tsdb** (timescale/timescaledb): Time-series store, exposes 5433
-- **nats** (nats:2-alpine): Message bus, exposes 4222 (client), 8222 (monitoring)
+- **nats** (nats:2-alpine): Message bus, exposes 4222 (client)
 - **core** (dataforeman-core): API service with integrated telemetry ingestion, exposes 3000
 - **connectivity** (node:22-alpine): Protocol drivers
 - **rotator** (node:22-alpine): Log rotation daemon

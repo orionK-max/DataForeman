@@ -556,7 +556,7 @@ const ChartComposerContent = () => {
                   loading={loading}
                   compactMode={compactMode}
                   requestedTimeRange={timeRange}
-                  options={{ xAxisTickCount: chartConfig.xAxisTickCount }}
+                  options={{ xAxisTickCount: chartConfig.xAxisTickCount, extendCurveEdges: chartConfig.extendCurveEdges ?? true }}
                   onZoomChange={(xDomain, yDomain) => setVisibleTimeRange(xDomain)}
                   tagMetadata={tagMetadata}
                   lastValuesBefore={lastValuesBefore}

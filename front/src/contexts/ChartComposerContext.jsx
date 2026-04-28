@@ -42,6 +42,7 @@ export const ChartComposerProvider = ({ children }) => {
     display: { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
     interpolation: 'linear',
     xAxisTickCount: 5, // Default X-axis tick count
+    extendCurveEdges: true, // Extend anchor ghost points beyond chart edges to preserve smooth curve shape
   });
   const [loadedChart, setLoadedChart] = useState(null); // { id, name, is_shared }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
