@@ -7,6 +7,11 @@
 services:
   db:
     image: postgres:16-alpine
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
     environment:
       POSTGRES_USER: ${PGUSER:-postgres}
       POSTGRES_PASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
@@ -59,6 +64,11 @@ services:
 
   tsdb:
     image: timescale/timescaledb:latest-pg16
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
     environment:
       POSTGRES_USER: ${TSDB_USER:-tsdb}
       POSTGRES_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
@@ -81,6 +91,11 @@ services:
 
   core:
     build: ./core
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
     environment:
       PORT: 3000
       HOST: 0.0.0.0
@@ -140,6 +155,11 @@ services:
 
   connectivity:
     build: ./connectivity
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
     # Note: On Linux, copy docker-compose.override.yml.linux to docker-compose.override.yml
     # to enable host networking for EIP autodiscovery (broadcast support).
     # Windows/macOS use default bridge networking (no override needed).
@@ -181,6 +201,11 @@ services:
 
   front:
     build: ./front
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
     depends_on:
       - core
     ports:
