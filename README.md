@@ -217,23 +217,23 @@ DataForeman makes it easy to update while **preserving all your data** (database
 **Option 2: Use PowerShell Script**
 ```powershell
 cd "C:\Program Files\DataForeman"
-.\windows-installer\update.ps1 -Version v1.2.0
+.\windows-installer\update.ps1 -Version vX.X.X
 ```
 
 #### Linux Update
 
 **Step 1: Find the Latest Version**
 
-Visit https://github.com/orionK-max/DataForeman/releases and find the latest release version (for example: `v1.2.0`)
+Visit https://github.com/orionK-max/DataForeman/releases and find the latest release version (for example: `vX.X.X`)
 
 **Step 2: Update DataForeman**
 
 Open a terminal in DataForeman folder and run these commands one at a time:
 
 ```bash
-# Download the new version (replace v1.2.0 with your version)
+# Download the new version (replace vX.X.X with your version)
 git fetch --tags
-git checkout v1.2.0
+git checkout vX.X.X
 
 # Rebuild and restart (database migrations run automatically on startup)
 npm run start:rebuild
@@ -257,7 +257,7 @@ You can always go back to the previous version.
 Open a terminal in DataForeman folder and type:
 
 ```bash
-git checkout v1.1.0  # Replace with your previous version
+git checkout vX.X.X  # Replace with your previous version
 npm run start:rebuild
 ```
 
