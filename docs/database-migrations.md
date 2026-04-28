@@ -58,11 +58,11 @@ DataForeman uses a **per-release migration approach** aligned with the git workf
 
 ### Beta Phase (v0.x.y - Current)
 
-- **One migration per release version** (e.g., `003_v0.2_release.sql`, `004_v0.3_release.sql`)
+- **One migration per release version** (e.g., `003_v0.5_release.sql`, `004_v0.6_release.sql`)
 - During development between releases, the in-progress migration **can be modified**
 - Reset dev database when modifying: `docker compose down -v postgres && docker compose up -d`
-- **Migration naming**: `XXX_v0.Y_release.sql` where 0.Y matches the git tag version
-- Example: `003_v0.2_release.sql` corresponds to git tag `v0.2.0`
+- **Migration naming**: `XXX_vX.Y_release.sql` where X.Y matches the git tag version
+- Example: `003_v0.5_release.sql` corresponds to git tag `v0.5.0`
 
 ### Stable Release (v1.0+)
 

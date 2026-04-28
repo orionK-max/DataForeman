@@ -774,7 +774,7 @@ Migrations are located in `core/migrations/` and `core/migrations-tsdb/`. The pr
 
 - **Beta (v0.x.y)** - current: One migration per release; in-progress migrations can be modified during development
 - **Stable (v1.0+)** - future: All migrations locked; changes require new migration files
-- **Naming**: `XXX_v0.Y_release.sql` (e.g., `003_v0.2_release.sql`) aligned with git tags
+- **Naming**: `XXX_vX.Y_release.sql` (e.g., `003_v0.5_release.sql`) aligned with git tags
 
 See [Database Migration Guide](docs/database-migrations.md) for complete details.
 
