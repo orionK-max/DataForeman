@@ -14,6 +14,10 @@
 // Matches {{tag_id:N}} tokens stored in payload_template
 const TOKEN_RE = /\{\{tag_id:(\d+)\}\}/g;
 
+const NANOMQ_BASIC_AUTH = 'Basic ' + Buffer.from(
+  `${process.env.NANOMQ_HTTP_USER || 'admin'}:${process.env.NANOMQ_HTTP_PASSWORD || 'public'}`
+).toString('base64');
+
 /**
  * Parse all {{tag_id:N}} tokens from a template string.
  * Returns an array of tag_id integers.
@@ -191,7 +195,7 @@ export class MqttPublisherService {
         method: 'POST',
         signal: controller.signal,
         headers: {
-          'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64'),
+          'Authorization': NANOMQ_BASIC_AUTH,
           'Content-Type': 'application/json',
           'connection': 'close',
         },

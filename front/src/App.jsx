@@ -22,6 +22,7 @@ import LibraryManager from './pages/LibraryManager';
 import RemoteExtensionPage from './components/RemoteExtensionPage';
 import libraryApi from './services/libraryApi';
 import { PluginRegistry } from './utils/PluginRegistry';
+import { UmamiTracker } from './components/UmamiTracker';
 
 // Protected wrapper that redirects to login if not authenticated
 const ProtectedApp = () => {
@@ -74,6 +75,7 @@ const ProtectedApp = () => {
   return (
     <PermissionsLoader>
       <MainLayout>
+        <UmamiTracker />
         <Routes>
           <Route path="/" element={<DashboardList />} />
           <Route path="/dashboards" element={<DashboardList />} />

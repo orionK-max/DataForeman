@@ -29,6 +29,10 @@ async function _saveTagRefs(db, publisherId, template) {
   }
 }
 
+const NANOMQ_BASIC_AUTH = 'Basic ' + Buffer.from(
+  `${process.env.NANOMQ_HTTP_USER || 'admin'}:${process.env.NANOMQ_HTTP_PASSWORD || 'public'}`
+).toString('base64');
+
 export default async function mqttRoutes(app) {
   const db = app.db;
   const tsdb = app.tsdb;
@@ -40,7 +44,7 @@ export default async function mqttRoutes(app) {
    */
   async function restartBroker() {
     const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
-    const authHeader = 'Basic ' + Buffer.from('admin:public').toString('base64');
+    const authHeader = NANOMQ_BASIC_AUTH;
     try {
       await fetch(`${nanoMqUrl}/api/v4/ctrl/restart`, { method: 'POST', headers: { 'Authorization': authHeader } });
       log.info('Broker restart requested to force client re-authentication');
@@ -63,7 +67,7 @@ export default async function mqttRoutes(app) {
         ...options,
         signal: controller.signal,
         headers: {
-          'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64'),
+          'Authorization': NANOMQ_BASIC_AUTH,
           ...(options.headers || {}),
         },
       });
@@ -473,7 +477,7 @@ export default async function mqttRoutes(app) {
       const response = await fetch(`${nanoMqUrl}/api/v4/clients/${clientId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64')
+          'Authorization': NANOMQ_BASIC_AUTH
         }
       });
 
@@ -2448,7 +2452,7 @@ export default async function mqttRoutes(app) {
           try {
             await fetch(`${nanoMqUrl}/api/v4/clients/${device.client_id}`, {
               method: 'DELETE',
-              headers: { 'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64') }
+              headers: { 'Authorization': NANOMQ_BASIC_AUTH }
             });
             log.info({ clientid: device.client_id }, 'Disconnected device after group deletion');
           } catch (disconnectErr) {
@@ -2607,7 +2611,7 @@ export default async function mqttRoutes(app) {
           const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
           await fetch(`${nanoMqUrl}/api/v4/clients/${device.client_id}`, {
             method: 'DELETE',
-            headers: { 'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64') }
+            headers: { 'Authorization': NANOMQ_BASIC_AUTH }
           });
           log.info({ clientid: device.client_id }, 'Disconnected device after disable');
         } catch (brokerErr) {
@@ -2653,7 +2657,7 @@ export default async function mqttRoutes(app) {
         const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
         await fetch(`${nanoMqUrl}/api/v4/clients/${client_id}`, {
           method: 'DELETE',
-          headers: { 'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64') }
+          headers: { 'Authorization': NANOMQ_BASIC_AUTH }
         });
         log.info({ client_id }, 'Disconnected device after deletion');
       } catch (brokerErr) {

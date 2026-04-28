@@ -213,7 +213,7 @@ export async function diagRoutes(app) {
       const to = setTimeout(() => ac.abort(), 1500);
       const res = await fetch(`${nanoMqUrl}/api/v4/clients?page=1&limit=1`, {
         signal: ac.signal,
-        headers: { 'Authorization': 'Basic ' + Buffer.from('admin:public').toString('base64') }
+        headers: { 'Authorization': 'Basic ' + Buffer.from(`${process.env.NANOMQ_HTTP_USER || 'admin'}:${process.env.NANOMQ_HTTP_PASSWORD || 'public'}`).toString('base64') }
       });
       clearTimeout(to);
       broker = { ok: res.ok };

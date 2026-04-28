@@ -323,10 +323,11 @@ docker compose down -v
 These are the ports exposed by DataForeman on your host machine:
 
 - **Frontend (Web UI)**: TCP **8080** - Access the web interface
-- **Core API**: TCP **3000** - REST API (used internally by frontend)
-- **PostgreSQL**: TCP **5432** - Main database (internal only)
-- **TimescaleDB**: TCP **5433** - Time-series database (internal only)
-- **NATS**: TCP **4222**, **8222** - Message broker (internal only)
+- **Core API**: TCP **3000** - REST API (localhost only — not exposed externally)
+- **MQTT Broker**: TCP **1883** (MQTT), **8883** (MQTT over TLS), **8081** (WebSocket)
+- **PostgreSQL**: TCP **5432** - Main database (localhost only)
+- **TimescaleDB**: TCP **5433** - Time-series database (localhost only)
+- **NATS**: TCP **4222** - Message bus (localhost only)
 
 ### Protocol Drivers (Industrial Device Communication)
 
@@ -353,7 +354,7 @@ DataForeman connects TO industrial devices - **no inbound ports are required** f
 #### OPC UA Server (Optional - DataForeman as Server)
 - **Protocol Port**: TCP **4841** (exposed by DataForeman)
 - **Firewall**: Allow **inbound TCP port 4841** if external OPC UA clients need to read from DataForeman
-- **Docker**: Port mapping already configured in `docker-compose.yml`
+- **Docker**: Add `- "4841:4841"` to the `connectivity` service ports in `docker-compose.yml` if needed
 - **Use Case**: Allows other SCADA/HMI systems to read DataForeman tags via OPC UA
 
 ### Virtual Machine Configuration

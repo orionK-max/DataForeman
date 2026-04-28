@@ -50,7 +50,7 @@ services:
       - "${NANOMQ_MQTT_PORT:-1883}:1883"        # MQTT
       - "${NANOMQ_MQTTS_PORT:-8883}:8883"       # MQTT over TLS
       - "${NANOMQ_WS_PORT:-8081}:8081"          # WebSocket
-      - "${NANOMQ_HTTP_PORT:-8001}:8001"        # HTTP API
+      - "127.0.0.1:${NANOMQ_HTTP_PORT:-8001}:8001"  # HTTP API — localhost only
     volumes:
       - ./logs/broker:/var/log/broker
       - ./nanomq/nanomq.conf:/etc/nanomq/nanomq.conf:ro
@@ -125,6 +125,9 @@ services:
       FLOW_ALLOWED_PATHS: ${FLOW_ALLOWED_PATHS:-/tmp,/var/dataforeman/flows}
       # Job dispatcher concurrency (max concurrent jobs)
       MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-20}
+      # NanoMQ HTTP API credentials
+      NANOMQ_HTTP_USER: ${NANOMQ_HTTP_USER:-admin}
+      NANOMQ_HTTP_PASSWORD: ${NANOMQ_HTTP_PASSWORD:-public}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
       interval: 5s
@@ -138,7 +141,7 @@ services:
     extra_hosts:
       - "host-gateway:host-gateway"
     ports:
-      - "${CORE_PORT:-3000}:3000"
+      - "127.0.0.1:${CORE_PORT:-3000}:3000"  # Not exposed externally — frontend uses service name
     volumes:
       - ./logs/core:/var/log/core
       - core-libraries:/app/src/nodes/libraries
