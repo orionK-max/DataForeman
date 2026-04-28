@@ -6,7 +6,9 @@ import {
   Typography,
   Tooltip,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { getBackendMetadata, getNodeMetadata } from '../../constants/nodeTypes';
+import { resolveNodeIcon } from '../../constants/nodeIcons';
 
 /**
  * NodeItem - Individual node card in the browser
@@ -63,17 +65,16 @@ const NodeItem = ({ nodeType, onAddNode, onDragStart }) => {
               width: 32,
               height: 32,
               borderRadius: 1,
-              bgcolor: metadata.color,
-              color: 'white',
+              bgcolor: alpha(metadata.color, 0.14),
+              color: metadata.color,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '1.2rem',
               mr: 1.5,
               flexShrink: 0,
             }}
           >
-            {metadata.icon}
+            {resolveNodeIcon(metadata.icon)}
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography

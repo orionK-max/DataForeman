@@ -76,9 +76,25 @@ export const CATEGORIES = {
       },
       ADVANCED: {
         key: 'ADVANCED',
-        displayName: 'Scripts',
-        description: 'Custom JavaScript logic',
+        displayName: 'Advanced Math',
+        description: 'Advanced mathematical computations',
         order: 5
+      }
+    }
+  },
+
+  FILE_OPERATIONS: {
+    key: 'FILE_OPERATIONS',
+    displayName: 'File Operations',
+    icon: '📁',
+    description: 'Load from and save to files',
+    order: 3,
+    sections: {
+      BASIC: {
+        key: 'BASIC',
+        displayName: 'Basic',
+        description: 'Read and write files',
+        order: 1
       }
     }
   },
@@ -145,6 +161,12 @@ export const CATEGORIES = {
         displayName: 'Basic',
         description: 'General utilities',
         order: 1
+      },
+      SCRIPTS: {
+        key: 'SCRIPTS',
+        displayName: 'Scripts',
+        description: 'Custom JavaScript logic',
+        order: 2
       }
     }
   },

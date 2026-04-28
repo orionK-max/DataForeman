@@ -16,6 +16,7 @@ export const FLOW_NODE_SCHEMA_VERSION = 1;
 export const FLOW_NODE_CATEGORIES = [
   'TAG_OPERATIONS',
   'LOGIC_MATH',
+  'FILE_OPERATIONS',
   'TRIGGERS',
   'DATA_TRANSFORM',
   'COMMUNICATION',
@@ -60,6 +61,7 @@ export const FLOW_NODE_PROPERTY_TYPES = [
   'collection',
   'select',
   'multiSelect',
+  'fileUpload',
   'json',
   'formula'
 ];

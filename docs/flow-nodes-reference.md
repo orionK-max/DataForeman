@@ -14,6 +14,9 @@ This document provides detailed specifications for all node types available in D
   - [Math](#math)
   - [Comparison](#comparison)
   - [JavaScript](#javascript)
+- [File Nodes](#file-nodes)
+  - [Load File](#load-file)
+  - [Save File](#save-file)
 
 ---
 
@@ -344,6 +347,152 @@ saveToDatabase: false
 
 #### Log Messages
 *(To be defined)*
+
+---
+
+## File Nodes
+
+### Load File
+
+**Type:** `load-file`  
+**Category:** File Operations  
+**Description:** Uploads a file into the flow and outputs its contents in various formats.
+
+#### Configuration
+- **file** (fileUpload, required): File to upload and store with the flow
+  - Maximum size: 10MB
+  - Stored as base64 in flow definition
+  - Shows upload timestamp and file metadata
+  
+- **output** (select, default: 'utf8'): Output format
+  - `utf8`: Text (UTF-8) - returns file as string
+  - `base64`: Base64 string - returns base64-encoded data
+  - `json`: JSON (parse) - parses file content as JSON object
+
+#### Inputs
+- None (source node)
+
+#### Outputs
+- **value:** File contents in selected format (string or object)
+- **quality:** `192` (good quality)
+- **bytes:** File size in bytes
+- **filename:** Original filename
+- **mimeType:** File MIME type
+- **timestamp:** Execution timestamp
+
+#### Behavior
+- File is uploaded during node configuration via file picker
+- File data is stored in flow definition (base64-encoded)
+- On execution, file is decoded and converted to selected format
+- For `utf8` format: Converts buffer to UTF-8 string
+- For `base64` format: Returns base64-encoded string
+- For `json` format: Parses UTF-8 content as JSON
+- File persists with flow (survives restarts)
+- Visual display shows:
+  - Filename
+  - File size
+  - Upload timestamp (relative time: "5m ago", "2h ago")
+
+#### Error Handling
+- **On Error: Stop**
+  - No file selected: Throws "No file selected"
+  - Missing file data: Throws "Uploaded file data is missing"
+  - Invalid JSON (json format): Throws "Invalid JSON: {error message}"
+  
+#### Log Messages
+- **Info level:** `Loaded file: {filename} ({bytes} bytes, {mimeType})`
+- **Debug level:** `Loaded file: {filename} ({bytes} bytes, {mimeType})\nContent preview: {first 500 chars}...`
+- **Error level:** `Load file failed: {error message}`
+
+#### Example Use Cases
+- Load configuration files (JSON, YAML)
+- Read CSV data for processing
+- Import reference data tables
+- Load template files
+- Process uploaded documents
+
+---
+
+### Save File
+
+**Type:** `save-file`  
+**Category:** File Operations  
+**Description:** Prepares input data for file download in the browser.
+
+#### Configuration
+- **filename** (string, default: 'output.txt', required): Name for the downloaded file
+  - Can include extension (e.g., `report.csv`, `data.json`)
+  
+- **format** (select, default: 'text'): Encoding format
+  - `text`: Text (UTF-8) - converts input to plain text
+  - `json`: JSON (pretty) - formats input as pretty-printed JSON
+  - `base64`: Base64 (decode) - decodes base64 string to binary
+  
+- **mimeType** (string, optional): Custom MIME type for download
+  - If empty, uses format-based default:
+    - `text`: `text/plain`
+    - `json`: `application/json`
+    - `base64`: `application/octet-stream`
+  - Examples: `text/csv`, `application/xml`, `image/png`
+
+#### Inputs
+- **Input 0:** Data to save (any type)
+  - For `text` format: Converts any value to string
+  - For `json` format: Serializes value to JSON
+  - For `base64` format: Decodes base64 string to binary
+
+#### Outputs
+- None (sink node)
+
+#### Behavior
+- Prepares data for browser download (does not write to server filesystem)
+- Output structure includes special `__download` object:
+  ```javascript
+  {
+    __download: {
+      filename: 'output.txt',
+      mimeType: 'text/plain',
+      dataBase64: 'SGVsbG8gV29ybGQ='
+    }
+  }
+  ```
+- Frontend detects `__download` and triggers browser download
+- For `text` format:
+  - Converts input to string (null/undefined → empty string)
+  - Encodes as UTF-8
+- For `json` format:
+  - Serializes input with 2-space indentation
+  - Pretty-prints for readability
+- For `base64` format:
+  - Decodes base64 input string to binary
+  - Requires string input or throws error
+- Visual display shows:
+  - Filename
+  - Format type
+  - MIME type (if specified)
+
+#### Error Handling
+- **On Error: Stop**
+  - Base64 format with non-string input: Throws "Base64 format requires a string input"
+  - Invalid base64 data: Throws error during decode
+  
+#### Log Messages
+- **Info level:** `Prepared download: {filename} ({bytes} bytes, {mimeType})`
+- **Debug level:** `Prepared download: {filename} ({bytes} bytes, {mimeType})\nContent preview: {first 500 chars decoded}...`
+- **Error level:** `Save file failed: {error message}`
+
+#### Example Use Cases
+- Export flow results as CSV
+- Generate JSON reports
+- Create downloadable logs
+- Export processed data
+- Generate text files from calculations
+
+#### Notes
+- Does NOT write to server filesystem (browser download only)
+- File size limited by browser memory (recommended < 50MB)
+- For large files, consider using external storage APIs
+- `__download` objects are stripped from core logs to prevent bloat
 
 ---
 

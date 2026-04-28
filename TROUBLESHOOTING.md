@@ -87,23 +87,13 @@ FATAL: could not open log file: Permission denied
 Open a terminal in DataForeman folder and type:
 
 ```bash
-./fix-permissions.sh
-docker compose restart
+npm start
 ```
+
+`npm start` automatically fixes permissions before starting the containers.
 
 ### Why This Happens
-The containers run as specific user IDs that need write access to log directories. The fix-permissions script sets the correct permissions.
-
-### Make It Permanent
-If this happens after every reboot, add the script to your startup:
-
-```bash
-# Edit crontab
-crontab -e
-
-# Add this line (replace ~/DataForeman with your actual path):
-@reboot cd /home/YOUR_USERNAME/DataForeman && ./fix-permissions.sh
-```
+The containers run as specific user IDs that need write access to log directories. `npm start` sets the correct permissions each time.
 
 ---
 
@@ -196,7 +186,7 @@ Login page shows "Invalid credentials" even with correct password
 
 **Solution 1: Use default credentials**
 - Email: `admin@example.com`
-- Password: `DataForeman2024!`
+- Password: `password` (or whatever `ADMIN_PASSWORD` is set to in your `.env` file)
 
 **Solution 2: Reset admin password**
 
@@ -215,10 +205,14 @@ Then delete and recreate the admin user:
 
 ```bash
 # Connect to the database
-docker compose exec db psql -U dataforeman dataforeman
+docker compose exec db psql -U postgres dataforeman
+
+# If you changed ADMIN_EMAIL, use that value instead of admin@example.com.
+# You can see what Core is configured to use with:
+# docker compose exec core sh -lc 'echo "ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}"'
 
 # Delete the admin user
-DELETE FROM users WHERE email = 'admin@example.com';
+DELETE FROM users WHERE lower(email)=lower('admin@example.com');
 
 # Exit the database
 \q
@@ -233,7 +227,8 @@ Wait 10 seconds, then try logging in with the new password.
 
 **Solution 3: Check if database has admin user**
 ```bash
-docker compose exec db psql -U dataforeman -c "SELECT email FROM users WHERE email='admin@example.com';"
+# If you set ADMIN_EMAIL in .env, replace admin@example.com with that value.
+docker compose exec db psql -U postgres -c "SELECT email FROM users WHERE lower(email)=lower('admin@example.com');"
 ```
 
 If empty, the admin user wasn't created. Check core logs:
@@ -274,8 +269,7 @@ Open a terminal in DataForeman folder and type:
 
 ```bash
 docker compose down
-docker compose build --no-cache
-docker compose up -d
+npm run start:rebuild
 ```
 
 **Solution 3: Check for local changes**
@@ -286,8 +280,7 @@ git status
 If you see modified files, reset them:
 ```bash
 git reset --hard
-docker compose build
-docker compose up -d
+npm run start:rebuild
 ```
 
 ---
@@ -324,7 +317,7 @@ docker system prune --volumes
 **Solution 4: Manual database cleanup**
 ```bash
 # Connect to TimescaleDB
-docker compose exec tsdb psql -U dataforeman dataforeman_ts
+docker compose exec tsdb psql -U tsdb telemetry
 
 # Check table sizes
 SELECT pg_size_pretty(pg_total_relation_size('tag_values'));
@@ -353,7 +346,7 @@ top
 
 **Solution 2: Check database size**
 ```bash
-docker compose exec tsdb psql -U dataforeman dataforeman_ts -c "SELECT pg_size_pretty(pg_database_size('dataforeman_ts'));"
+docker compose exec tsdb psql -U tsdb telemetry -c "SELECT pg_size_pretty(pg_database_size('telemetry'));"
 ```
 
 If very large (>10GB), configure data retention.
@@ -477,8 +470,7 @@ docker compose rm -f
 docker rmi $(docker images | grep dataforeman | awk '{print $3}')
 
 # Start fresh
-./fix-permissions.sh
-docker compose up -d
+npm start
 ```
 
 ---

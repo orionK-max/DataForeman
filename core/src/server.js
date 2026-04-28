@@ -30,6 +30,7 @@ import flowLiveDataRoutes from './routes/flow-live-data.js';
 import flowResourceRoutes from './routes/flow-resources.js';
 import libraryRoutes from './routes/libraries.js';
 import adminFlowsRoutes from './routes/admin/flows.js';
+import mqttRoutes from './routes/mqtt.js';
 import { jobsPlugin } from './services/jobs.js';
 import { dbPlugin } from './services/db.js';
 import { tsdbPlugin } from './services/tsdb.js';
@@ -42,6 +43,7 @@ import { ensureAdminPassword } from './services/bootstrap.js';
 import { connectivityBootstrap } from './services/connectivity-bootstrap.js';
 import { flowBootstrap } from './services/flow-bootstrap.js';
 import { initDemoMode } from './services/demo-mode.js';
+import { ensureInternalMqttConnection } from './services/mqtt-bootstrap.js';
 import { systemMetricsSampler } from './services/system-metrics-sampler.js';
 import { tsdbPoliciesPlugin } from './services/tsdb-policies.js';
 import { registerSessionRetention } from './services/session-retention.js';
@@ -147,6 +149,17 @@ export async function buildServer() {
   await ensureAdminPassword(app);
   // Initialize demo mode (creates read-only demo user if DEMO_MODE=1)
   await initDemoMode(app);
+  // Ensure internal MQTT connection to NanoMQ exists
+  await ensureInternalMqttConnection(app);
+
+  // Initialize MQTT publisher service (template-based publish scheduler)
+  {
+    const { MqttPublisherService } = await import('./services/mqtt-publisher-service.js');
+    const pubService = new MqttPublisherService(app);
+    app.decorate('mqttPublisherService', pubService);
+    await pubService.init();
+  }
+
   // Start session retention purge (purges revoked or expired older than retention window)
   registerSessionRetention(app);
 
@@ -168,6 +181,7 @@ export async function buildServer() {
   await app.register(flowResourceRoutes); // Flow resource monitoring - no prefix, routes define their own paths
   await app.register(libraryRoutes); // Node library management - no prefix, routes define their own paths
   await app.register(adminFlowsRoutes, { prefix: '/api/admin/flows' }); // Admin flow configuration
+  await app.register(mqttRoutes); // MQTT management and authentication - no prefix, routes define their own paths
   // Jobs plugin + routes (admin only) – register once then start dispatcher
   await app.register(jobsPlugin); // services.jobs
   await app.register(jobsRoutes, { prefix: '/api' }); // /api/jobs endpoints (admin)

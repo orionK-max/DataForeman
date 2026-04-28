@@ -1,6 +1,24 @@
 import fp from 'fastify-plugin';
 import { randomUUID } from 'crypto';
 
+function summarizeKeysForLog(value, { maxKeys = 30 } = {}) {
+	if (!value || typeof value !== 'object') return { keyCount: 0, keys: [] };
+	const keys = Object.keys(value);
+	return { keyCount: keys.length, keys: keys.slice(0, maxKeys) };
+}
+
+function summarizeJobResultForLog(result) {
+	if (!result || typeof result !== 'object') return { type: typeof result };
+	const outputs = (result.outputs && typeof result.outputs === 'object') ? result.outputs : null;
+	return {
+		success: result.success === true,
+		executionId: typeof result.executionId === 'string' ? result.executionId : undefined,
+		outputNodeCount: outputs ? Object.keys(outputs).length : 0,
+		outputs: outputs ? summarizeKeysForLog(outputs) : undefined,
+		hasError: result.error != null,
+	};
+}
+
 // Utility to shallow merge progress and auto compute pct clamp
 function mergeProgress(oldP, next) {
 	const base = typeof oldP === 'object' && oldP ? oldP : {};
@@ -46,7 +64,7 @@ export const jobsPlugin = fp(async (app) => {
 			throw e;
 		});
 		const job = rows[0];
-		log.info({ job: job.id, type: job.type, params: job.params }, 'job enqueued');
+		log.info({ job: job.id, type: job.type, params: summarizeKeysForLog(job.params) }, 'job enqueued');
 		return job;
 	}
 
@@ -133,7 +151,7 @@ export const jobsPlugin = fp(async (app) => {
 			}
 			throw e;
 		});
-		log.info({ job: id, result }, 'job completed');
+		log.info({ job: id, result: summarizeJobResultForLog(result) }, 'job completed');
 		return rows[0];
 	}
 
@@ -318,14 +336,14 @@ export const jobsPlugin = fp(async (app) => {
 				try {
 					const { rows: tm } = await app.db.query(`select tag_id,status from tag_metadata where connection_id=$1 and tag_id = any($2)`, [connectionId, tagIds]);
 					const statusMap = new Map(tm.map(r => [Number(r.tag_id), r.status]));
-					const allDeleted = tagIds.every(tid => statusMap.get(tid) === 'deleted');
+				const allDeleted = tagIds.every(tid => !statusMap.has(tid)); // hard-deleted: row no longer exists
 					const anyPending = tagIds.some(tid => ['pending_delete','deleting'].includes(statusMap.get(tid)));
 					log.debug({ job: j.id, connectionId, tagIds, allDeleted, anyPending, last_heartbeat_at: j.last_heartbeat_at }, 'reconcile: evaluation');
 					if (allDeleted) {
 						const perTag = tagIds.map(tid => ({ tag_id: tid, status: 'deleted' }));
 						try {
 							await app.db.query(`update jobs set status='completed', result=$2, progress=jsonb_set(coalesce(progress,'{}'::jsonb),'{"pct"}','100'::jsonb,true), completed_at=now(), finished_at=now(), updated_at=now() where id=$1 and status='running'`, [j.id, { connectionId, tags_total: tagIds.length, tags_completed: tagIds.length, per_tag: perTag, reconciled: true, via: 'periodic' }]);
-							await app.db.query(`update tag_metadata set delete_job_id=null where connection_id=$1 and tag_id = any($2) and status='deleted' and delete_job_id=$3`, [connectionId, tagIds, j.id]);
+
 							log.warn({ job: j.id, connectionId, tagCount: tagIds.length }, 'periodic reconcile: marked job completed');
 							completed++;
 						} catch (e) {
@@ -337,7 +355,7 @@ export const jobsPlugin = fp(async (app) => {
 							const countMap = new Map(counts.map(r => [Number(r.tag_id), Number(r.c)]));
 							const allZero = tagIds.every(tid => (countMap.get(tid) || 0) === 0);
 							if (allZero) {
-								await app.db.query(`update tag_metadata set status='deleted', is_subscribed=false, deleted_at=coalesce(deleted_at, now()), delete_job_id=null where connection_id=$1 and tag_id = any($2)`, [connectionId, tagIds]);
+							await app.db.query(`delete from tag_metadata where connection_id=$1 and tag_id = any($2)`, [connectionId, tagIds]);
 								try { if (app.nats?.healthy()) { for (const tid of tagIds) { app.nats.publish('df.connectivity.tags.changed.v1', { schema: 'connectivity.tags.changed@v1', ts: new Date().toISOString(), connection_id: connectionId, op: 'tag_removed', removed_tag_id: tid, via: 'periodic_reconcile' }); } } } catch {}
 								const perTag = tagIds.map(tid => ({ tag_id: tid, status: 'deleted', forced: true }));
 								try {
@@ -384,7 +402,7 @@ export const jobsPlugin = fp(async (app) => {
 				if (remaining === 0) {
 					// Safe finalize
 					try {
-						await app.db.query(`update tag_metadata set status='deleted', is_subscribed=false, deleted_at=coalesce(deleted_at, now()), delete_job_id=null where connection_id=$1 and tag_id = any($2)`, [connectionId, tagIds]);
+					await app.db.query(`delete from tag_metadata where connection_id=$1 and tag_id = any($2)`, [connectionId, tagIds]);
 						// Emit removal events (best-effort)
 						try {
 							if (app.nats?.healthy()) {
@@ -508,7 +526,8 @@ export const jobsPlugin = fp(async (app) => {
 			activeJobs.set(job.id, jobPromise);
 			log.debug({ jobId: job.id, activeCount: activeJobs.size, maxConcurrent: MAX_CONCURRENT_JOBS }, 'job: added to active set');
 		}			// Wait before next claim attempt (shorter idle when jobs are active)
-			const idleMs = activeJobs.size === 0 ? 1000 : 250;
+			// Reduced delays for faster job processing (was 1000/250)
+			const idleMs = activeJobs.size === 0 ? 100 : 50;
 			await new Promise(r => setTimeout(r, idleMs));
 		}
 	}
@@ -624,7 +643,7 @@ export const jobsPlugin = fp(async (app) => {
 			}
 			// Success cleanup
 			try {
-				await app.db.query(`update tag_metadata set status='deleted', is_subscribed=false, deleted_at=now(), delete_job_id=null where connection_id=$1 and tag_id=$2`, [connectionId, tagId]);
+				await app.db.query(`delete from tag_metadata where connection_id=$1 and tag_id=$2`, [connectionId, tagId]);
 				const { rows: cfgRows } = await app.db.query(
 					`select config_data from connections where id=$1`, 
 					[connectionId]
@@ -785,12 +804,11 @@ export const jobsPlugin = fp(async (app) => {
 					try {
 						const { rows: tm } = await app.db.query(`select tag_id,status from tag_metadata where connection_id=$1 and tag_id = any($2)`, [connectionId, tagIds]);
 						const statuses = new Map(tm.map(r => [Number(r.tag_id), r.status]));
-						const allDeleted = tagIds.every(tid => statuses.get(tid) === 'deleted');
+					const allDeleted = tagIds.every(tid => !statuses.has(tid)); // hard-deleted: row no longer exists
 						const anyDeleting = tagIds.some(tid => ['deleting','pending_delete'].includes(statuses.get(tid)));
 						if (allDeleted) {
 							const perTag = tagIds.map(tid => ({ tag_id: tid, status: 'deleted' }));
 							await app.db.query(`update jobs set status='completed', result=$2, progress=jsonb_set(coalesce(progress,'{}'::jsonb),'{"pct"}','100'::jsonb,true), completed_at=now(), finished_at=now(), updated_at=now() where id=$1 and status='running'`, [j.id, { connectionId, tags_total: tagIds.length, tags_completed: tagIds.length, per_tag: perTag, reconciled_startup: true }]);
-							await app.db.query(`update tag_metadata set is_subscribed=false, delete_job_id=null where connection_id=$1 and tag_id = any($2) and status='deleted' and delete_job_id=$3`, [connectionId, tagIds, j.id]);
 							try { if (app.nats?.healthy()) { for (const tid of tagIds) { app.nats.publish('df.connectivity.tags.changed.v1', { schema: 'connectivity.tags.changed@v1', ts: new Date().toISOString(), connection_id: connectionId, op: 'tag_removed', removed_tag_id: tid, via: 'startup_reconcile' }); } } } catch {}
 							stats.tag_completed++;
 						} else if (anyDeleting) {
@@ -800,7 +818,7 @@ export const jobsPlugin = fp(async (app) => {
 								const countMap = new Map(counts.map(r => [Number(r.tag_id), Number(r.c)]));
 								const allZero = tagIds.every(tid => (countMap.get(tid) || 0) === 0);
 								if (allZero) {
-									await app.db.query(`update tag_metadata set status='deleted', is_subscribed=false, deleted_at=coalesce(deleted_at, now()), delete_job_id=null where connection_id=$1 and tag_id = any($2)`, [connectionId, tagIds]);
+								await app.db.query(`delete from tag_metadata where connection_id=$1 and tag_id = any($2)`, [connectionId, tagIds]);
 									try { if (app.nats?.healthy()) { for (const tid of tagIds) { app.nats.publish('df.connectivity.tags.changed.v1', { schema: 'connectivity.tags.changed@v1', ts: new Date().toISOString(), connection_id: connectionId, op: 'tag_removed', removed_tag_id: tid, via: 'periodic_forced' }); } } } catch {}
 									const perTag = tagIds.map(tid => ({ tag_id: tid, status: 'deleted', forced: true }));
 									await app.db.query(`update jobs set status='completed', result=$2, progress=jsonb_set(coalesce(progress,'{}'::jsonb),'{"pct"}','100'::jsonb,true), completed_at=now(), finished_at=now(), updated_at=now() where id=$1 and status='running'`, [j.id, { connectionId, tags_total: tagIds.length, tags_completed: tagIds.length, per_tag: perTag, reconciled_startup_forced: true }]);

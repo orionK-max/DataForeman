@@ -1,0 +1,850 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Box,
+  Paper,
+  Typography,
+  Button,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
+  Snackbar,
+  Tabs,
+  Tab,
+  CircularProgress,
+  Tooltip,
+  Card,
+  CardContent,
+  Grid,
+  FormControlLabel,
+  Switch,
+} from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import CloudIcon from '@mui/icons-material/Cloud';
+import RouterIcon from '@mui/icons-material/Router';
+import SubscriptionsIcon from '@mui/icons-material/Subscriptions';
+import PublishIcon from '@mui/icons-material/Publish';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SecurityIcon from '@mui/icons-material/Security';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
+import mqttService from '../../services/mqttService';
+import MqttConnectionForm from './MqttConnectionForm';
+import MqttSubscriptionForm from './MqttSubscriptionForm';
+import MqttPublisherForm from './MqttPublisherForm';
+import MqttRecentMessages from './MqttRecentMessages';
+import MqttDeviceCredentials from './MqttDeviceCredentials';
+
+function TabPanel({ children, value, index }) {
+  return (
+    <div hidden={value !== index}>
+      {value === index && <Box sx={{ py: 3 }}>{children}</Box>}
+    </div>
+  );
+}
+
+const MqttManager = () => {
+  const [tabValue, setTabValue] = useState(0);
+  const [requireAuth, setRequireAuth] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [connections, setConnections] = useState([]);
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [publishers, setPublishers] = useState([]);
+  const [brokerStatus, setBrokerStatus] = useState(null);
+  const [clients, setClients] = useState([]);
+  
+  // Form dialogs
+  const [connectionFormOpen, setConnectionFormOpen] = useState(false);
+  const [subscriptionFormOpen, setSubscriptionFormOpen] = useState(false);
+  const [publisherFormOpen, setPublisherFormOpen] = useState(false);
+  const [editingConnection, setEditingConnection] = useState(null);
+  const [editingSubscription, setEditingSubscription] = useState(null);
+  const [editingPublisher, setEditingPublisher] = useState(null);
+  const [selectedConnectionId, setSelectedConnectionId] = useState(null);
+  
+  // Recent messages viewer
+  const [selectedSubscriptionId, setSelectedSubscriptionId] = useState(null);
+  
+  // Delete confirmation
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, type: null, item: null });
+
+  // Require Auth confirmation
+  const [authConfirmDialog, setAuthConfirmDialog] = useState({ open: false, pendingValue: false });
+  
+  // Notifications
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+  const showSnackbar = (message, severity = 'success') => {
+    setSnackbar({ open: true, message, severity });
+  };
+
+  // Load data
+  const loadConnections = useCallback(async () => {
+    try {
+      const data = await mqttService.getConnections();
+      setConnections(data);
+    } catch (err) {
+      console.error('Failed to load connections:', err);
+      showSnackbar('Failed to load MQTT connections', 'error');
+    }
+  }, []);
+
+  const loadSubscriptions = useCallback(async () => {
+    try {
+      const data = await mqttService.getSubscriptions();
+      setSubscriptions(data);
+    } catch (err) {
+      console.error('Failed to load subscriptions:', err);
+      showSnackbar('Failed to load subscriptions', 'error');
+    }
+  }, []);
+
+  const loadPublishers = useCallback(async () => {
+    try {
+      const data = await mqttService.getPublishers();
+      setPublishers(data);
+    } catch (err) {
+      console.error('Failed to load publishers:', err);
+      showSnackbar('Failed to load publishers', 'error');
+    }
+  }, []);
+
+  const loadBrokerStatus = useCallback(async () => {
+    try {
+      const status = await mqttService.getBrokerStatus();
+      setBrokerStatus(status);
+      
+      const clientsData = await mqttService.getClients();
+      setClients(clientsData);
+    } catch (err) {
+      console.warn('Broker status temporarily unavailable:', err.message);
+    }
+  }, []);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [,,, authSetting] = await Promise.all([
+        loadConnections(),
+        loadSubscriptions(),
+        loadPublishers(),
+        loadBrokerStatus(),
+        mqttService.getAuthSetting().then(s => setRequireAuth(s.mqtt_require_auth)).catch(() => {}),
+      ]);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadConnections, loadSubscriptions, loadPublishers, loadBrokerStatus]);
+
+  useEffect(() => {
+    loadAll();
+    
+    // Auto-refresh broker status every 10 seconds
+    const interval = setInterval(loadBrokerStatus, 10000);
+    return () => clearInterval(interval);
+  }, [loadAll, loadBrokerStatus]);
+
+  // Connection handlers
+  const handleCreateConnection = async (formData) => {
+    try {
+      await mqttService.createConnection(formData);
+      showSnackbar('MQTT connection created successfully');
+      loadConnections();
+      setConnectionFormOpen(false);
+    } catch (err) {
+      throw new Error(err.message || 'Failed to create connection');
+    }
+  };
+
+  const handleUpdateConnection = async (formData) => {
+    try {
+      const payload = { ...formData };
+      // Don't send empty password - backend treats undefined as "no change"
+      if (!payload.password) delete payload.password;
+      await mqttService.updateConnection(editingConnection.id, payload);
+      showSnackbar('Connection updated successfully');
+      loadConnections();
+      setConnectionFormOpen(false);
+      setEditingConnection(null);
+    } catch (err) {
+      throw new Error(err.message || 'Failed to update connection');
+    }
+  };
+
+  const handleToggleConnection = async (connection) => {
+    try {
+      await mqttService.updateConnection(connection.id, {
+        enabled: !connection.enabled
+      });
+      showSnackbar(`Connection ${!connection.enabled ? 'enabled' : 'disabled'} successfully`);
+      loadConnections();
+    } catch (err) {
+      showSnackbar('Failed to update connection', 'error');
+    }
+  };
+
+  const handleDeleteConnection = async () => {
+    try {
+      await mqttService.deleteConnection(deleteDialog.item.connection_id || deleteDialog.item.id);
+      showSnackbar('Connection deleted successfully');
+      loadConnections();
+      setDeleteDialog({ open: false, type: null, item: null });
+    } catch (err) {
+      showSnackbar('Failed to delete connection', 'error');
+    }
+  };
+
+  // Subscription handlers
+  const handleCreateSubscription = async (formData) => {
+    try {
+      await mqttService.createSubscription(formData);
+      showSnackbar('Subscription created successfully');
+      loadSubscriptions();
+      setSubscriptionFormOpen(false);
+    } catch (err) {
+      throw new Error(err.message || 'Failed to create subscription');
+    }
+  };
+
+  const handleUpdateSubscription = async (formData) => {
+    try {
+      await mqttService.updateSubscription(editingSubscription.id, formData);
+      showSnackbar('Subscription updated successfully');
+      loadSubscriptions();
+      setSubscriptionFormOpen(false);
+      setEditingSubscription(null);
+    } catch (err) {
+      throw new Error(err.message || 'Failed to update subscription');
+    }
+  };
+
+  const handleToggleSubscription = async (subscription) => {
+    try {
+      await mqttService.updateSubscription(subscription.id, {
+        enabled: !subscription.enabled
+      });
+      showSnackbar(`Subscription ${!subscription.enabled ? 'enabled' : 'disabled'} successfully`);
+      loadSubscriptions();
+    } catch (err) {
+      showSnackbar('Failed to update subscription', 'error');
+    }
+  };
+
+  const handleDeleteSubscription = async () => {
+    try {
+      const deletedId = deleteDialog.item.id;
+      await mqttService.deleteSubscription(deletedId);
+      
+      // Clear selected subscription if it's the one being deleted
+      if (selectedSubscriptionId === deletedId) {
+        setSelectedSubscriptionId(null);
+      }
+      
+      showSnackbar('Subscription deleted successfully');
+      loadSubscriptions();
+      setDeleteDialog({ open: false, type: null, item: null });
+    } catch (err) {
+      showSnackbar('Failed to delete subscription', 'error');
+    }
+  };
+
+  // Publisher handlers
+  const handleOpenPublisherForm = (connectionId, publisher = null) => {
+    setSelectedConnectionId(connectionId);
+    setEditingPublisher(publisher);
+    setPublisherFormOpen(true);
+  };
+
+  const handleClosePublisherForm = () => {
+    setPublisherFormOpen(false);
+    setEditingPublisher(null);
+    setSelectedConnectionId(null);
+  };
+
+  const handleSavePublisher = () => {
+    showSnackbar(editingPublisher ? 'Publisher updated successfully' : 'Publisher created successfully');
+    loadPublishers();
+    handleClosePublisherForm();
+  };
+
+  const handleDeletePublisher = async () => {
+    try {
+      await mqttService.deletePublisher(deleteDialog.item.id);
+      showSnackbar('Publisher deleted successfully');
+      loadPublishers();
+      setDeleteDialog({ open: false, type: null, item: null });
+    } catch (err) {
+      showSnackbar('Failed to delete publisher', 'error');
+    }
+  };
+
+  const openEditConnection = async (connection) => {
+    try {
+      // List endpoint intentionally omits sensitive fields; fetch full details for editing.
+      const full = await mqttService.getConnection(connection.id);
+      setEditingConnection(full);
+      setConnectionFormOpen(true);
+    } catch (err) {
+      console.error('Failed to load MQTT connection details:', err);
+      showSnackbar('Failed to load broker details', 'error');
+    }
+  };
+
+  const openEditSubscription = (subscription) => {
+    setEditingSubscription(subscription);
+    setSubscriptionFormOpen(true);
+  };
+
+  const openDeleteDialog = (type, item) => {
+    setDeleteDialog({ open: true, type, item });
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  return (
+    <Box>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+        <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)}>
+          <Tab icon={<SecurityIcon />} label="Credential Groups" iconPosition="start" />
+          <Tab icon={<CloudIcon />} label="Devices" iconPosition="start" />
+          <Tab icon={<RouterIcon />} label="Brokers" iconPosition="start" />
+          <Tab icon={<SubscriptionsIcon />} label="Subscriptions" iconPosition="start" />
+          <Tab icon={<PublishIcon />} label="Publishers" iconPosition="start" />
+        </Tabs>
+      </Box>
+
+      {/* Credential Groups Tab */}
+      <TabPanel value={tabValue} index={0}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="h6">Credential Groups</Typography>
+          <Tooltip title="When enabled, devices must provide valid credentials to connect. Disabling allows anonymous connections. Changing this setting will restart the broker and disconnect all clients.">
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={requireAuth}
+                  onChange={() => setAuthConfirmDialog({ open: true, pendingValue: !requireAuth })}
+                  color="primary"
+                />
+              }
+              label="Require Auth"
+            />
+          </Tooltip>
+        </Box>
+        <MqttDeviceCredentials section="credentials" onNotify={showSnackbar} requireAuth={requireAuth} onAuthChange={setRequireAuth} />
+      </TabPanel>
+
+      {/* Devices Tab */}
+      <TabPanel value={tabValue} index={1}>
+        <MqttDeviceCredentials section="devices" onNotify={showSnackbar} requireAuth={requireAuth} onAuthChange={setRequireAuth} />
+      </TabPanel>
+
+      {/* Brokers Tab */}
+      <TabPanel value={tabValue} index={2}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Typography variant="h6">MQTT Brokers</Typography>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setEditingConnection(null);
+                  setConnectionFormOpen(true);
+                }}
+              >
+                New Broker
+              </Button>
+            </Box>
+
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Name</TableCell>
+                <TableCell>Protocol</TableCell>
+                <TableCell>Broker</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {connections.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} align="center">
+                    <Typography color="text.secondary" sx={{ py: 3 }}>
+                      No MQTT brokers configured. Click "New Broker" to add one.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                connections.map((conn, idx) => (
+                  <TableRow key={conn.id ?? conn.name ?? `conn-${idx}`}>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="bold">
+                        {conn.name}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={conn.protocol} size="small" variant="outlined" />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {conn.broker_host}:{conn.broker_port}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {conn.enabled ? (
+                        <Chip 
+                          icon={<CheckCircleIcon />}
+                          label="Enabled" 
+                          size="small" 
+                          color="success"
+                        />
+                      ) : (
+                        <Chip 
+                          icon={<ErrorIcon />}
+                          label="Disabled" 
+                          size="small"
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {conn.name === 'MQTT - Internal' ? (
+                        <Chip label="System" size="small" color="default" />
+                      ) : (
+                        <>
+                          <Tooltip title={conn.enabled ? "Disable" : "Enable"}>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleToggleConnection(conn)}
+                              color={conn.enabled ? "warning" : "success"}
+                            >
+                              {conn.enabled ? <PauseIcon /> : <PlayArrowIcon />}
+                            </IconButton>
+                          </Tooltip>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => openEditConnection(conn)}
+                            color="primary"
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => openDeleteDialog('connection', conn)}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </TabPanel>
+
+      {/* Subscriptions Tab */}
+      <TabPanel value={tabValue} index={3}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="h6">MQTT Subscriptions</Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              setEditingSubscription(null);
+              setSelectedConnectionId(null);
+              setSubscriptionFormOpen(true);
+            }}
+            disabled={connections.length === 0}
+          >
+            New Subscription
+          </Button>
+        </Box>
+
+        {connections.length === 0 ? (
+          <Alert severity="info">
+            Configure a broker in the Brokers tab before adding subscriptions.
+          </Alert>
+        ) : (
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Connection</TableCell>
+                  <TableCell>Topic</TableCell>
+                  <TableCell>QoS</TableCell>
+                  <TableCell>Format</TableCell>
+                  <TableCell>Tag Prefix</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {subscriptions.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center">
+                      <Typography color="text.secondary" sx={{ py: 3 }}>
+                        No subscriptions configured. Click "New Subscription" to add one.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  subscriptions.map((sub, idx) => {
+                    const conn = connections.find(c => c.id === sub.connection_id);
+                    const rowKey = sub.id ?? sub.subscription_id ?? `${sub.connection_id ?? 'unknown'}:${sub.topic ?? 'unknown'}:${idx}`;
+                    return (
+                      <TableRow key={rowKey}>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {sub.connection_name || conn?.name || 'Unknown'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontFamily="monospace">
+                            {sub.topic}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={`QoS ${sub.qos}`} size="small" />
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={sub.payload_format} size="small" variant="outlined" />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontFamily="monospace">
+                            {sub.tag_prefix || '-'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          {sub.enabled ? (
+                            <Chip 
+                              icon={<CheckCircleIcon />}
+                              label="Enabled" 
+                              size="small" 
+                              color="success"
+                            />
+                          ) : (
+                            <Chip 
+                              icon={<ErrorIcon />}
+                              label="Disabled" 
+                              size="small"
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip title={sub.enabled ? "Disable" : "Enable"}>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleToggleSubscription(sub)}
+                              color={sub.enabled ? "warning" : "success"}
+                            >
+                              {sub.enabled ? <PauseIcon /> : <PlayArrowIcon />}
+                            </IconButton>
+                          </Tooltip>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => openEditSubscription(sub)}
+                            color="primary"
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => openDeleteDialog('subscription', sub)}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                          <Tooltip title="View recent messages">
+                            <IconButton
+                              size="small"
+                              onClick={() => setSelectedSubscriptionId(sub.id)}
+                              color={selectedSubscriptionId === sub.id ? 'primary' : 'default'}
+                            >
+                              <SubscriptionsIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+
+        {/* Recent Messages Viewer */}
+        {selectedSubscriptionId && (
+          <MqttRecentMessages 
+            subscriptionId={selectedSubscriptionId}
+            autoRefresh={true}
+            refreshInterval={3000}
+          />
+        )}
+      </TabPanel>
+
+      {/* Publishers Tab */}
+      <TabPanel value={tabValue} index={4}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="h6">MQTT Publishers</Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpenPublisherForm(null)}
+            disabled={connections.length === 0}
+          >
+            New Publisher
+          </Button>
+        </Box>
+
+        {connections.length === 0 ? (
+          <Alert severity="info">
+            Configure a broker in the Brokers tab before adding publishers.
+          </Alert>
+        ) : (
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Connection</TableCell>
+                  <TableCell>Publisher Name</TableCell>
+                  <TableCell>Mode</TableCell>
+                  <TableCell>Interval</TableCell>
+                  <TableCell>Format</TableCell>
+                  <TableCell>Tags</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {publishers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} align="center">
+                      <Typography color="text.secondary" sx={{ py: 3 }}>
+                        No publishers configured. Click "New Publisher" to add one.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  publishers.map((pub, idx) => {
+                    const conn = connections.find(c => c.id === pub.connection_id);
+                    const rowKey = pub.id ?? pub.publisher_id ?? `${pub.connection_id ?? 'unknown'}:${pub.name ?? 'unknown'}:${idx}`;
+                    return (
+                      <TableRow key={rowKey}>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {conn?.name || 'Unknown'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {pub.name}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={pub.publish_mode} 
+                            size="small" 
+                            color={pub.publish_mode === 'both' ? 'primary' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {pub.interval_ms ? `${pub.interval_ms}ms` : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={pub.payload_format} size="small" variant="outlined" />
+                        </TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={`${pub.mappings?.length || 0} tags`} 
+                            size="small" 
+                            color="info"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {pub.enabled ? (
+                            <Chip 
+                              icon={<CheckCircleIcon />}
+                              label="Enabled" 
+                              size="small" 
+                              color="success"
+                            />
+                          ) : (
+                            <Chip 
+                              icon={<ErrorIcon />}
+                              label="Disabled" 
+                              size="small"
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => handleOpenPublisherForm(pub.connection_id, pub)}
+                            color="primary"
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton 
+                            size="small" 
+                            onClick={() => openDeleteDialog('publisher', pub)}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </TabPanel>
+
+      {/* Connection Form Dialog */}
+      <MqttConnectionForm
+        open={connectionFormOpen}
+        onClose={() => {
+          setConnectionFormOpen(false);
+          setEditingConnection(null);
+        }}
+        onSubmit={editingConnection ? handleUpdateConnection : handleCreateConnection}
+        initialData={editingConnection}
+        isEditing={!!editingConnection}
+      />
+
+      {/* Subscription Form Dialog */}
+      <MqttSubscriptionForm
+        open={subscriptionFormOpen}
+        onClose={() => {
+          setSubscriptionFormOpen(false);
+          setEditingSubscription(null);
+        }}
+        onSubmit={editingSubscription ? handleUpdateSubscription : handleCreateSubscription}
+        connectionId={selectedConnectionId}
+        initialData={editingSubscription}
+        isEditing={!!editingSubscription}
+      />
+
+      {/* Publisher Form Dialog */}
+      <MqttPublisherForm
+        open={publisherFormOpen}
+        onClose={handleClosePublisherForm}
+        onSave={handleSavePublisher}
+        connectionId={selectedConnectionId}
+        publisher={editingPublisher}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, type: null, item: null })}>
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this {deleteDialog.type}?
+            {deleteDialog.type === 'connection' && ' This will also delete all associated subscriptions and publishers.'}
+            {deleteDialog.type === 'publisher' && ' This will also delete all tag mappings for this publisher.'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog({ open: false, type: null, item: null })}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={() => {
+              if (deleteDialog.type === 'connection') handleDeleteConnection();
+              else if (deleteDialog.type === 'subscription') handleDeleteSubscription();
+              else if (deleteDialog.type === 'publisher') handleDeletePublisher();
+            }}
+            color="error"
+            variant="contained"
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Require Auth Confirmation Dialog */}
+      <Dialog open={authConfirmDialog.open} onClose={() => setAuthConfirmDialog({ open: false, pendingValue: false })}>
+        <DialogTitle>
+          {authConfirmDialog.pendingValue ? 'Enable Authentication?' : 'Disable Authentication?'}
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            {authConfirmDialog.pendingValue
+              ? 'Enabling authentication will require all devices to provide valid credentials to connect. The broker will restart and all currently connected clients will be disconnected.'
+              : 'Disabling authentication will allow any device to connect without credentials (anonymous mode). Currently connected clients will remain connected.'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAuthConfirmDialog({ open: false, pendingValue: false })}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color={authConfirmDialog.pendingValue ? 'primary' : 'warning'}
+            onClick={async () => {
+              const newValue = authConfirmDialog.pendingValue;
+              setAuthConfirmDialog({ open: false, pendingValue: false });
+              try {
+                await mqttService.updateAuthSetting(newValue);
+                setRequireAuth(newValue);
+                showSnackbar(
+                  newValue ? 'Authentication enabled. Devices must provide credentials.' : 'Anonymous mode active. Any device can connect.',
+                  'success'
+                );
+              } catch (err) {
+                showSnackbar('Failed to update authentication setting', 'error');
+              }
+            }}
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert 
+          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+};
+
+export default MqttManager;

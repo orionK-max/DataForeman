@@ -152,16 +152,28 @@ const QueryControls = () => {
       // Collect all tag IDs (backend will handle multi-connection queries)
       const allTagIds = chartConfig.tagConfigs.map(tag => tag.tag_id);
 
+      // Check if all tags share the same connection_id
+      // If so, include it in the query for better performance (uses primary key)
+      const connectionIds = [...new Set(chartConfig.tagConfigs.map(tag => tag.connection_id).filter(Boolean))];
+      const singleConnectionId = connectionIds.length === 1 ? connectionIds[0] : null;
+
       // Single API call for all tags
       // Backend will auto-detect System tags vs regular tags based on tag_id
       // and query from system_metrics or tag_values table accordingly
-      const response = await chartComposerService.queryData({
+      const queryParams = {
         tag_ids: allTagIds,
         from: effectiveFromDate.toISOString(),
         to: effectiveToDate.toISOString(),
         limit: maxDataPoints,
         no_aggregation: !smartCompression,
-      });
+      };
+
+      // Include connection_id if all tags are from the same connection
+      if (singleConnectionId) {
+        queryParams.conn_id = singleConnectionId;
+      }
+
+      const response = await chartComposerService.queryData(queryParams);
 
       // Handle response
       if (response?.error && !isAutoRefresh) {
@@ -206,6 +218,7 @@ const QueryControls = () => {
     }
 
     setTimeDuration(duration);
+    setOriginalTimeWindow(duration); // Keep sliding window in sync with new preset
     setHasUnsavedChanges(true);
 
     // Mode-specific behavior
@@ -591,7 +604,13 @@ const QueryControls = () => {
                   <RadioGroup
                     value={timeMode}
                     onChange={(e) => {
-                      setTimeMode(e.target.value);
+                      const newMode = e.target.value;
+                      setTimeMode(newMode);
+                      if (newMode === 'fixed') {
+                        setAutoRefresh(false);
+                        // Don't null originalTimeWindow here — it needs to survive
+                        // so rolling mode works if user switches back and re-enables Live
+                      }
                       setHasUnsavedChanges(true);
                     }}
                   >
@@ -673,20 +692,24 @@ const QueryControls = () => {
                       value={fromDate}
                       onChange={(newValue) => {
                         setFromDate(newValue);
-                        setTimeRange({ from: newValue, to: toDate }); // Sync with context
                         setHasUnsavedChanges(true);
                       }}
-                      slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                      onAccept={(newValue) => {
+                        setTimeRange({ from: newValue, to: toDate }); // Sync with context only on confirm
+                      }}
+                      slotProps={{ textField: { size: 'small', fullWidth: true, onBlur: () => setTimeRange({ from: fromDate, to: toDate }) } }}
                     />
                     <DateTimePicker
                       label="To"
                       value={toDate}
                       onChange={(newValue) => {
                         setToDate(newValue);
-                        setTimeRange({ from: fromDate, to: newValue }); // Sync with context
                         setHasUnsavedChanges(true);
                       }}
-                      slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                      onAccept={(newValue) => {
+                        setTimeRange({ from: fromDate, to: newValue }); // Sync with context only on confirm
+                      }}
+                      slotProps={{ textField: { size: 'small', fullWidth: true, onBlur: () => setTimeRange({ from: fromDate, to: toDate }) } }}
                     />
                     <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
                       Presets adjust "To" from "From" + duration

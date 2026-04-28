@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, CardContent, Box, CircularProgress, Typography, IconButton, Stack, Tooltip, Switch, FormControlLabel, TextField, MenuItem, useTheme } from '@mui/material';
-import { ZoomIn, ZoomOut, RestartAlt, Settings, DashboardCustomize } from '@mui/icons-material';
+import { ZoomIn, ZoomOut, RestartAlt, Settings, DashboardCustomize, ChevronLeft, ChevronRight } from '@mui/icons-material';
 import ReactECharts from 'echarts-for-react';
 import ChartConfigPanel from './ChartConfigPanel';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
@@ -47,6 +47,7 @@ const ChartRenderer = React.forwardRef(({
   updateChartConfig = null,
   onPreferencesClose = null,
   onResetZoom = null,
+  onScrollTime = null, // (direction: 'back' | 'forward') => void — shift time window by 50%, stops live mode
   onToggleCompactMode = null,
   // New props for external control
   externalShowPreferences = null,
@@ -54,6 +55,7 @@ const ChartRenderer = React.forwardRef(({
   externalCrosshairEnabled = null,
   externalSetCrosshairEnabled = null,
   hideInternalControls = false,
+  showDataPoints = false,
 }, ref) => {
   // Get MUI theme for background color
   const theme = useTheme();
@@ -293,15 +295,67 @@ const ChartRenderer = React.forwardRef(({
       tagDataMap.get(tagId).set(time, value);
     });
     
+    // Whether to extend anchor ghost points beyond the chart edges to preserve smooth curve shape
+    const extendCurveEdges = options?.extendCurveEdges ?? true;
+
+    // Returns the amount (ms) to push anchor points outside the chart boundary.
+    // Uses average inter-sample interval when possible, otherwise 10% of the query range.
+    const computeEdgeExtension = (timestamps, qStart, qEnd) => {
+      if (!extendCurveEdges) return 0;
+      if (timestamps.length >= 2) {
+        return (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1);
+      }
+      return Math.max((qEnd - qStart) * 0.1, 60000);
+    };
+
     // Helper: Fill gaps for write-on-change tags (updated 2025-10-23)
     // Persists last heartbeat and keeps it anchored at query start (left edge)
     const fillWriteOnChangeGaps = (tagId, tagData) => {
       const meta = tagMetadata?.[tagId];
       
       if (!meta?.on_change_enabled) {
-        // Not a write-on-change tag - return data as-is, sorted by timestamp
+        // Not a write-on-change tag - anchor line to left/right edges of the chart window
         const timestamps = Array.from(tagData.keys()).sort((a, b) => a - b);
-        return timestamps.map(time => [time, tagData.get(time)]);
+        if (timestamps.length === 0) {
+          // No data in range at all — keep empty
+          return [];
+        }
+        const now = Date.now();
+        const queryStartTime = requestedTimeRange ? new Date(requestedTimeRange.from).getTime() : (now - 3600000);
+        const queryEndTime   = requestedTimeRange ? new Date(requestedTimeRange.to).getTime()   : now;
+        const result = timestamps.map(time => [time, tagData.get(time)]);
+        const edgeExt = computeEdgeExtension(timestamps, queryStartTime, queryEndTime);
+        // Left anchor: only when extendCurveEdges is enabled.
+        // Interpolate between the last known value before the window and the first chart point
+        // to find the natural curve value at queryStartTime.
+        if (extendCurveEdges) {
+          let edgeValue;
+          const lvb = lastValuesBefore?.[tagId];
+          if (lvb && result.length >= 1) {
+            const tPrev = new Date(lvb.ts).getTime();
+            const vPrev = Number(lvb.v);
+            const [t0, v0] = result[0];
+            const span = t0 - tPrev;
+            edgeValue = span > 0
+              ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span) // interpolate
+              : v0;
+          } else if (result.length >= 2) {
+            const [t0, v0] = result[0];
+            const [t1, v1] = result[1];
+            const slope = (v1 - v0) / (t1 - t0);
+            edgeValue = v0 + slope * (queryStartTime - t0); // fallback: extrapolate
+          } else {
+            edgeValue = result[0][1];
+          }
+          result.unshift([queryStartTime, edgeValue]);           // visible anchor at left edge
+          result.unshift([queryStartTime - edgeExt, edgeValue]); // ghost beyond left edge
+        }
+        // Right anchor: only when extendCurveEdges is enabled
+        if (extendCurveEdges) {
+          const lastValue = result[result.length - 1][1];
+          result.push([queryEndTime + edgeExt, lastValue]);
+        }
+        return result;
       }
       
       const now = Date.now();
@@ -355,11 +409,32 @@ const ChartRenderer = React.forwardRef(({
       
       // Strategy: Always show horizontal line for persisted heartbeat (sliding window)
       // This ensures the line appears at the left edge and slides with the window in Live mode
-      
+      const edgeExt = computeEdgeExtension(timestamps, queryStartTime, queryEndTime);
+
       if (persistedHeartbeat) {
-        // We have a valid persisted heartbeat - create horizontal line across entire visible range
-        // Add horizontal line from query start (left edge) to query end (right edge)
-        result.push([queryStartTime, persistedHeartbeat.value]);
+        // We have a valid persisted heartbeat - create horizontal line across the visible range.
+        // Ghost + anchor on the left: interpolate between lastValuesBefore and first chart
+        // point to find the natural curve value at the left edge.
+        if (extendCurveEdges) {
+          let edgeValue = persistedHeartbeat.value;
+          const lvb = lastValuesBefore?.[tagId];
+          if (lvb && timestamps.length >= 1) {
+            const tPrev = new Date(lvb.ts).getTime();
+            const vPrev = Number(lvb.v);
+            const t0 = timestamps[0], v0 = tagData.get(t0);
+            const span = t0 - tPrev;
+            edgeValue = span > 0
+              ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span)
+              : v0;
+          } else if (timestamps.length >= 2) {
+            const t0 = timestamps[0], v0 = tagData.get(t0);
+            const t1 = timestamps[1], v1 = tagData.get(t1);
+            const slope = (v1 - v0) / (t1 - t0);
+            edgeValue = v0 + slope * (queryStartTime - t0);
+          }
+          result.push([queryStartTime - edgeExt, edgeValue]); // ghost
+          result.push([queryStartTime, edgeValue]);            // visible anchor
+        }
         
         // Add all actual data points from current query (if any)
         for (let i = 0; i < timestamps.length; i++) {
@@ -368,8 +443,10 @@ const ChartRenderer = React.forwardRef(({
           result.push([time, value]);
         }
         
-        // Extend to query end (right edge)
-        result.push([queryEndTime, persistedHeartbeat.value]);
+        // Right anchor: only when extendCurveEdges is enabled
+        if (extendCurveEdges) {
+          result.push([queryEndTime + edgeExt, persistedHeartbeat.value]);
+        }
       } else if (timestamps.length > 0) {
         // No persisted heartbeat, but we have data - render it normally
         for (let i = 0; i < timestamps.length; i++) {
@@ -378,9 +455,11 @@ const ChartRenderer = React.forwardRef(({
           result.push([time, value]);
         }
         
-        // Extend last point to query end (right edge)
-        const lastValue = result[result.length - 1][1];
-        result.push([queryEndTime, lastValue]);
+        // Right anchor: only when extendCurveEdges is enabled
+        if (extendCurveEdges) {
+          const lastValue = result[result.length - 1][1];
+          result.push([queryEndTime + edgeExt, lastValue]);
+        }
       }
       
       return result;
@@ -418,13 +497,22 @@ const ChartRenderer = React.forwardRef(({
           itemStyle: {
             color: tagConfig.color || '#3b82f6',
           },
+          emphasis: {
+            focus: 'series',
+            blurScope: 'coordinateSystem',
+          },
+          blur: {
+            lineStyle: {
+              opacity: 0.15,
+            },
+          },
           connectNulls: false, // Changed to false so gaps beyond heartbeat show as breaks
           yAxisIndex: yAxisIndex,
         };
       });
     
     return { series, axisIndexMap };
-  }, [data, tagConfigs, axes, tagMetadata, lastValuesBefore]);
+  }, [data, tagConfigs, axes, tagMetadata, lastValuesBefore, requestedTimeRange, options]);
 
   // Build ECharts option
   const option = React.useMemo(() => {
@@ -554,6 +642,11 @@ const ChartRenderer = React.forwardRef(({
       // Find which axis this series uses
       const seriesAxisIndex = series.yAxisIndex;
       
+      // Apply showDataPoints toggle
+      const seriesWithPoints = showDataPoints
+        ? { ...series, showSymbol: true, symbolSize: 6 }
+        : series;
+      
       // Find reference lines for this axis
       const axisId = axesArray[seriesAxisIndex]?.id || 'default';
       const linesForThisSeries = referenceLines.filter(line => {
@@ -569,7 +662,7 @@ const ChartRenderer = React.forwardRef(({
       
       if (isFirstSeriesForAxis && linesForThisSeries.length > 0) {
         return {
-          ...series,
+          ...seriesWithPoints,
           markLine: {
             symbol: 'none',
             silent: false,
@@ -602,7 +695,7 @@ const ChartRenderer = React.forwardRef(({
         };
       }
       
-      return series;
+      return seriesWithPoints;
     });
     
     // If there are reference lines but no series, we need to add them differently
@@ -701,32 +794,66 @@ const ChartRenderer = React.forwardRef(({
           // Display time header
           let html = `<div style="font-weight: 600; margin-bottom: 4px;">${timeStr}.${ms}</div>`;
           
-          // Track unique series to avoid duplicates
-          const uniqueSeries = new Map();
-          
-          // Only show series data (vertical axis values), filter out any non-series data
-          params.forEach(param => {
-            // Only show if it's a series with actual data value
-            if (param.componentType === 'series' && param.value && param.value[1] !== null && param.value[1] !== undefined) {
-              const seriesName = param.seriesName;
-              const value = param.value[1];
-              
-              // Only add if we haven't seen this series yet, or update with latest value
-              if (!uniqueSeries.has(seriesName)) {
-                uniqueSeries.set(seriesName, {
-                  color: param.color,
-                  value: value
-                });
+          // For ALL visible series, compute the value at cursor time matching the series
+          // interpolation mode so the tooltip agrees with the drawn line:
+          //   step='start' (stepBefore) → hold last known value
+          //   step='end'   (stepAfter)  → hold next value
+          //   no step (linear/smooth)   → linearly interpolate between surrounding points
+          const allValues = new Map();
+          echartsData.series.forEach(s => {
+            if (s.name.startsWith('_refline_dummy_')) return;
+            const data = s.data;
+            if (!data || data.length === 0) return;
+
+            // Binary search: find last index with timestamp <= cursor time
+            let lo = 0, hi = data.length - 1, prevIdx = -1;
+            while (lo <= hi) {
+              const mid = (lo + hi) >> 1;
+              if (data[mid][0] <= time) { prevIdx = mid; lo = mid + 1; }
+              else { hi = mid - 1; }
+            }
+
+            const color = s.itemStyle?.color || s.lineStyle?.color || '#3b82f6';
+            const nextIdx = prevIdx + 1;
+
+            if (s.step === 'end') {
+              // stepAfter: display the upcoming value
+              const pt = nextIdx < data.length ? data[nextIdx] : (prevIdx >= 0 ? data[prevIdx] : null);
+              if (pt && pt[1] !== null && pt[1] !== undefined) {
+                allValues.set(s.name, { color, value: pt[1] });
+              }
+            } else if (s.step) {
+              // stepBefore / step='start': last known value
+              if (prevIdx >= 0 && data[prevIdx][1] !== null && data[prevIdx][1] !== undefined) {
+                allValues.set(s.name, { color, value: data[prevIdx][1] });
+              }
+            } else {
+              // linear / smooth: interpolate between surrounding points
+              if (
+                prevIdx >= 0 && nextIdx < data.length &&
+                data[prevIdx][1] !== null && data[prevIdx][1] !== undefined &&
+                data[nextIdx][1] !== null && data[nextIdx][1] !== undefined
+              ) {
+                const t0 = data[prevIdx][0], v0 = data[prevIdx][1];
+                const t1 = data[nextIdx][0], v1 = data[nextIdx][1];
+                const frac = (time - t0) / (t1 - t0);
+                allValues.set(s.name, { color, value: v0 + frac * (v1 - v0) });
+              } else if (prevIdx >= 0 && data[prevIdx][1] !== null && data[prevIdx][1] !== undefined) {
+                // Past the last data point — show last value
+                allValues.set(s.name, { color, value: data[prevIdx][1] });
               }
             }
           });
           
-          // Render unique series
-          uniqueSeries.forEach((data, seriesName) => {
+          // Render in series order
+          echartsData.series.forEach(s => {
+            if (s.name.startsWith('_refline_dummy_')) return;
+            const entry = allValues.get(s.name);
+            if (!entry) return;
             html += `
               <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${data.color};"></span>
-                <span>${seriesName}: <strong>${data.value.toFixed(2)}</strong></span>
+                <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${entry.color};"></span>
+                <span>${s.name}: <strong>${entry.value.toFixed(2)}</strong></span>
               </div>
             `;
           });
@@ -802,6 +929,7 @@ const ChartRenderer = React.forwardRef(({
           type: 'inside',
           start: requestedTimeRange ? 0 : undefined,
           end: requestedTimeRange ? 100 : undefined,
+          filterMode: 'none',
           zoomOnMouseWheel: true,
           moveOnMouseMove: true,
         },
@@ -810,6 +938,7 @@ const ChartRenderer = React.forwardRef(({
           show: !compactMode,
           start: requestedTimeRange ? 0 : undefined,
           end: requestedTimeRange ? 100 : undefined,
+          filterMode: 'none',
           height: 20,
           bottom: compactMode ? 5 : 45,
           handleIcon: 'path://M10.7,11.9H9.3c-4.9,0.3-8.8,4.4-8.8,9.4c0,5,3.9,9.1,8.8,9.4h1.3c4.9-0.3,8.8-4.4,8.8-9.4C19.5,16.3,15.6,12.2,10.7,11.9z',
@@ -828,7 +957,7 @@ const ChartRenderer = React.forwardRef(({
         },
       ],
     };
-  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme]);
+  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme, showDataPoints]);
 
   // Loading state
   if (loading) {
@@ -995,6 +1124,20 @@ const ChartRenderer = React.forwardRef(({
             {/* Zoom Controls - Only show when not in preferences mode */}
             {!showPreferences && (
               <>
+                {onScrollTime && (
+                  <>
+                    <Tooltip title="Scroll Back 50%">
+                      <IconButton size="small" onClick={() => onScrollTime('back')}>
+                        <ChevronLeft fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Scroll Forward 50%">
+                      <IconButton size="small" onClick={() => onScrollTime('forward')}>
+                        <ChevronRight fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </>
+                )}
                 <Tooltip title="Zoom In">
                   <IconButton size="small" onClick={handleZoomIn}>
                     <ZoomIn fontSize="small" />
@@ -1031,7 +1174,8 @@ const ChartRenderer = React.forwardRef(({
                   grid,
                   background,
                   display,
-                  xAxisTickCount: options?.xAxisTickCount ?? 5
+                  xAxisTickCount: options?.xAxisTickCount ?? 5,
+                  extendCurveEdges: options?.extendCurveEdges ?? true,
                 }}
                 onUpdateTagConfig={updateTagConfig}
                 onUpdateAxis={updateAxis}

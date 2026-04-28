@@ -30,6 +30,8 @@ export const jwtPlugin = fp(async (app) => {
   if (url.startsWith('/health') || url.startsWith('/metrics')) return;
   // Public connectivity system summary (used for UI chips)
   if (url.startsWith('/api/connectivity/summary')) return;
+  // MQTT auth/acl/webhook endpoints (called by nanoMQ broker internally)
+  if (url === '/api/mqtt/auth' || url === '/api/mqtt/acl' || url === '/api/mqtt/webhook') return;
     if (
       url === '/api/auth/login' ||
       url === '/api/auth/refresh' ||
@@ -39,6 +41,8 @@ export const jwtPlugin = fp(async (app) => {
     ) {
       return;
     }
+  // SSE endpoints handle authentication in preHandler hooks (EventSource can't send headers)
+  if (url.includes('/execution-events?') || url.includes('/logs/stream?')) return;
   if (String(process.env.AUTH_DEV_TOKEN) === '1' && url.startsWith('/api/logs')) return;
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;

@@ -130,7 +130,7 @@ export default function FlowParameterPanel({
                       color: 'text.secondary'
                     }}
                   >
-                    {param.displayName || param.name}
+                    {param.alias || param.displayName || param.name}
                   </Typography>
                   {param.description && (
                     <Tooltip title={param.description} arrow placement="top">

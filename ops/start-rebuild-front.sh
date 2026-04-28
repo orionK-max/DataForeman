@@ -18,47 +18,24 @@ echo ""
 
 # Auto-configure for Linux to enable EIP autodiscovery (same as start.sh)
 if [[ "$(uname -s)" == "Linux" ]]; then
-  if ! grep -q "^[[:space:]]*network_mode: host" docker-compose.yml; then
-    echo "🔧 Configuring host networking for Linux (enables EIP autodiscovery)..."
-    
-    # Uncomment network_mode: host in docker-compose.yml
-    sed -i 's|^[[:space:]]*# network_mode: host|    network_mode: host|' docker-compose.yml
-    
-    # Update .env for host networking
-    if [ ! -f .env ]; then
-      echo "Creating .env from .env.example..."
-      cp .env.example .env || true
+  if [ ! -f .env ]; then
+    echo "Creating .env from .env.example..."
+    cp .env.example .env || true
+  fi
+
+  if [ ! -f .gitignore ]; then
+    echo "Creating .gitignore from .gitignore.example..."
+    cp .gitignore.example .gitignore || true
+  fi
+
+  # Apply override for host networking only if not already present
+  if [[ ! -f docker-compose.override.yml ]]; then
+    if [[ -f docker-compose.override.yml.linux ]]; then
+      echo "🔧 Applying Linux host networking override for EIP autodiscovery..."
+      cp docker-compose.override.yml.linux docker-compose.override.yml
+      echo "✅ docker-compose.override.yml created (host networking enabled)"
+      echo ""
     fi
-    
-    if [ ! -f .gitignore ]; then
-      echo "Creating .gitignore from .gitignore.example..."
-      cp .gitignore.example .gitignore || true
-    fi
-    
-    if ! grep -q "^NATS_URL=nats://localhost:4222" .env; then
-      if grep -q "^NATS_URL=" .env; then
-        sed -i 's|^NATS_URL=.*|NATS_URL=nats://localhost:4222|' .env
-      else
-        echo "NATS_URL=nats://localhost:4222" >> .env
-      fi
-    fi
-    if ! grep -q "^PGHOST=localhost" .env; then
-      if grep -q "^PGHOST=" .env; then
-        sed -i 's|^PGHOST=.*|PGHOST=localhost|' .env
-      else
-        echo "PGHOST=localhost" >> .env
-      fi
-    fi
-    if ! grep -q "^TSDB_HOST=localhost" .env; then
-      if grep -q "^TSDB_HOST=" .env; then
-        sed -i 's|^TSDB_HOST=.*|TSDB_HOST=localhost|' .env
-      else
-        echo "TSDB_HOST=localhost" >> .env
-      fi
-    fi
-    
-    echo "✅ Configured for host networking (EIP autodiscovery enabled)"
-    echo ""
   fi
 fi
 echo ""
@@ -100,8 +77,9 @@ echo "   Frontend Dev: http://localhost:5174"
 echo "   Frontend Prod: http://localhost:8080"
 echo ""
 
-# Start all services
-docker compose up -d db nats tsdb core connectivity rotator front
+# Start all services (including Caddy for network access)
+docker compose up -d db nats tsdb core connectivity rotator front broker
+docker compose --profile tls up -d caddy
 
 # Start frontend in dev mode (background)
 cd front

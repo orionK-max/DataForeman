@@ -19,6 +19,8 @@ import {
   Error as ErrorIcon,
 } from '@mui/icons-material';
 import { getNodeMetadata } from '../../constants/nodeTypes';
+import { resolveNodeIcon } from '../../constants/nodeIcons';
+import { alpha } from '@mui/material/styles';
 import DataDisplayPanel from './DataDisplayPanel';
 import PinDataDialog from './PinDataDialog';
 import SchemaPreview from './SchemaPreview';
@@ -160,15 +162,14 @@ const NodeDetailsPanel = ({
               width: 32,
               height: 32,
               borderRadius: 1,
-              bgcolor: metadata.color,
-              color: 'white',
+              bgcolor: alpha(metadata.color, 0.14),
+              color: metadata.color,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '1.2rem',
             }}
           >
-            {metadata.icon}
+            {resolveNodeIcon(metadata.icon)}
           </Box>
           <Typography variant="h6">
             {metadata.displayName}

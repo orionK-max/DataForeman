@@ -18,7 +18,9 @@
     "deep-equal": "^1.1.1",
     "int64-buffer": "^0.99.1007",
     "task-easy": "^0.2.0",
-    "pg": "^8.11.0"
+    "pg": "^8.11.0",
+    "mqtt": "^5.10.1",
+    "sparkplug-payload": "^1.0.3"
   },
   "engines": {
     "node": ">=20.0.0"

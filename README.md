@@ -146,7 +146,17 @@ nano .env
 # Press Ctrl+X, then Y, then Enter to save and exit
 ```
 
-**Step 3: Start DataForeman**
+**Step 3: Enable Host Networking (Required for EIP Autodiscovery)**
+
+Linux supports host networking, which is needed for EIP device autodiscovery (UDP broadcast). Apply the Linux override:
+
+```bash
+cp docker-compose.override.yml.linux docker-compose.override.yml
+```
+
+> **Skip this step** if you don't use EtherNet/IP autodiscovery (you can still connect to PLCs manually by IP address).
+
+**Step 4: Start DataForeman**
 
 ```bash
 # Start all containers (automatically fixes permissions and starts services)
@@ -159,7 +169,7 @@ npm start
 
 Wait for the command to complete. The first time will take longer as it downloads Docker images and builds containers.
 
-**Step 4: Verify Installation**
+**Step 5: Verify Installation**
 
 Check that all containers are running:
 
@@ -167,9 +177,9 @@ Check that all containers are running:
 docker compose ps
 ```
 
-You should see all services with "Up" status (core, front, db, tsdb, nats, connectivity, rotator). If any show "Exited", wait another minute and check again.
+You should see all services with "Up" status (core, front, db, tsdb, nats, broker, connectivity, rotator). If any show "Exited", wait another minute and check again.
 
-**Step 5: Access DataForeman**
+**Step 6: Access DataForeman**
 
 Open your web browser and go to:
 ```
@@ -207,30 +217,26 @@ DataForeman makes it easy to update while **preserving all your data** (database
 **Option 2: Use PowerShell Script**
 ```powershell
 cd "C:\Program Files\DataForeman"
-.\windows-installer\update.ps1 -Version v1.2.0
+.\windows-installer\update.ps1 -Version vX.X.X
 ```
 
 #### Linux Update
 
 **Step 1: Find the Latest Version**
 
-Visit https://github.com/orionK-max/DataForeman/releases and find the latest release version (for example: `v1.2.0`)
+Visit https://github.com/orionK-max/DataForeman/releases and find the latest release version (for example: `vX.X.X`)
 
 **Step 2: Update DataForeman**
 
 Open a terminal in DataForeman folder and run these commands one at a time:
 
 ```bash
-# Stop DataForeman
-docker compose down
-
-# Download the new version (replace v1.2.0 with your version)
+# Download the new version (replace vX.X.X with your version)
 git fetch --tags
-git checkout v1.2.0
+git checkout vX.X.X
 
-# Rebuild and start with the new version
-docker compose build
-docker compose up -d
+# Rebuild and restart (database migrations run automatically on startup)
+npm run start:rebuild
 ```
 
 **Step 3: Wait and Access**
@@ -240,6 +246,7 @@ Wait about 1-2 minutes for the update to complete, then access DataForeman at ht
 **Important Notes:**
 - ✅ Your databases and configurations are safely preserved during the update
 - ✅ All your dashboards, devices, and historical data remain intact
+- ✅ Database migrations run automatically when core starts — no manual step needed
 - ⏱️ The update process may take a few minutes (downloading and building)
 - 📖 Always check the [release notes on GitHub](https://github.com/orionK-max/DataForeman/releases) for important information
 
@@ -250,10 +257,8 @@ You can always go back to the previous version.
 Open a terminal in DataForeman folder and type:
 
 ```bash
-docker compose down
-git checkout v1.1.0  # Replace with your previous version
-docker compose build
-docker compose up -d
+git checkout vX.X.X  # Replace with your previous version
+npm run start:rebuild
 ```
 
 ### Starting and Stopping DataForeman
@@ -582,7 +587,7 @@ If you're a regular user just wanting to use DataForeman, you can stop reading h
 - **Frontend**: React 18 + Material UI v5 + React Router v6 + Vite
 - **Messaging**: NATS with JetStream
 - **Caching**: In-memory RuntimeStateStore for zero-latency tag value reads
-- **Containers**: Docker Compose (postgres, nats, tsdb, core, connectivity, rotator)
+- **Containers**: Docker Compose (db, tsdb, nats, broker, core, connectivity, front, rotator)
 
 ### Data Flow Architecture
 
@@ -695,7 +700,7 @@ See `.env.example` for all variables. Key settings:
 
 - **db** (postgres:16-alpine): Primary database, exposes 5432
 - **tsdb** (timescale/timescaledb): Time-series store, exposes 5433
-- **nats** (nats:2-alpine): Message bus, exposes 4222 (client), 8222 (monitoring)
+- **nats** (nats:2-alpine): Message bus, exposes 4222 (client)
 - **core** (dataforeman-core): API service with integrated telemetry ingestion, exposes 3000
 - **connectivity** (node:22-alpine): Protocol drivers
 - **rotator** (node:22-alpine): Log rotation daemon
@@ -769,7 +774,7 @@ Migrations are located in `core/migrations/` and `core/migrations-tsdb/`. The pr
 
 - **Beta (v0.x.y)** - current: One migration per release; in-progress migrations can be modified during development
 - **Stable (v1.0+)** - future: All migrations locked; changes require new migration files
-- **Naming**: `XXX_v0.Y_release.sql` (e.g., `003_v0.2_release.sql`) aligned with git tags
+- **Naming**: `XXX_vX.Y_release.sql` (e.g., `003_v0.5_release.sql`) aligned with git tags
 
 See [Database Migration Guide](docs/database-migrations.md) for complete details.
 

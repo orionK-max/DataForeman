@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, AlertTitle, Button, Collapse, IconButton, Typography, Tooltip } from '@mui/material';
+import { Alert, AlertTitle, Button, Collapse, IconButton, Stack, Typography, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import WarningIcon from '@mui/icons-material/Warning';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
@@ -8,96 +8,99 @@ import { usePermissions } from '../contexts/PermissionsContext';
 
 const ServiceStatusBanner = ({ summary }) => {
   const { can } = usePermissions();
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState({});
   const [restartingService, setRestartingService] = useState(null);
 
   const handleRestartService = async (serviceName) => {
     setRestartingService(serviceName);
     try {
       await diagnosticService.restartService(serviceName);
-      // Parent component will refresh summary
     } catch (err) {
       console.error(`Failed to restart ${serviceName}:`, err);
     } finally {
       setRestartingService(null);
-      // Reset dismissed state after restart attempt
-      setTimeout(() => setDismissed(false), 2000);
+      setTimeout(() => setDismissed(prev => ({ ...prev, [serviceName]: false })), 2000);
     }
   };
 
   if (!summary) return null;
 
-  // Check if connectivity service is down
-  const connectivityDown = summary.connectivity?.ok === false;
-  const hasConnections = summary.connectivity?.hasConnections;
+  const banners = [];
 
-  // Only show banner if connectivity is actually down AND there are connections configured
-  // If there are no connections, the service being "down" is expected and not an error
-  if (!connectivityDown) return null;
-  if (!hasConnections) return null; // Don't show warning if no connections are configured
-  if (dismissed) return null;
+  // MQTT broker down
+  if (summary.broker?.ok === false && !dismissed['broker']) {
+    banners.push({
+      key: 'broker',
+      severity: 'error',
+      title: 'MQTT Broker Unavailable',
+      message: 'The MQTT broker is not responding. All MQTT device connections are broken and no data is being collected. Restart the broker to restore service.',
+      service: 'broker',
+    });
+  }
 
-  // At this point, connectivity is down AND we have connections configured - show error
-  const severity = 'error';
-  const title = 'Connectivity Service Stopped';
-  const message = 'Device communication is unavailable. Restart the connectivity service to restore device connections.';
+  // Connectivity service down (only when connections are configured)
+  if (summary.connectivity?.ok === false && summary.connectivity?.hasConnections && !dismissed['connectivity']) {
+    banners.push({
+      key: 'connectivity',
+      severity: 'error',
+      title: 'Connectivity Service Stopped',
+      message: 'Device communication is unavailable. Restart the connectivity service to restore device connections.',
+      service: 'connectivity',
+    });
+  }
+
+  if (banners.length === 0) return null;
 
   return (
-    <Collapse in={!dismissed}>
-      <Alert
-        severity={severity}
-        icon={<WarningIcon />}
-        sx={{ 
-          borderRadius: 0,
-          '& .MuiAlert-message': { width: '100%' }
-        }}
-        action={
-          <>
-            {can('diagnostic.system', 'update') ? (
-              <Button
-                color="inherit"
-                size="small"
-                startIcon={<RestartAltIcon />}
-                onClick={() => handleRestartService('connectivity')}
-                disabled={restartingService === 'connectivity'}
-                sx={{ mr: 1 }}
-              >
-                {restartingService === 'connectivity' ? 'Restarting...' : 'Restart'}
-              </Button>
-            ) : (
-              <Tooltip title="Requires 'System Diagnostics' UPDATE permission">
-                <span>
+    <Stack spacing={0}>
+      {banners.map(({ key, severity, title, message, service }) => (
+        <Collapse key={key} in={!dismissed[key]}>
+          <Alert
+            severity={severity}
+            icon={<WarningIcon />}
+            sx={{
+              borderRadius: 0,
+              '& .MuiAlert-message': { width: '100%' }
+            }}
+            action={
+              <>
+                {can('diagnostic.system', 'update') ? (
                   <Button
                     color="inherit"
                     size="small"
                     startIcon={<RestartAltIcon />}
-                    disabled
+                    onClick={() => handleRestartService(service)}
+                    disabled={restartingService === service}
                     sx={{ mr: 1 }}
                   >
-                    Restart
+                    {restartingService === service ? 'Restarting...' : 'Restart'}
                   </Button>
-                </span>
-              </Tooltip>
-            )}
-            <IconButton
-              aria-label="close"
-              color="inherit"
-              size="small"
-              onClick={() => setDismissed(true)}
-            >
-              <CloseIcon fontSize="inherit" />
-            </IconButton>
-          </>
-        }
-      >
-        <AlertTitle sx={{ fontWeight: 600 }}>
-          {title}
-        </AlertTitle>
-        <Typography variant="body2">
-          {message}
-        </Typography>
-      </Alert>
-    </Collapse>
+                ) : (
+                  <Tooltip title="Requires 'System Diagnostics' UPDATE permission">
+                    <span>
+                      <Button color="inherit" size="small" startIcon={<RestartAltIcon />} disabled sx={{ mr: 1 }}>
+                        Restart
+                      </Button>
+                    </span>
+                  </Tooltip>
+                )}
+                <IconButton
+                  aria-label="close"
+                  color="inherit"
+                  size="small"
+                  onClick={() => setDismissed(prev => ({ ...prev, [key]: true }))}
+                >
+                  <CloseIcon fontSize="inherit" />
+                </IconButton>
+              </>
+            }
+          >
+            <AlertTitle sx={{ fontWeight: 600 }}>{title}</AlertTitle>
+            <Typography variant="body2">{message}</Typography>
+          </Alert>
+        </Collapse>
+      ))}
+    </Stack>
   );
 };
 

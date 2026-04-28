@@ -30,7 +30,7 @@ function createTagsAPI(app, flowId, nodeOutputs) {
       
       // Query tag by path
       const result = await app.db.query(
-        'SELECT tag_id, data_type FROM tag_metadata WHERE tag_path = $1 AND is_deleted = false',
+        'SELECT tag_id, data_type FROM tag_metadata WHERE tag_path = $1',
         [tagPath]
       );
       
@@ -62,7 +62,7 @@ function createTagsAPI(app, flowId, nodeOutputs) {
       
       // Get tag ID
       const tagResult = await app.db.query(
-        'SELECT tag_id FROM tag_metadata WHERE tag_path = $1 AND is_deleted = false',
+        'SELECT tag_id FROM tag_metadata WHERE tag_path = $1',
         [tagPath]
       );
       
@@ -288,6 +288,7 @@ export async function executeScript(code, context = {}, options = {}) {
     flowId,
     nodeOutputs = new Map(),
     input = null,
+    inputs = null,
     timeout = DEFAULT_TIMEOUT,
     allowedPaths = []
   } = options;
@@ -312,10 +313,13 @@ export async function executeScript(code, context = {}, options = {}) {
     error: (...args) => logs.push({ level: 'error', args: args.map(String) })
   };
   
+  const effectiveInputs = Array.isArray(inputs) ? inputs : [input];
+
   // Create sandbox context
   const sandbox = {
     console: consoleProxy,
     $input: input,
+    $inputs: effectiveInputs,
     $tags: createTagsAPI(app, flowId, nodeOutputs),
     $flow: createFlowAPI(app, flowId),
     $fs: createFilesystemAPI(app, allowedPaths),

@@ -36,6 +36,27 @@ services:
     volumes:
       - ./logs/nats:/var/log/nats
 
+  broker:
+    build: ./nanomq
+    restart: always
+    environment:
+      NANOMQ_ALLOW_ANONYMOUS: "false"
+    ports:
+      - "${NANOMQ_MQTT_PORT:-1883}:1883"        # MQTT
+      - "${NANOMQ_MQTTS_PORT:-8883}:8883"       # MQTT over TLS
+      - "${NANOMQ_WS_PORT:-8081}:8081"          # WebSocket
+      - "${NANOMQ_HTTP_PORT:-8001}:8001"        # HTTP API
+    volumes:
+      - ./logs/broker:/var/log/broker
+      - ./nanomq/nanomq.conf:/etc/nanomq/nanomq.conf:ro
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      core:
+        condition: service_healthy
+
   tsdb:
     image: timescale/timescaledb:latest-pg16
     environment:
@@ -89,6 +110,12 @@ services:
       FLOW_ALLOWED_PATHS: ${FLOW_ALLOWED_PATHS:-/tmp,/var/dataforeman/flows}
       # Job dispatcher concurrency (max concurrent jobs)
       MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-20}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
     depends_on:
       - db
       - nats
@@ -113,14 +140,11 @@ services:
 
   connectivity:
     build: ./connectivity
-    # Note: Using host networking for EIP autodiscovery on Linux
-    # With host mode, the service binds directly to port 3100 on the host
-    # Port mappings are not needed (and cause warnings) with host networking
-    # On Windows/macOS, host networking is not supported - don't set network_mode (uses default bridge)
-    # Set CONNECTIVITY_NETWORK_MODE=host in .env for Linux deployments only
-    network_mode: "${CONNECTIVITY_NETWORK_MODE:-}"
+    # Note: On Linux, copy docker-compose.override.yml.linux to docker-compose.override.yml
+    # to enable host networking for EIP autodiscovery (broadcast support).
+    # Windows/macOS use default bridge networking (no override needed).
     ports:
-      - "${CONNECTIVITY_PORT:-3100}:3100"  # Only used when network_mode is not host
+      - "${CONNECTIVITY_PORT:-3100}:3100"
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       NATS_URL: "${NATS_URL:-nats://nats:4222}"  # Use service name for Docker Compose networking
@@ -143,9 +167,14 @@ services:
       TSDB_PASSWORD: ${TSDB_PASSWORD:-tSdb_Pr0d_P@ssw0rd_Ch4ng3_M3_8x9y1z2a3b4c5d6e}
       TSDB_DATABASE: ${TSDB_DATABASE:-telemetry}
     depends_on:
-      - nats
-      - tsdb
-      - db
+      nats:
+        condition: service_started
+      tsdb:
+        condition: service_started
+      db:
+        condition: service_started
+      core:
+        condition: service_healthy
     volumes:
       - ./logs/connectivity:/var/log/connectivity
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro

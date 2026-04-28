@@ -72,6 +72,8 @@ export default function ParameterInput({
     onChange(param.name, newValue);
   };
 
+  const label = param.alias || param.displayName || param.name;
+
   switch (param.type) {
     case 'string':
     case 'file':
@@ -79,7 +81,7 @@ export default function ParameterInput({
       return (
         <TextField
           {...commonProps}
-          label={param.displayName || param.name}
+          label={label}
           value={value || ''}
           onChange={(e) => handleChange(e.target.value)}
           placeholder={param.placeholder}
@@ -102,7 +104,7 @@ export default function ParameterInput({
       return (
         <TextField
           {...commonProps}
-          label={param.displayName || param.name}
+          label={label}
           type="number"
           value={value ?? ''}
           onChange={(e) => handleChange(e.target.value ? Number(e.target.value) : null)}
@@ -130,7 +132,7 @@ export default function ParameterInput({
         return (
           <TextField
             {...commonProps}
-            label={param.displayName || param.name}
+            label={label}
             value={value === true ? 'true' : value === false ? 'false' : ''}
             InputProps={{
               readOnly: true,
@@ -152,14 +154,14 @@ export default function ParameterInput({
               disabled={disabled}
             />
           }
-          label={param.displayName || param.name}
+          label={label}
         />
       );
 
     case 'date':
       return (
         <DatePicker
-          label={param.displayName || param.name}
+          label={label}
           value={value ? new Date(value) : null}
           onChange={(date) => handleChange(date ? date.toISOString().split('T')[0] : null)}
           disabled={disabled}
@@ -181,7 +183,7 @@ export default function ParameterInput({
     case 'datetime':
       return (
         <DateTimePicker
-          label={param.displayName || param.name}
+          label={label}
           value={value ? new Date(value) : null}
           onChange={(date) => handleChange(date ? date.toISOString() : null)}
           disabled={disabled}
@@ -203,11 +205,11 @@ export default function ParameterInput({
     case 'options':
       return (
         <FormControl {...commonProps}>
-          <InputLabel>{param.displayName || param.name}</InputLabel>
+          <InputLabel>{label}</InputLabel>
           <Select
             value={value || ''}
             onChange={(e) => handleChange(e.target.value)}
-            label={param.displayName || param.name}
+            label={label}
           >
             {param.options?.map((option) => {
               const optionValue = typeof option === 'string' ? option : option.value;
@@ -226,7 +228,7 @@ export default function ParameterInput({
       return (
         <TextField
           {...commonProps}
-          label={param.displayName || param.name}
+          label={label}
           value={typeof value === 'string' ? value : JSON.stringify(value || {}, null, 2)}
           onChange={(e) => {
             try {
@@ -246,7 +248,7 @@ export default function ParameterInput({
       return (
         <TextField
           {...commonProps}
-          label={param.displayName || param.name}
+          label={label}
           value={value || ''}
           onChange={(e) => handleChange(e.target.value)}
         />

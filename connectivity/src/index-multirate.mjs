@@ -9,6 +9,7 @@ import { OPCUAClientDriver } from './drivers/opcuaClient.mjs';
 import { OPCUAServerDriver } from './drivers/opcuaServer.mjs';
 import { S7Driver } from './drivers/s7.mjs';
 import { EIPPyComm3Driver } from './drivers/eip-pycomm3.mjs';
+import { MQTTDriver } from './drivers/mqtt.mjs';
 import { DatabaseHelper } from './db-helper.mjs';
 
 // Logger setup - write to both file and stdout (docker logs)
@@ -33,6 +34,7 @@ const NATS_URL = process.env.NATS_URL || 'nats://nats:4222';
 const SERVICE_ID = process.env.SERVICE_ID || 'connectivity-1';
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = parseInt(process.env.PORT || '3100', 10);
+const CORE_URL = process.env.CORE_URL || 'http://localhost:3000';
 
 // Global state
 let natsConnected = false;
@@ -408,7 +410,7 @@ async function handleConfigUpdate(nc, data) {
       data.conn = { ...data.conn, type: normType };
     }
 
-    if (!data.conn.enabled) {
+    if (data.conn.enabled === false) {
       if (existing) {
         try { await existing.driver.disconnect(); } catch {}
         // Unregister connection from host tracking
@@ -430,6 +432,8 @@ async function handleConfigUpdate(nc, data) {
       await handleOPCUAConfigUpdate(nc, id, data.conn, existing);
     } else if (data.conn.type === 's7') {
       await handleS7ConfigUpdate(nc, id, data.conn, existing);
+    } else if (data.conn.type === 'mqtt') {
+      await handleMQTTConfigUpdate(nc, id, data.conn, existing);
     } else {
       log.warn({ 
         connectionId: id, 
@@ -437,7 +441,7 @@ async function handleConfigUpdate(nc, data) {
         name: data.conn.name,
         host: data.conn.host,
         port: data.conn.port,
-        supportedTypes: ['eip', 'opcua-client', 'opcua-server', 's7']
+        supportedTypes: ['eip', 'opcua-client', 'opcua-server', 's7', 'mqtt']
       }, 'Unsupported driver type - connection config will be ignored');
     }
   } catch (err) {
@@ -642,6 +646,238 @@ async function handleS7ConfigUpdate(nc, id, config, existing) {
   }
 }
 
+async function handleMQTTConfigUpdate(nc, id, config, existing) {
+  log.info({ connectionId: id }, 'Handling MQTT config update');
+  
+  try {
+    if (!existing) {
+      // Fetch MQTT connection configuration from database
+      const mqttConfigResult = await dbHelper.query(
+        `SELECT * FROM mqtt_connections WHERE connection_id = $1`,
+        [id]
+      );
+
+      if (mqttConfigResult.rows.length === 0) {
+        log.warn({ connectionId: id }, 'MQTT connection config not found in database');
+        await publishStatus(nc, id, 'error', 'MQTT configuration not found');
+        return;
+      }
+
+      const mqttConfig = mqttConfigResult.rows[0];
+      const driver = new MQTTDriver(log, dbHelper, null);
+
+      // Set up data handler to emit telemetry
+      driver.setDataHandler(async (data) => {
+        try {
+          // Emit telemetry via NATS using the format expected by emitTelemetry
+          const telemetryData = {
+            ts: data.timestamp,
+            v: data.value,
+            q: data.quality,
+            connection_id: id
+          };
+          
+          // Support both tagPath (legacy) and tagId (field mapping) modes
+          if (data.tagId) {
+            telemetryData.tag_id = data.tagId;
+          } else if (data.tagPath) {
+            telemetryData.tag_path = data.tagPath;
+          }
+          
+          emitTelemetry(nc, id, telemetryData);
+        } catch (err) {
+          log.error({ err, connectionId: id }, 'Failed to emit MQTT telemetry');
+        }
+      });
+
+      // Set up Sparkplug birth handler for discovery
+      driver.setBirthHandler(async (birthData) => {
+        try {
+          // Store birth certificate in sparkplug_discovery table
+          await dbHelper.query(
+            `INSERT INTO sparkplug_discovery 
+             (connection_id, group_id, edge_node_id, device_id, birth_payload, metrics, seq_num, is_online, last_birth_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (connection_id, group_id, edge_node_id, device_id)
+             DO UPDATE SET 
+               birth_payload = EXCLUDED.birth_payload,
+               metrics = EXCLUDED.metrics,
+               seq_num = EXCLUDED.seq_num,
+               is_online = true,
+               last_birth_at = EXCLUDED.last_birth_at,
+               last_seen_at = now()`,
+            [
+              id,
+              birthData.groupId,
+              birthData.edgeNodeId,
+              birthData.deviceId || null,
+              JSON.stringify(birthData.payload),
+              JSON.stringify(birthData.payload.metrics || []),
+              birthData.payload.seq || 0,
+              true,
+              birthData.timestamp
+            ]
+          );
+          log.info({ 
+            connectionId: id, 
+            groupId: birthData.groupId, 
+            edgeNodeId: birthData.edgeNodeId,
+            deviceId: birthData.deviceId,
+            metrics: birthData.payload.metrics?.length 
+          }, 'Stored Sparkplug Birth certificate');
+        } catch (err) {
+          log.error({ err, connectionId: id }, 'Failed to store Sparkplug Birth certificate');
+        }
+      });
+
+      // Set up Sparkplug death handler
+      driver.setDeathHandler(async (deathData) => {
+        try {
+          // Update sparkplug_discovery to mark as offline
+          await dbHelper.query(
+            `UPDATE sparkplug_discovery
+             SET is_online = false, last_death_at = $1, last_seen_at = now()
+             WHERE connection_id = $2 AND group_id = $3 AND edge_node_id = $4 AND device_id IS NOT DISTINCT FROM $5`,
+            [
+              deathData.timestamp,
+              id,
+              deathData.groupId,
+              deathData.edgeNodeId,
+              deathData.deviceId || null
+            ]
+          );
+          log.warn({ 
+            connectionId: id, 
+            groupId: deathData.groupId, 
+            edgeNodeId: deathData.edgeNodeId,
+            deviceId: deathData.deviceId
+          }, 'Marked Sparkplug node/device as offline');
+        } catch (err) {
+          log.error({ err, connectionId: id }, 'Failed to update Sparkplug Death status');
+        }
+      });
+
+      // Add to connections Map immediately
+      connections.set(id, { driver, config, connecting: true });
+      
+      // Connect to MQTT broker
+      await driver.connect(id, mqttConfig);
+      
+      // Load and subscribe to topics
+      await driver.loadSubscriptions();
+      
+      // Load field mappings
+      await driver.loadFieldMappings();
+      
+      // Load and start publishers
+      const publishers = await driver.loadPublishers();
+      for (const pub of publishers) {
+        if (pub.publish_mode === 'interval' || pub.publish_mode === 'both') {
+          driver.startIntervalPublishing(pub.id);
+        }
+      }
+      
+      // Update connection status
+      connections.set(id, { driver, config, connecting: false });
+      beginOp(nc, id);
+      await publishStatus(nc, id, 'connected');
+      
+      log.info({ 
+        connectionId: id, 
+        broker: `${mqttConfig.broker_host}:${mqttConfig.broker_port}`,
+        protocol: mqttConfig.protocol,
+        subscriptions: driver.subscriptions.size,
+        publishers: driver.publishers.size
+      }, 'MQTT connection established');
+
+    } else {
+      // Fetch fresh broker config from database to detect credential/host changes
+      const mqttConfigResult = await dbHelper.query(
+        `SELECT * FROM mqtt_connections WHERE connection_id = $1`,
+        [id]
+      );
+
+      if (mqttConfigResult.rows.length === 0) {
+        log.warn({ connectionId: id }, 'MQTT connection config not found in database during refresh');
+        await publishStatus(nc, id, 'error', 'MQTT configuration not found');
+        return;
+      }
+
+      const mqttConfig = mqttConfigResult.rows[0];
+      const prev = existing.driver.config || {};
+
+      // Check if broker connection params changed (host, port, credentials, TLS, protocol)
+      const brokerChanged =
+        prev.broker_host !== mqttConfig.broker_host ||
+        prev.broker_port !== mqttConfig.broker_port ||
+        prev.username !== mqttConfig.username ||
+        prev.password !== mqttConfig.password ||
+        prev.use_tls !== mqttConfig.use_tls ||
+        prev.protocol !== mqttConfig.protocol;
+
+      if (brokerChanged) {
+        log.info({ connectionId: id }, 'MQTT broker config changed — reconnecting with new settings');
+
+        // Stop interval publishers and disconnect
+        for (const [publisherId, _] of existing.driver.publishers) {
+          existing.driver.stopIntervalPublishing(publisherId);
+        }
+        try { await existing.driver.disconnect(); } catch {}
+
+        // Reconnect with fresh config
+        existing.driver.successfulBrokerHost = null; // clear cached host
+        await existing.driver.connect(id, mqttConfig);
+        await existing.driver.loadSubscriptions();
+        await existing.driver.loadFieldMappings();
+
+        const publishers = await existing.driver.loadPublishers();
+        for (const pub of publishers) {
+          if (pub.publish_mode === 'interval' || pub.publish_mode === 'both') {
+            existing.driver.startIntervalPublishing(pub.id);
+          }
+        }
+
+        // Update stored config
+        connections.set(id, { driver: existing.driver, config, connecting: false });
+        await publishStatus(nc, id, 'connected');
+        log.info({ connectionId: id }, 'MQTT connection re-established with updated broker config');
+      } else {
+        // Broker config unchanged — just refresh subscriptions and publishers
+        log.info({ connectionId: id }, 'Refreshing MQTT subscriptions and publishers from database');
+
+        // Stop existing interval publishers
+        for (const [publisherId, _] of existing.driver.publishers) {
+          existing.driver.stopIntervalPublishing(publisherId);
+        }
+
+        await existing.driver.loadSubscriptions();
+
+        // Reload field mappings
+        await existing.driver.loadFieldMappings();
+
+        // Reload and restart publishers
+        const publishers = await existing.driver.loadPublishers();
+        for (const pub of publishers) {
+          if (pub.publish_mode === 'interval' || pub.publish_mode === 'both') {
+            existing.driver.startIntervalPublishing(pub.id);
+          }
+        }
+
+        await publishStatus(nc, id, 'connected');
+      }
+    }
+  } catch (err) {
+    log.error({ connectionId: id, err: String(err?.message || err) }, 'MQTT config update failed');
+    // Remove stale entry from map so the next config republish retries the connection from scratch
+    const failedEntry = connections.get(id);
+    if (failedEntry) {
+      try { await failedEntry.driver.disconnect(); } catch {}
+      connections.delete(id);
+    }
+    await publishStatus(nc, id, 'error', err.message).catch(() => {});
+  }
+}
+
 // Listen for tag subscription changes
 async function handleTagSubscriptionChange(nc, message) {
   if (!dbHelper) return;
@@ -719,6 +955,7 @@ async function main() {
     for await (const m of configSub) {
       try {
         const data = JSON.parse(sc.decode(m.data));
+        log.info({ data }, 'Received config update via NATS');
         await handleConfigUpdate(nc, data);
       } catch (err) {
         log.error({ err: String(err?.message || err) }, 'Config message processing failed');
@@ -733,6 +970,60 @@ async function main() {
     log.info('Starting tag subscription loop');
     for await (const m of tagSub) {
       await handleTagSubscriptionChange(nc, m);
+    }
+  })();
+
+  // Subscribe to tag value changes for MQTT publishers
+  const telemetrySub = nc.subscribe('df.telemetry.v1.>');
+  log.info('Telemetry subscription created for MQTT publishers');
+  (async () => {
+    log.info('Starting telemetry listener for MQTT publishers');
+    for await (const m of telemetrySub) {
+      try {
+        const data = JSON.parse(sc.decode(m.data));
+        
+        // Check if this is a tag value update
+        if (!data.tag_id || data.value === undefined) continue;
+        
+        // Find all MQTT connections that might have publishers for this tag
+        for (const [connId, entry] of connections.entries()) {
+          if (entry.config?.type === 'mqtt' && entry.driver) {
+            await entry.driver.onTagValueChange(data.tag_id, data.value, data.timestamp);
+          }
+        }
+      } catch (err) {
+        log.error({ err }, 'Error handling telemetry for MQTT publishers');
+      }
+    }
+  })();
+
+  // Subscribe to field mapping reload requests
+  const fieldMappingSub = nc.subscribe('df.connectivity.reload-field-mappings.v1');
+  log.info('Field mapping reload subscription created');
+  (async () => {
+    log.info('Starting field mapping reload listener');
+    for await (const m of fieldMappingSub) {
+      try {
+        const data = JSON.parse(sc.decode(m.data));
+        const { subscription_id, connection_id } = data;
+        
+        // Find the MQTT connection for this subscription
+        for (const [connId, entry] of connections.entries()) {
+          if (entry.config?.type === 'mqtt' && entry.driver) {
+            // If connection_id specified, only reload for that connection
+            if (connection_id && connId !== connection_id) continue;
+            
+            // Reload field mappings for this MQTT driver
+            await entry.driver.reloadFieldMappings();
+            log.info({ 
+              connectionId: connId, 
+              subscription_id 
+            }, 'Reloaded field mappings');
+          }
+        }
+      } catch (err) {
+        log.error({ err }, 'Error handling field mapping reload');
+      }
     }
   })();
 
@@ -784,9 +1075,33 @@ async function main() {
     }
   }, Math.min(TAG_RECONCILE_INTERVAL_MS, 30_000));
 
+  // MQTT publish requests from core publisher service : df.mqtt.publish.v1
+  const mqttPublishSub = nc.subscribe('df.mqtt.publish.v1');
+  log.info('MQTT publish request subscription created');
+  (async () => {
+    for await (const m of mqttPublishSub) {
+      try {
+        const data = JSON.parse(sc.decode(m.data));
+        const { connection_id, topic, payload, qos, retain } = data;
+        const entry = connections.get(connection_id);
+        if (!entry?.driver) {
+          log.warn({ connection_id, topic }, 'MQTT publish: connection not found or not active');
+          continue;
+        }
+        if (typeof entry.driver.publish !== 'function') {
+          log.warn({ connection_id, topic }, 'MQTT publish: driver does not support publish');
+          continue;
+        }
+        await entry.driver.publish(topic, payload, { qos: qos ?? 0, retain: retain ?? false });
+        log.info({ connection_id, topic }, 'MQTT publish: delivered via driver');
+      } catch (err) {
+        log.error({ err: String(err?.message || err) }, 'MQTT publish: delivery failed');
+      }
+    }
+  })();
+
   // EIP device discovery : df.connectivity.eip.discover.v1
   const subEipDiscover = nc.subscribe('df.connectivity.eip.discover.v1');
-  log.info({ subject: 'df.connectivity.eip.discover.v1' }, 'Subscribed to EIP discovery NATS subject');
   (async () => {
     log.info('Starting EIP discovery subscription loop');
     for await (const m of subEipDiscover) {

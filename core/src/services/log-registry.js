@@ -39,6 +39,7 @@ const CURRENT_SYMLINK = {
   ops: 'ops.current',
   connectivity: 'connectivity.current',
   ingestor: 'ingestor.current',
+  broker: 'broker.current',
 };
 
 function safeStat(p) {
@@ -76,7 +77,8 @@ export function resolveTodayPath(pattern) {
     { container: '/var/log/nats', host: path.join(process.cwd(), 'logs/nats') },
     { container: '/var/log/ops', host: path.join(process.cwd(), 'logs/ops') },
   { container: '/var/log/connectivity', host: path.join(process.cwd(), 'logs/connectivity') },
-  { container: '/var/log/ingestor', host: path.join(process.cwd(), 'logs/ingestor') },
+    { container: '/var/log/ingestor', host: path.join(process.cwd(), 'logs/ingestor') },
+    { container: '/var/log/broker', host: path.join(process.cwd(), 'logs/broker') },
   ];
   for (const m of mapping) {
     if (replaced.startsWith(m.container)) {
@@ -169,6 +171,7 @@ export function resolveHostPathByName(name) {
           ops: 'ops-',
           connectivity: 'connectivity-',
           ingestor: 'ingestor-',
+          broker: 'broker-',
         };
         const prefix = prefixMap[name];
         if (dir && prefix) {
@@ -196,6 +199,7 @@ export function resolveHostPathByName(name) {
         ops: 'ops-',
         connectivity: 'connectivity-',
         ingestor: 'ingestor-',
+        broker: 'broker-',
       };
       const prefix = prefixMap[name];
       if (dir && prefix) {
@@ -212,6 +216,12 @@ export function resolveHostPathByName(name) {
         }
       }
     } catch {}
+  }
+  // Legacy fallback for broker: static broker.current written before log rotation was introduced
+  if (name === 'broker') {
+    const dir = dirOf(hp);
+    const legacy = path.join(dir || '', 'broker.current');
+    if (fs.existsSync(legacy)) return legacy;
   }
   return hp;
 }

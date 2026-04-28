@@ -1,0 +1,22 @@
+# Linux override for Docker Compose
+#
+# This file enables host networking for the connectivity service, which is
+# required for EIP (EtherNet/IP) autodiscovery broadcast support on Linux.
+#
+# SETUP (Linux only):
+#   cp docker-compose.override.yml.linux docker-compose.override.yml
+#
+# Docker Compose automatically merges docker-compose.override.yml into the
+# base docker-compose.yml. The override file is gitignored (platform-specific).
+#
+# NOTE: host networking is not supported on Windows/macOS - do NOT copy this
+# file on those platforms.
+
+services:
+  connectivity:
+    network_mode: host
+    ports: []  # port mappings are invalid with host networking
+    environment:
+      NATS_URL: nats://localhost:4222
+      PGHOST: localhost
+      TSDB_HOST: localhost

@@ -121,6 +121,11 @@ export const natsPlugin = fp(async function (app) {
         }
       })();
       return sub;
+    },
+    subscribeRaw: (subject) => {
+      // Returns raw subscription for direct async iteration (used by SSE streaming)
+      if (!nc) throw new Error('nats_not_connected');
+      return nc.subscribe(subject);
     }
   });
 

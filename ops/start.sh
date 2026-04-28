@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 MODE="compose" # or local-core
-WITH_CADDY="false"
+WITH_CADDY="true"
 TAIL_CORE="false"
 BUILD_MODE="no-build" # values: no-build | build
 
@@ -65,27 +65,15 @@ if [[ ! -f .gitignore ]]; then
   cp .gitignore.example .gitignore || true
 fi
 
-# Auto-configure for Linux to enable EIP autodiscovery
+# Auto-configure for Linux to enable EIP autodiscovery via compose override
 if [[ "$MODE" == "compose" && "$(uname -s)" == "Linux" ]]; then
-  if ! grep -q "^[[:space:]]*network_mode: host" docker-compose.yml; then
-    echo "🔧 Configuring host networking for Linux (enables EIP autodiscovery)..."
-    
-    # Uncomment network_mode: host in docker-compose.yml
-    sed -i 's|^[[:space:]]*# network_mode: host|    network_mode: host|' docker-compose.yml
-    
-    # Update .env for host networking
-    if ! grep -q "^NATS_URL=nats://localhost:4222" .env; then
-      sed -i 's|^NATS_URL=.*|NATS_URL=nats://localhost:4222|' .env
+  if [[ ! -f docker-compose.override.yml ]]; then
+    if [[ -f docker-compose.override.yml.linux ]]; then
+      echo "🔧 Applying Linux host networking override for EIP autodiscovery..."
+      cp docker-compose.override.yml.linux docker-compose.override.yml
+      echo "✅ docker-compose.override.yml created (host networking enabled)"
+      echo ""
     fi
-    if ! grep -q "^PGHOST=localhost" .env; then
-      sed -i 's|^PGHOST=.*|PGHOST=localhost|' .env
-    fi
-    if ! grep -q "^TSDB_HOST=localhost" .env; then
-      sed -i 's|^TSDB_HOST=.*|TSDB_HOST=localhost|' .env
-    fi
-    
-    echo "✅ Configured for host networking (EIP autodiscovery enabled)"
-    echo ""
   fi
 fi
 
@@ -147,11 +135,11 @@ if [[ "$MODE" == "local-core" ]]; then
 fi
 
 if [[ "$BUILD_MODE" == "build" ]]; then
-  echo "Building and starting full stack via Docker Compose (db, nats, tsdb, core, front, connectivity, rotator)..."
-  docker compose up -d --build db nats tsdb core front connectivity rotator
+  echo "Building and starting full stack via Docker Compose (db, nats, tsdb, core, front, connectivity, rotator, broker)..."
+  docker compose up -d --build db nats tsdb core front connectivity rotator broker
 else
-  echo "Starting full stack via Docker Compose without rebuild (db, nats, tsdb, core, front, connectivity, rotator)..."
-  docker compose up -d db nats tsdb core front connectivity rotator
+  echo "Starting full stack via Docker Compose without rebuild (db, nats, tsdb, core, front, connectivity, rotator, broker)..."
+  docker compose up -d db nats tsdb core front connectivity rotator broker
 fi
 if [[ "$WITH_CADDY" == "true" ]]; then
   docker compose --profile tls up -d caddy

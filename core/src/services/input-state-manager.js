@@ -47,9 +47,6 @@ export class InputStateManager {
     }
     
     nodeInputs.set(port, storedValue);
-    
-    // DEBUG logging for input updates
-    console.log(`[InputStateManager] Input updated: nodeId=${nodeId}, port=${port}, value=${JSON.stringify(storedValue.value)}, quality=${storedValue.quality}`);
   }
 
   /**
@@ -131,18 +128,7 @@ export class InputStateManager {
    * @param {string} prefix - Log prefix (e.g., scan cycle number)
    */
   logState(prefix = '') {
-    const snapshot = this.getSnapshot();
-    const nodeCount = Object.keys(snapshot).length;
-    const totalInputs = Object.values(snapshot).reduce((sum, inputs) => sum + Object.keys(inputs).length, 0);
-    
-    console.log(`[InputStateManager] ${prefix} State: ${nodeCount} nodes, ${totalInputs} total inputs`);
-    
-    // Log each node's inputs
-    for (const [nodeId, inputs] of Object.entries(snapshot)) {
-      const inputSummary = Object.entries(inputs)
-        .map(([port, value]) => `${port}=${JSON.stringify(value)}`)
-        .join(', ');
-      console.log(`  Node ${nodeId}: ${inputSummary}`);
-    }
+    // Disabled - was flooding logs
+    // Use flow_execution_logs table or enable this temporarily for debugging
   }
 }

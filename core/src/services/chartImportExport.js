@@ -166,7 +166,6 @@ export async function validateImport(importData, db) {
       JOIN connections c ON tm.connection_id = c.id
       WHERE tm.tag_id = $1 
         AND c.id = $2
-        AND tm.is_deleted = false
         AND c.deleted_at IS NULL
     `;
 

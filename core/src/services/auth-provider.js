@@ -83,7 +83,6 @@ export class LocalAuthProvider extends AuthProvider {
         : { error: 'invalid credentials' };
     }
 
-    if ((password || '').length < minLen) return { error: 'weak password' };
     await app.db.query('update auth_identities set failed_attempts=0, locked_until=null, last_login_at=now() where id=$1', [u.ai_id]);
     const role = String(u.roles || 'viewer').includes('admin') ? 'admin' : 'viewer';
     const tokens = await issueTokens(app, u.id, role, ctx);

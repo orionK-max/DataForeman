@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button, Paper, Toolbar, Divider, Chip, Tooltip, Switch, FormControlLabel, TextField, MenuItem } from '@mui/material';
-import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize } from '@mui/icons-material';
+import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight, ScatterPlot } from '@mui/icons-material';
 import { ChartComposerProvider, useChartComposer } from '../contexts/ChartComposerContext';
 import ChartRenderer from '../components/chartComposer/ChartRenderer';
 import PointsTable from '../components/chartComposer/PointsTable';
@@ -38,6 +38,7 @@ const ChartComposerContent = () => {
     customRefreshInterval,
     setCustomRefreshInterval,
     timeMode,
+    setTimeMode,
     timeDuration,
     timeOffset,
     timeRange,
@@ -71,6 +72,7 @@ const ChartComposerContent = () => {
 
   const [chartHeight, setChartHeight] = React.useState(720);
   const [isResizing, setIsResizing] = React.useState(false);
+  const [showDataPoints, setShowDataPoints] = React.useState(false);
   const [visibleTimeRange, setVisibleTimeRange] = React.useState(null); // [min, max] timestamps from chart zoom
   const [pointsExpanded, setPointsExpanded] = React.useState(false); // Points table expansion state
   const [compactMode, setCompactMode] = React.useState(false); // Preview compact dashboard view
@@ -114,13 +116,17 @@ const ChartComposerContent = () => {
     }
   }, [isResizing, handleResizeMove, handleResizeEnd]);
 
-  // Shared query function - used by Query button and Reset Zoom button
-  const executeQuery = React.useCallback(async () => {
+  // Shared query function - used by Query button, Reset Zoom, and scroll buttons
+  // rangeOverride allows passing a pre-computed range to avoid stale closure issues
+  const executeQuery = React.useCallback(async (rangeOverride = null) => {
     if (!chartConfig.tagConfigs || chartConfig.tagConfigs.length === 0) return;
 
     let fromDate, toDate;
-    
-    if (timeMode === 'rolling') {
+
+    if (rangeOverride) {
+      fromDate = rangeOverride.from;
+      toDate = rangeOverride.to;
+    } else if (timeMode === 'rolling') {
       const now = new Date();
       const duration = timeDuration || 3600000;
       fromDate = new Date(now.getTime() - duration);
@@ -241,14 +247,30 @@ const ChartComposerContent = () => {
   const handleZoomIn = React.useCallback(() => {
     if (chartRef.current) {
       const chart = chartRef.current.getEchartsInstance();
-      chart?.dispatchAction({ type: 'dataZoom', start: 10, end: 90 });
+      if (!chart) return;
+      const dz = chart.getOption()?.dataZoom?.[0];
+      const start = dz?.start ?? 0;
+      const end   = dz?.end   ?? 100;
+      const center = (start + end) / 2;
+      const half   = (end - start) / 2 * 0.6; // shrink to 60% of current range
+      chart.dispatchAction({ type: 'dataZoom', start: center - half, end: center + half });
     }
   }, []);
 
   const handleZoomOut = React.useCallback(() => {
     if (chartRef.current) {
       const chart = chartRef.current.getEchartsInstance();
-      chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+      if (!chart) return;
+      const dz = chart.getOption()?.dataZoom?.[0];
+      const start = dz?.start ?? 0;
+      const end   = dz?.end   ?? 100;
+      const center = (start + end) / 2;
+      const half   = Math.min((end - start) / 2 / 0.6, 50); // expand inverse of zoom-in, clamped
+      chart.dispatchAction({
+        type: 'dataZoom',
+        start: Math.max(0, center - half),
+        end:   Math.min(100, center + half),
+      });
     }
   }, []);
 
@@ -258,8 +280,24 @@ const ChartComposerContent = () => {
       chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
     }
     // Also re-query data
-    queryData();
-  }, [queryData]);
+    executeQuery();
+  }, [executeQuery]);
+
+  // Scroll time window back or forward by 50% of the current window duration
+  const handleScrollTime = React.useCallback((direction) => {
+    const from = timeRange.from instanceof Date ? timeRange.from : new Date(timeRange.from);
+    const to   = timeRange.to   instanceof Date ? timeRange.to   : new Date(timeRange.to);
+    const step = (to.getTime() - from.getTime()) * 0.5;
+    const shift = direction === 'back' ? -step : step;
+    const newRange = {
+      from: new Date(from.getTime() + shift),
+      to:   new Date(to.getTime()   + shift),
+    };
+    setAutoRefresh(false);       // stop Live mode
+    setTimeMode('fixed');        // switch to fixed so executeQuery uses the range
+    setTimeRange(newRange);
+    executeQuery(newRange);      // pass range directly to avoid stale closure
+  }, [timeRange, setAutoRefresh, setTimeMode, setTimeRange, executeQuery]);
 
   return (
     <Box>
@@ -334,6 +372,18 @@ const ChartComposerContent = () => {
               DATA
             </Typography>
             <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+              <Tooltip title="Show/hide data points on chart lines">
+                <Button
+                  size="small"
+                  variant={showDataPoints ? 'contained' : 'outlined'}
+                  color={showDataPoints ? 'primary' : 'inherit'}
+                  startIcon={<ScatterPlot />}
+                  onClick={() => setShowDataPoints(v => !v)}
+                  sx={{ minWidth: 100 }}
+                >
+                  Points
+                </Button>
+              </Tooltip>
               <Tooltip title="Live auto-refresh">
                 <Button
                   size="small"
@@ -392,6 +442,28 @@ const ChartComposerContent = () => {
               ZOOM
             </Typography>
             <Box sx={{ display: 'flex', gap: 0.5 }}>
+              <Tooltip title="Scroll back 50% of window (stops Live)">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ChevronLeft />}
+                  onClick={() => handleScrollTime('back')}
+                  sx={{ minWidth: 80 }}
+                >
+                  Back
+                </Button>
+              </Tooltip>
+              <Tooltip title="Scroll forward 50% of window (stops Live)">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ChevronRight />}
+                  onClick={() => handleScrollTime('forward')}
+                  sx={{ minWidth: 80 }}
+                >
+                  Fwd
+                </Button>
+              </Tooltip>
               <Tooltip title="Zoom In">
                 <Button
                   size="small"
@@ -484,7 +556,7 @@ const ChartComposerContent = () => {
                   loading={loading}
                   compactMode={compactMode}
                   requestedTimeRange={timeRange}
-                  options={{ xAxisTickCount: chartConfig.xAxisTickCount }}
+                  options={{ xAxisTickCount: chartConfig.xAxisTickCount, extendCurveEdges: chartConfig.extendCurveEdges ?? true }}
                   onZoomChange={(xDomain, yDomain) => setVisibleTimeRange(xDomain)}
                   tagMetadata={tagMetadata}
                   lastValuesBefore={lastValuesBefore}
@@ -511,6 +583,7 @@ const ChartComposerContent = () => {
                   externalCrosshairEnabled={crosshairEnabled}
                   externalSetCrosshairEnabled={setCrosshairEnabled}
                   hideInternalControls={true}
+                  showDataPoints={showDataPoints}
                 />
                 
                 {/* Resize handle */}

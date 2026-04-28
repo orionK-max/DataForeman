@@ -35,6 +35,7 @@ export default function FlowWidget({ flowId, config = {}, onFlowLoaded }) {
   const [validationErrors, setValidationErrors] = useState({});
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [lastExecutionTime, setLastExecutionTime] = useState(null);
+  const [lastDownloadedExecutionId, setLastDownloadedExecutionId] = useState(null);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
@@ -209,6 +210,40 @@ export default function FlowWidget({ flowId, config = {}, onFlowLoaded }) {
         try {
           const lastExec = await getLastExecution(flowId);
           if (lastExec.hasExecution && lastExec.outputs) {
+            // Auto-download any Save File outputs (one-time per execution)
+            if (lastExec.executionId && lastDownloadedExecutionId !== lastExec.executionId) {
+              const downloads = [];
+              for (const nodeOutput of Object.values(lastExec.outputs)) {
+                const payload = nodeOutput?.value?.__download;
+                if (payload?.dataBase64 && payload?.filename) {
+                  downloads.push(payload);
+                }
+              }
+
+              if (downloads.length > 0) {
+                const triggerDownload = ({ filename, mimeType, dataBase64 }) => {
+                  const binary = atob(dataBase64);
+                  const bytes = new Uint8Array(binary.length);
+                  for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                  }
+                  const blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                };
+
+                downloads.forEach(triggerDownload);
+              }
+
+              setLastDownloadedExecutionId(lastExec.executionId);
+            }
+
             // Map node outputs to output parameters
             const mappedOutputs = {};
             for (const outputParam of outputSchema) {

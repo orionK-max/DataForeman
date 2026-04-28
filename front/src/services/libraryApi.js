@@ -98,16 +98,45 @@ const libraryApi = {
   },
 
   /**
+   * Update an installed library with a new version ZIP
+   */
+  async update(libraryId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = localStorage.getItem('df_token');
+
+    const response = await fetch(`${API_BASE}/${libraryId}/update`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || body.details || 'Failed to update library');
+    }
+
+    return response.json();
+  },
+
+  /**
    * Delete a library
    */
-  async delete(libraryId) {
-    const response = await fetch(`${API_BASE}/${libraryId}`, {
+  async delete(libraryId, force = false) {
+    const url = force ? `${API_BASE}/${libraryId}?force=true` : `${API_BASE}/${libraryId}`;
+    const response = await fetch(url, {
       method: 'DELETE',
       headers: getHeaders(),
     });
 
     if (!response.ok) {
-      throw new Error('Failed to delete library');
+      const body = await response.json().catch(() => ({}));
+      const err = new Error(body.message || body.error || 'Failed to delete library');
+      err.status = response.status;
+      err.data = body;
+      throw err;
     }
 
     return response.json();

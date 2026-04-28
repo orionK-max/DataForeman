@@ -35,6 +35,15 @@ export default function ParameterExecutionDialog({ open, onClose, flow, onExecut
   const [errors, setErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
   const [lastExecutionTime, setLastExecutionTime] = useState(null);
+  const lastDownloadedExecutionIdRef = React.useRef(null);
+  const isMountedRef = React.useRef(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
@@ -147,7 +156,7 @@ export default function ParameterExecutionDialog({ open, onClose, flow, onExecut
       
       // Check required
       if (param.required && (value === null || value === undefined || value === '')) {
-        newErrors[param.name] = `${param.displayName || param.name} is required`;
+        newErrors[param.name] = `${param.alias || param.displayName || param.name} is required`;
         continue;
       }
       
@@ -196,47 +205,88 @@ export default function ParameterExecutionDialog({ open, onClose, flow, onExecut
       
       // Execute flow with parameters
       const result = await executeFlow(flow.id, null, inputValues);
-      
-      // If there are outputs, wait and reload them
-      if (outputSchema.length > 0) {
-        setTimeout(async () => {
-          try {
-            const lastExec = await getLastExecution(flow.id);
-            if (lastExec.hasExecution && lastExec.outputs) {
-              // Map node outputs to output parameters
+
+      const pollForDownloadsAndOutputs = async () => {
+        try {
+          const lastExec = await getLastExecution(flow.id);
+          if (lastExec.hasExecution && lastExec.outputs) {
+            // Auto-download any Save File outputs (one-time per execution)
+            if (lastExec.executionId && lastDownloadedExecutionIdRef.current !== lastExec.executionId) {
+              const downloads = [];
+              for (const nodeOutput of Object.values(lastExec.outputs)) {
+                const payload = nodeOutput?.value?.__download;
+                if (payload?.dataBase64 && payload?.filename) {
+                  downloads.push(payload);
+                }
+              }
+
+              if (downloads.length > 0) {
+                const triggerDownload = ({ filename, mimeType, dataBase64 }) => {
+                  const binary = atob(dataBase64);
+                  const bytes = new Uint8Array(binary.length);
+                  for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                  }
+                  const blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                };
+
+                downloads.forEach(triggerDownload);
+              }
+
+              lastDownloadedExecutionIdRef.current = lastExec.executionId;
+            }
+
+            // If there are outputs, map node outputs to output parameters
+            if (outputSchema.length > 0 && isMountedRef.current) {
               const mappedOutputs = {};
               for (const outputParam of outputSchema) {
                 const nodeOutput = lastExec.outputs[outputParam.nodeId];
-                
+
                 if (nodeOutput && nodeOutput.value !== undefined) {
                   let outputValue = nodeOutput.value;
-                  
+
                   // If parameter looks like "output_N" and value is array, extract specific index
                   if (/^output_\d+$/.test(outputParam.nodeParameter) && Array.isArray(outputValue)) {
                     const index = parseInt(outputParam.nodeParameter.split('_')[1], 10);
                     outputValue = outputValue[index];
                   }
-                  
+
                   if (outputValue !== undefined) {
                     mappedOutputs[outputParam.name] = outputValue;
                   }
                 }
               }
+
               setOutputValues(mappedOutputs);
               setLastExecutionTime(lastExec.completedAt);
             }
-          } catch (err) {
-            console.warn('Failed to reload outputs:', err);
-          } finally {
+          }
+        } catch (err) {
+          console.warn('Failed to reload outputs/downloads:', err);
+        } finally {
+          if (isMountedRef.current) {
             setExecuting(false);
           }
-        }, 3000); // Wait 3 seconds for execution to complete
-        
-        // Don't close dialog if we have outputs to show
+        }
+      };
+      
+      // Always poll once for downloads (and outputs, if any)
+      setTimeout(pollForDownloadsAndOutputs, 3000);
+
+      // If there are outputs, keep dialog open to show them
+      if (outputSchema.length > 0) {
         if (onExecutionStarted) {
           onExecutionStarted(result);
         }
-        return; // Keep dialog open to show outputs
+        return;
       }
       
       // Notify parent and close
@@ -248,7 +298,10 @@ export default function ParameterExecutionDialog({ open, onClose, flow, onExecut
       console.error('Failed to execute flow:', error);
       setGeneralError(error.message || 'Failed to execute flow');
     } finally {
-      setExecuting(false);
+      // If we're waiting on last-execution polling, don't flip executing off here.
+      if (outputSchema.length === 0) {
+        setExecuting(false);
+      }
     }
   };
 

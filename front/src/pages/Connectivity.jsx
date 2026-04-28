@@ -35,6 +35,8 @@ import UnitsOfMeasure from '../components/connectivity/UnitsOfMeasure';
 import InternalTagsManager from '../components/connectivity/InternalTagsManager';
 import ConnectionBrowser from '../components/connectivity/ConnectionBrowser';
 import FolderTree from '../components/folders/FolderTree';
+import MqttManager from '../components/connectivity/MqttManager';
+import MqttTagConfiguration from '../components/connectivity/MqttTagConfiguration';
 
 // Tab panel component
 function TabPanel({ children, value, index, ...other }) {
@@ -271,20 +273,23 @@ const Connectivity = () => {
     .filter((c) => c?.type === 's7');
   const eipConnections = savedConnections
     .filter((c) => !c.is_system_connection)
-    .filter((c) => c?.type === 'eip');
-
+    .filter((c) => c?.type === 'eip');  const mqttConnections = savedConnections
+    .filter((c) => !c.is_system_connection)
+    .filter((c) => c?.type === 'mqtt');
   // Virtual “driver folders” for Connectivity
   const driverFolders = (section === 'tags')
     ? [
         { id: 'opcua', name: 'OPC UA', children: [] },
         { id: 's7', name: 'Siemens S7', children: [] },
         { id: 'eip', name: 'EtherNet/IP', children: [] },
+        { id: 'mqtt', name: 'MQTT', children: [] },
         { id: 'internal', name: 'Internal', children: [] },
       ]
     : [
         { id: 'opcua', name: 'OPC UA', children: [] },
         { id: 's7', name: 'Siemens S7', children: [] },
         { id: 'eip', name: 'EtherNet/IP', children: [] },
+        { id: 'mqtt', name: 'MQTT', children: [] },
       ];
   
   if (loading) {
@@ -539,6 +544,11 @@ const Connectivity = () => {
                   onEdit={can('connectivity.devices', 'update') ? handleEditEipConnection : null}
                 />
               </TabPanel>
+
+              {/* MQTT Tab */}
+              <TabPanel value={protocolTab} index="mqtt">
+                <MqttManager />
+              </TabPanel>
             </Box>
           </Box>
       )}
@@ -634,6 +644,25 @@ const Connectivity = () => {
                   }}
                 />
               </Box>
+            )}
+
+            {/* MQTT Tags */}
+            {protocolTab === 'mqtt' && mqttConnections.length > 0 && (
+              <Box>
+                <MqttTagConfiguration
+                  connectionId={mqttConnections[0]?.id}
+                  connections={mqttConnections}
+                  onTagsSaved={() => {
+                    showSnackbar('Tags saved successfully!', 'success');
+                  }}
+                />
+              </Box>
+            )}
+
+            {protocolTab === 'mqtt' && mqttConnections.length === 0 && (
+              <Alert severity="info">
+                No MQTT connections configured. Go to the Devices tab to create a connection first.
+              </Alert>
             )}
           </Box>
         </Box>

@@ -32,29 +32,19 @@ cd ~ && git clone https://github.com/orionK-max/DataForeman.git && cd DataForema
 
 **Note:** No GitHub account needed - DataForeman is public and free to download.
 
-### Step 3: Set Up Permissions
+### Step 3: Start DataForeman
 
 Copy and paste this command, then press Enter:
 
 ```bash
-./fix-permissions.sh
+npm start
 ```
 
-**What this does:** Gives DataForeman permission to create log files.
-
-### Step 4: Start DataForeman
-
-Copy and paste this command, then press Enter:
-
-```bash
-docker compose up -d
-```
-
-**What this does:** Downloads and starts all DataForeman services. **This will take 2-5 minutes the first time** as it downloads everything needed.
+**What this does:** Fixes permissions, then downloads and starts all DataForeman services. **This will take 2-5 minutes the first time** as it downloads everything needed.
 
 You'll see lots of text scrolling by - this is normal! Wait until you see your terminal prompt again.
 
-### Step 5: Verify Installation
+### Step 4: Verify Installation
 
 Check that all containers are running properly:
 
@@ -68,13 +58,13 @@ You should see output showing several services with "Up" status:
 - `db` - Running (Up)
 - `tsdb` - Running (Up)
 - `nats` - Running (Up)
+- `broker` - Running (Up)
 - `connectivity` - Running (Up)
-- `ingestor` - Running (Up)
 - `rotator` - Running (Up)
 
 If any service shows "Exited" or is missing, wait another minute and check again. The first startup can take a bit longer.
 
-### Step 6: Access DataForeman
+### Step 5: Access DataForeman
 
 1. Open your web browser (Firefox, Chrome, etc.)
 2. Type this in the address bar: `http://localhost:8080`
@@ -95,7 +85,7 @@ You should see the DataForeman login page!
 If DataForeman is not running, open a terminal in DataForeman folder and type:
 
 ```bash
-docker compose up -d
+npm start
 ```
 
 Then go to http://localhost:8080 in your browser.
@@ -143,8 +133,7 @@ git fetch --tags
 git checkout v1.2.0
 
 # Rebuild and start
-docker compose build
-docker compose up -d
+npm run start:rebuild
 ```
 
 Wait 2-5 minutes, then go to http://localhost:8080
@@ -174,9 +163,10 @@ Wait 30 seconds, then try again.
 Open a terminal in DataForeman folder and type:
 
 ```bash
-./fix-permissions.sh
-docker compose restart
+npm start
 ```
+
+`npm start` automatically fixes permissions before starting the containers.
 
 ### "Out of memory" or things keep crashing
 
@@ -198,7 +188,7 @@ Then you need to delete and recreate the admin user:
 
 ```bash
 # Connect to the database
-docker compose exec db psql -U dataforeman dataforeman
+docker compose exec db psql -U postgres dataforeman
 
 # Delete the admin user (this also resets the password)
 DELETE FROM users WHERE email = 'admin@example.com';

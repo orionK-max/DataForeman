@@ -120,6 +120,17 @@ export async function logsRoutes(app) {
               rec.level = String(lvl3 || '').toLowerCase();
               rec.msg = msg;
             } else {
+              // NanoMQ log format: YYYY-MM-DD HH:MM:SS[.mmm] [LEVEL] message
+              const nmq = clean.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?\s+\[(\w+)]\s+(.*)$/);
+              if (nmq) {
+                const [__, d, t, ms, lvl, msg] = nmq;
+                const t0 = ms ? `${t}.${ms.padEnd(3, '0')}` : t;
+                const dt = new Date(`${d}T${t0}Z`);
+                if (!isNaN(dt.getTime())) rec.time = dt.toISOString();
+                const lvlMap = { INFO: 'info', WARN: 'warn', WARNING: 'warn', ERROR: 'error', DEBUG: 'debug', TRACE: 'trace', FATAL: 'fatal' };
+                rec.level = lvlMap[lvl?.toUpperCase()] || String(lvl || '').toLowerCase();
+                rec.msg = msg;
+              } else {
               // Nginx access log (combined format): IP - - [DD/Mon/YYYY:HH:MM:SS +0000] "METHOD PATH PROTO" STATUS SIZE "REFERER" "UA"
               const nxAccess = clean.match(/^([\d\.]+)\s+-\s+-\s+\[(\d{2})\/(\w{3})\/(\d{4}):(\d{2}:\d{2}:\d{2})\s+([+-]\d{4})]\s+"(\S+)\s+(\S+)\s+(\S+)"\s+(\d+)\s+/);
               if (nxAccess) {
@@ -182,6 +193,7 @@ export async function logsRoutes(app) {
             }
           }
         }
+      } // end NanoMQ else
       }
         // Normalize time to ISO and level to standard strings
         if (rec && rec.time) {

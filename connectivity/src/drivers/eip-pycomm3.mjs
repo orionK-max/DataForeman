@@ -465,12 +465,13 @@ export class EIPPyComm3Driver {
     
     // Store tag info
     for (const config of tagConfigs) {
-      const { tag_id, tag_name, data_type, poll_group_id, array_size, 
+      const { tag_id, tag_path, tag_name, data_type, poll_group_id, array_size, 
               on_change_enabled, on_change_deadband, on_change_deadband_type, 
               on_change_heartbeat_ms } = config;
       
       this._tags.set(tag_id, {
         tag_id,
+        tag_path,
         tag_name,
         data_type,
         poll_group_id,
@@ -530,7 +531,7 @@ export class EIPPyComm3Driver {
     
     try {
       const result = await this._client.request('write_tag', {
-        tag_name: tagInfo.tag_name,
+        tag_path: tagInfo.tag_path,
         value
       });
       
@@ -538,10 +539,10 @@ export class EIPPyComm3Driver {
         throw new Error(result.error || 'Write failed');
       }
       
-      log.debug({ tagId, tagName: tagInfo.tag_name, value }, 'Tag written');
+      log.debug({ tagId, tagPath: tagInfo.tag_path, value }, 'Tag written');
       
     } catch (error) {
-      log.error({ tagId, tagName: tagInfo.tag_name, err: error.message }, 'Tag write failed');
+      log.error({ tagId, tagPath: tagInfo.tag_path, err: error.message }, 'Tag write failed');
       throw error;
     }
   }

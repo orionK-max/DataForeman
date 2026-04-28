@@ -911,6 +911,12 @@ export async function connectivityRoutes(app) {
         return reply.code(400).send({ error: 'missing conn.type' });
       }
 
+      // Prevent using reserved internal names
+      const RESERVED_CONNECTION_NAMES = ['system', 'internal tags', 'internal'];
+      if (RESERVED_CONNECTION_NAMES.includes(name.trim().toLowerCase())) {
+        return reply.code(400).send({ error: 'reserved_name', message: `Connection name "${name.trim()}" is reserved and cannot be used` });
+      }
+
       // Prevent modification of system connections
       const existing = await loadConnectionConfig(app.db, id);
       if (existing?.is_system_connection) {
@@ -1012,7 +1018,7 @@ export async function connectivityRoutes(app) {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12, $13)
             ON CONFLICT (connection_id, tag_path, driver_type) 
             DO UPDATE SET
-              tag_name = EXCLUDED.tag_name,
+              tag_name = CASE WHEN tag_metadata.tag_name IS NULL THEN EXCLUDED.tag_name ELSE tag_metadata.tag_name END,
               data_type = EXCLUDED.data_type,
               poll_group_id = EXCLUDED.poll_group_id,
               is_subscribed = EXCLUDED.is_subscribed OR tag_metadata.is_subscribed,
@@ -1251,10 +1257,16 @@ export async function connectivityRoutes(app) {
           pg.description as poll_group_description,
           u.name as unit_name,
           u.symbol as unit_symbol,
-          u.category as unit_category
+          u.category as unit_category,
+          -- MQTT subscription info
+          mfm.id as field_mapping_id,
+          mfm.subscription_id,
+          ms.topic as subscription_topic
         FROM tag_metadata tm
         JOIN poll_groups pg ON tm.poll_group_id = pg.group_id
         LEFT JOIN units_of_measure u ON tm.unit_id = u.id
+        LEFT JOIN mqtt_field_mappings mfm ON mfm.tag_id = tm.tag_id AND tm.driver_type = 'MQTT'
+        LEFT JOIN mqtt_subscriptions ms ON ms.id = mfm.subscription_id
         WHERE tm.connection_id = $1
           ${includeDeleted ? '' : "AND coalesce(tm.status,'active') <> 'deleted'"}
         ORDER BY pg.poll_rate_ms ASC, tm.tag_name ASC
@@ -1431,6 +1443,53 @@ export async function connectivityRoutes(app) {
     }
   });
 
+  // Rename a single tag (update display name only; tag_path is never changed)
+  app.patch('/tags/:tagId/name', async (req, reply) => {
+    const tagId = parseInt(req.params.tagId, 10);
+    const { tag_name } = req.body || {};
+
+    if (!Number.isFinite(tagId)) {
+      return reply.code(400).send({ error: 'invalid_tag_id' });
+    }
+    if (tag_name !== null && (typeof tag_name !== 'string' || !tag_name.trim())) {
+      return reply.code(400).send({ error: 'invalid_tag_name' });
+    }
+    const newName = tag_name === null ? null : tag_name.trim();
+
+    try {
+      // Fetch the tag to get its connection_id and verify it exists
+      const { rows: tagRows } = await app.db.query(
+        `SELECT tag_id, connection_id FROM tag_metadata WHERE tag_id = $1`,
+        [tagId]
+      );
+      if (!tagRows.length) {
+        return reply.code(404).send({ error: 'tag_not_found' });
+      }
+      const { connection_id } = tagRows[0];
+
+      // Check uniqueness within this connection (only active tags; deleted rows are hard-deleted)
+      if (newName !== null) {
+        const { rows: dupeRows } = await app.db.query(
+          `SELECT 1 FROM tag_metadata WHERE connection_id = $1 AND tag_name = $2 AND tag_id <> $3 LIMIT 1`,
+          [connection_id, newName, tagId]
+        );
+        if (dupeRows.length) {
+          return reply.code(409).send({ error: 'tag_name_already_exists' });
+        }
+      }
+
+      await app.db.query(
+        `UPDATE tag_metadata SET tag_name = $1, updated_at = now() WHERE tag_id = $2`,
+        [newName, tagId]
+      );
+
+      return { ok: true, tag_id: tagId, tag_name: newName };
+    } catch (e) {
+      req.log.error({ err: e, tagId }, 'failed to rename tag');
+      return reply.code(500).send({ error: 'failed_to_rename_tag' });
+    }
+  });
+
   // Data migration endpoints
   app.post('/migration/tags/preview', async (req, reply) => {
     const userId = req.user?.sub;    
@@ -1595,6 +1654,29 @@ export async function connectivityRoutes(app) {
         req.log.warn({ err: e, id, tagId }, 'failed to mark tag_metadata pending_delete');
       }
 
+      try {
+        const { rows: trows } = await app.db.query(
+          `select driver_type from tag_metadata where connection_id=$1 and tag_id=$2`,
+          [id, tagId]
+        );
+        if (trows[0]?.driver_type === 'MQTT') {
+          const { rows: deleted } = await app.db.query(
+            `delete from mqtt_field_mappings where tag_id=$1 returning subscription_id`,
+            [tagId]
+          );
+          if (deleted.length && app.nats?.healthy?.() === true) {
+            for (const subId of [...new Set(deleted.map(r => r.subscription_id).filter(Boolean))]) {
+              app.nats.publish('df.connectivity.reload-field-mappings.v1', {
+                subscription_id: subId,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        req.log.warn({ err: e, id, tagId }, 'failed to delete mqtt field mapping for tag');
+      }
+
       await saveConnectionConfig(app.db, id, conn);
 
       try {
@@ -1666,6 +1748,30 @@ export async function connectivityRoutes(app) {
         }
       } catch (e) {
         req.log.warn({ err: e, id, tagIds: normalizedTagIds }, 'failed to mark tags pending_delete');
+      }
+
+      try {
+        const { rows: typeRows } = await app.db.query(
+          `select tag_id, driver_type from tag_metadata where connection_id=$1 and tag_id = any($2)`,
+          [id, normalizedTagIds]
+        );
+        const mqttTagIds = typeRows.filter(r => r.driver_type === 'MQTT').map(r => Number(r.tag_id)).filter(n => Number.isFinite(n));
+        if (mqttTagIds.length) {
+          const { rows: deleted } = await app.db.query(
+            `delete from mqtt_field_mappings where tag_id = any($1) returning subscription_id`,
+            [mqttTagIds]
+          );
+          if (deleted.length && app.nats?.healthy?.() === true) {
+            for (const subId of [...new Set(deleted.map(r => r.subscription_id).filter(Boolean))]) {
+              app.nats.publish('df.connectivity.reload-field-mappings.v1', {
+                subscription_id: subId,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        req.log.warn({ err: e, id, tagIds: normalizedTagIds }, 'failed to delete mqtt field mappings for batch');
       }
 
       await saveConnectionConfig(app.db, id, conn);

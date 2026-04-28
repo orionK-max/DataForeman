@@ -42,6 +42,7 @@ export const ChartComposerProvider = ({ children }) => {
     display: { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
     interpolation: 'linear',
     xAxisTickCount: 5, // Default X-axis tick count
+    extendCurveEdges: true, // Extend anchor ghost points beyond chart edges to preserve smooth curve shape
   });
   const [loadedChart, setLoadedChart] = useState(null); // { id, name, is_shared }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -773,15 +774,17 @@ export const ChartComposerProvider = ({ children }) => {
             const shiftedTo = now - timeOffset;
             effectiveTo = new Date(shiftedTo);
             effectiveFrom = new Date(shiftedTo - originalTimeWindow);
-          } else {
-            // Rolling or fixed mode: slide to now
+            // Update time range to reflect sliding window
+            setTimeRange({ from: effectiveFrom, to: effectiveTo });
+          } else if (timeMode === 'rolling') {
+            // Rolling mode: slide window to now
             // Add 100ms buffer to account for ingestion batching delays
             effectiveTo = new Date(now + 100);
             effectiveFrom = new Date(now - originalTimeWindow);
+            // Update time range to reflect sliding window
+            setTimeRange({ from: effectiveFrom, to: effectiveTo });
           }
-          
-          // Update time range to reflect sliding window
-          setTimeRange({ from: effectiveFrom, to: effectiveTo });
+          // Fixed mode: don't slide the window — time range is intentionally static
         }
         
         // Collect all tag IDs - use same approach as regular query

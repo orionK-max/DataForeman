@@ -48,9 +48,9 @@ if [ ! -d "front/node_modules" ]; then
   echo ""
 fi
 
-# Start Docker services (db, nats, tsdb, core, connectivity, rotator)
+# Start Docker services (db, nats, tsdb, core, connectivity, rotator, broker)
 echo "📦 Starting Docker services..."
-docker compose up -d db nats tsdb core connectivity rotator
+docker compose up -d db nats tsdb core connectivity rotator broker
 echo ""
 
 # Wait a moment for services to be ready

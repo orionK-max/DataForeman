@@ -52,37 +52,31 @@ export async function chartComposerRoutes(app) {
           };
         }
         
-        // For write-on-change tags with a time range, fetch last value before range
-        if (from && Object.keys(tagMetadata).some(tid => tagMetadata[tid].on_change_enabled)) {
-          const writeOnChangeTagIds = Object.keys(tagMetadata)
-            .filter(tid => tagMetadata[tid].on_change_enabled)
-            .map(tid => Number(tid));
+        // For all tags with a time range, fetch last value before range start
+        if (from && tagIds.length > 0) {
+          // Build individual subqueries per tag and UNION them
+          const subqueries = tagIds.map(tagId => 
+            useSystemMetricsTable
+              ? `(SELECT ${tagId} as tag_id, ts, v_num as v
+                  FROM ${tableName}
+                  WHERE tag_id = ${tagId} AND ts < $1
+                  ORDER BY ts DESC
+                  LIMIT 1)`
+              : `(SELECT ${tagId} as tag_id, ts, 
+                         COALESCE(v_json::text, v_num::text, v_text) as v
+                  FROM ${tableName}
+                  WHERE tag_id = ${tagId} AND ts < $1
+                  ORDER BY ts DESC
+                  LIMIT 1)`
+          );
           
-          if (writeOnChangeTagIds.length > 0) {
-            // Build individual subqueries per tag and UNION them
-            const subqueries = writeOnChangeTagIds.map(tagId => 
-              useSystemMetricsTable
-                ? `(SELECT ${tagId} as tag_id, ts, v_num as v
-                    FROM ${tableName}
-                    WHERE tag_id = ${tagId} AND ts < $1
-                    ORDER BY ts DESC
-                    LIMIT 1)`
-                : `(SELECT ${tagId} as tag_id, ts, 
-                           COALESCE(v_json::text, v_num::text, v_text) as v
-                    FROM ${tableName}
-                    WHERE tag_id = ${tagId} AND ts < $1
-                    ORDER BY ts DESC
-                    LIMIT 1)`
-            );
-            
-            const lastValueQuery = subqueries.join(' UNION ALL ');
-            const lastValueResult = await (app.tsdb || app.db).query(lastValueQuery, [from]);
-            for (const row of lastValueResult.rows) {
-              lastValuesBefore[row.tag_id] = {
-                ts: row.ts,
-                v: row.v
-              };
-            }
+          const lastValueQuery = subqueries.join(' UNION ALL ');
+          const lastValueResult = await (app.tsdb || app.db).query(lastValueQuery, [from]);
+          for (const row of lastValueResult.rows) {
+            lastValuesBefore[row.tag_id] = {
+              ts: row.ts,
+              v: row.v
+            };
           }
         }
       } catch (err) {
@@ -401,32 +395,41 @@ export async function chartComposerRoutes(app) {
             envelopeWhere.push(`connection_id = $${paramIdx++}`);
           }
           envelopeWhere.push(`tv.tag_id = ${tag_id}`); // Literal tag_id
-          if (from) envelopeWhere.push(`ts >= $${paramIdx++}`);
-          if (to) envelopeWhere.push(`ts <= $${paramIdx++}`);
-          
+          let fromParamIdx = null, toParamIdx = null;
+          if (from) { fromParamIdx = paramIdx++; envelopeWhere.push(`ts >= $${fromParamIdx}`); }
+          if (to)   { toParamIdx   = paramIdx++; envelopeWhere.push(`ts <= $${toParamIdx}`); }
+
+          // Use time-based width_bucket() when both boundaries are known so that bucket
+          // assignment is stable across sliding-window refreshes (fixes spike flickering).
+          // Each spike always falls in the same time slice regardless of row count changes.
+          // Fall back to ntile() only when time boundaries are unavailable.
+          const bucketExpr = (fromParamIdx != null && toParamIdx != null)
+            ? `LEAST(width_bucket(EXTRACT(EPOCH FROM tv.ts)::numeric, EXTRACT(EPOCH FROM $${fromParamIdx}::timestamptz)::numeric, EXTRACT(EPOCH FROM $${toParamIdx}::timestamptz)::numeric, ${bucketsPerTag}), ${bucketsPerTag})`
+            : `ntile(${bucketsPerTag}) OVER (ORDER BY tv.ts ASC)`;
+
           if (useSystemMetricsTable) {
             envelopeQueries.push(`
               (WITH tag_data AS (
                 SELECT tv.ts, tv.tag_id, tv.v_num,
-                       ntile(${bucketsPerTag}) OVER (ORDER BY tv.ts ASC) as bucket
+                       ${bucketExpr} AS bucket
                 FROM ${tableName} tv
                 WHERE ${envelopeWhere.join(' AND ')}
                   AND tv.v_num IS NOT NULL
               ),
               min_max AS (
                 SELECT DISTINCT ON (bucket, extreme)
-                  ts, tag_id, v_num, bucket,
-                  CASE WHEN rk = 1 THEN 'min' ELSE 'max' END as extreme
+                  ts, tag_id, v_num, extreme
                 FROM (
-                  SELECT ts, tag_id, v_num, bucket,
-                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC) as rk
+                  SELECT ts, tag_id, v_num, bucket, 'min' AS extreme,
+                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC) AS rk
                   FROM tag_data
                   UNION ALL
-                  SELECT ts, tag_id, v_num, bucket,
-                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num DESC) as rk
+                  SELECT ts, tag_id, v_num, bucket, 'max' AS extreme,
+                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num DESC) AS rk
                   FROM tag_data
                 ) sub
                 WHERE rk = 1
+                ORDER BY bucket, extreme, ts
               )
               SELECT DISTINCT ts, tag_id, v_num
               FROM min_max
@@ -436,36 +439,47 @@ export async function chartComposerRoutes(app) {
           } else {
             envelopeQueries.push(`
               (WITH tag_data AS (
-                SELECT tv.ts, tv.connection_id, tv.tag_id, tv.quality as q, 
+                SELECT tv.ts, tv.connection_id, tv.tag_id, tv.quality AS q,
                        tv.v_num, tv.v_text, tv.v_json,
-                       ntile(${bucketsPerTag}) OVER (ORDER BY tv.ts ASC) as bucket
+                       ${bucketExpr} AS bucket
                 FROM ${tableName} tv
                 WHERE ${envelopeWhere.join(' AND ')}
               ),
-              sampled AS (
-                SELECT DISTINCT ON (bucket, sample_type)
-                  ts, connection_id, tag_id, q, v_num, v_text, v_json,
-                  CASE WHEN rk <= 2 THEN rk ELSE 0 END as sample_type
+              min_max AS (
+                SELECT DISTINCT ON (bucket, extreme)
+                  ts, connection_id, tag_id, q, v_num, v_text, v_json, extreme
                 FROM (
-                  SELECT *, ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY 
-                    CASE WHEN v_num IS NOT NULL THEN v_num ELSE 0 END ASC) as rk
+                  SELECT ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket,
+                         'min' AS extreme,
+                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC NULLS LAST) AS rk
                   FROM tag_data
+                  WHERE v_num IS NOT NULL
                   UNION ALL
-                  SELECT *, ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY 
-                    CASE WHEN v_num IS NOT NULL THEN v_num ELSE 0 END DESC) as rk
+                  SELECT ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket,
+                         'max' AS extreme,
+                         ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num DESC NULLS LAST) AS rk
                   FROM tag_data
+                  WHERE v_num IS NOT NULL
                 ) sub
-                WHERE rk <= 2
+                WHERE rk = 1
+                ORDER BY bucket, extreme, ts
               )
               SELECT DISTINCT ts, connection_id, tag_id, q, v_num, v_text, v_json
-              FROM sampled
+              FROM min_max
               ORDER BY ts ASC
               LIMIT ${quota})
             `);
           }
         }
         
-        const q = envelopeQueries.join(' UNION ALL ') + ' ORDER BY tag_id ASC, ts ASC';
+        // For a single tag, the envelope query is already wrapped in parens with its own
+        // ORDER BY + LIMIT. Appending an outer ORDER BY creates "multiple ORDER BY clauses"
+        // in PostgreSQL. Strip the outer parens so it becomes a plain CTE query.
+        // For 2+ tags joined with UNION ALL, each member's ORDER BY is scoped to its
+        // parenthesized select, so the outer ORDER BY is valid.
+        const q = envelopeQueries.length === 1
+          ? envelopeQueries[0].trim().replace(/^\(/, '').replace(/\)$/, '')
+          : envelopeQueries.join(' UNION ALL ') + ' ORDER BY tag_id ASC, ts ASC';
         
         // Build adjusted params: envelope queries use literal tag_ids, so we only need connection_id, from, to
         // Original params array: [connection_id?, tag_ids_array, from, to]
@@ -598,7 +612,8 @@ export async function chartComposerRoutes(app) {
           limitHit: rows.length === requestedLimit, 
           tagLimitHits: [],
           tag_metadata: tagMetadata,
-          last_values_before: lastValuesBefore
+          last_values_before: lastValuesBefore,
+          compression_error: true
         };
       }
     }
@@ -751,40 +766,34 @@ export async function chartComposerRoutes(app) {
           };
         }
         
-        // For write-on-change tags with a time range, fetch last value before range
-        if (from && Object.keys(tagMetadata).some(tid => tagMetadata[tid].on_change_enabled)) {
-          const writeOnChangeTagIds = Object.keys(tagMetadata)
-            .filter(tid => tagMetadata[tid].on_change_enabled)
-            .map(tid => Number(tid));
+        // For all tags with a time range, fetch last value before range start
+        if (from && selectedTagIds.length > 0) {
+          const lastValueQuery = useSystemMetricsTable
+            ? `SELECT DISTINCT ON (tag_id) tag_id, ts, v_num as v
+               FROM ${tableName}
+               WHERE tag_id = ANY($1::int[]) AND ts < $2
+               ORDER BY tag_id, ts DESC`
+            : `SELECT DISTINCT ON (tag_id) tag_id, ts, 
+                 COALESCE(v_json, v_num, v_text) as v, quality as q
+               FROM ${tableName}
+               WHERE tag_id = ANY($1::int[]) AND ts < $2
+               ${!useSystemMetricsTable && conn_id ? 'AND connection_id = $3' : ''}
+               ORDER BY tag_id, ts DESC`;
           
-          if (writeOnChangeTagIds.length > 0) {
-            const lastValueQuery = useSystemMetricsTable
-              ? `SELECT DISTINCT ON (tag_id) tag_id, ts, v_num as v
-                 FROM ${tableName}
-                 WHERE tag_id = ANY($1::int[]) AND ts < $2
-                 ORDER BY tag_id, ts DESC`
-              : `SELECT DISTINCT ON (tag_id) tag_id, ts, 
-                   COALESCE(v_json, v_num, v_text) as v, quality as q
-                 FROM ${tableName}
-                 WHERE tag_id = ANY($1::int[]) AND ts < $2
-                 ${!useSystemMetricsTable && conn_id ? 'AND connection_id = $3' : ''}
-                 ORDER BY tag_id, ts DESC`;
-            
-            const lastValueParams = useSystemMetricsTable || !conn_id 
-              ? [writeOnChangeTagIds, from]
-              : [writeOnChangeTagIds, from, conn_id];
-            
-            const { rows: lastValueRows } = await db.query(lastValueQuery, lastValueParams);
-            
-            for (const row of lastValueRows) {
-              lastValuesBefore[row.tag_id] = {
-                ts: row.ts,
-                v: useSystemMetricsTable 
-                  ? (row.v != null ? Number(row.v) : null)
-                  : (typeof row.v === 'object' ? row.v : (row.v != null ? Number(row.v) : null)),
-                q: row.q || 192
-              };
-            }
+          const lastValueParams = useSystemMetricsTable || !conn_id 
+            ? [selectedTagIds, from]
+            : [selectedTagIds, from, conn_id];
+          
+          const { rows: lastValueRows } = await db.query(lastValueQuery, lastValueParams);
+          
+          for (const row of lastValueRows) {
+            lastValuesBefore[row.tag_id] = {
+              ts: row.ts,
+              v: useSystemMetricsTable 
+                ? (row.v != null ? Number(row.v) : null)
+                : (typeof row.v === 'object' ? row.v : (row.v != null ? Number(row.v) : null)),
+              q: row.q || 192
+            };
           }
         }
       } catch (err) {

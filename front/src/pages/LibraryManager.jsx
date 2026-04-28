@@ -31,6 +31,7 @@ import {
   Info as InfoIcon,
   Extension as ExtensionIcon,
   Warning as WarningIcon,
+  SystemUpdateAlt as UpdateIcon,
 } from '@mui/icons-material';
 import { usePageTitle } from '../contexts/PageTitleContext';
 import libraryApi from '../services/libraryApi';
@@ -45,6 +46,14 @@ const LibraryManager = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [forceDeleteDialogOpen, setForceDeleteDialogOpen] = useState(false);
+  const [libraryToDelete, setLibraryToDelete] = useState(null);
+  const [forceDeleteData, setForceDeleteData] = useState(null); // { library, flowsUsing }
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [libraryToUpdate, setLibraryToUpdate] = useState(null);
+  const [updateFile, setUpdateFile] = useState(null);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     setPageTitle('Library Manager');
@@ -84,8 +93,14 @@ const LibraryManager = () => {
 
     try {
       setUploading(true);
-      await libraryApi.upload(selectedFile);
-      showSnackbar('Library uploaded successfully. Restart required.', 'success');
+      const result = await libraryApi.upload(selectedFile);
+      if (result.loadError) {
+        showSnackbar(`Library installed but failed to load: ${result.loadError}`, 'warning');
+      } else if (result.requiresRestart) {
+        showSnackbar('Library installed. Restart core to activate it.', 'success');
+      } else {
+        showSnackbar('Library installed and activated. No restart required.', 'success');
+      }
       setUploadDialogOpen(false);
       setSelectedFile(null);
       loadLibraries();
@@ -100,11 +115,13 @@ const LibraryManager = () => {
   const handleToggleEnabled = async (library) => {
     try {
       if (library.enabled) {
-        await libraryApi.disable(library.libraryId);
-        showSnackbar(`${library.name} disabled. Restart required.`, 'info');
+        const disableResult = await libraryApi.disable(library.libraryId);
+        const disableMsg = disableResult.requiresRestart ? 'Restart core to deactivate.' : 'Library hot-unloaded.';
+        showSnackbar(`${library.name} disabled. ${disableMsg}`, 'info');
       } else {
-        await libraryApi.enable(library.libraryId);
-        showSnackbar(`${library.name} enabled. Restart required.`, 'info');
+        const enableResult = await libraryApi.enable(library.libraryId);
+        const enableMsg = enableResult.requiresRestart ? 'Restart core to activate.' : 'Library hot-loaded.';
+        showSnackbar(`${library.name} enabled. ${enableMsg}`, 'info');
       }
       loadLibraries();
     } catch (error) {
@@ -113,18 +130,85 @@ const LibraryManager = () => {
     }
   };
 
-  const handleDelete = async (library) => {
-    if (!window.confirm(`Are you sure you want to delete ${library.name}? This cannot be undone.`)) {
-      return;
-    }
+  const handleDelete = (library) => {
+    setLibraryToDelete(library);
+    setDeleteDialogOpen(true);
+  };
 
+  const handleConfirmDelete = async () => {
+    setDeleteDialogOpen(false);
     try {
-      await libraryApi.delete(library.libraryId);
-      showSnackbar(`${library.name} deleted. Restart required.`, 'success');
+      const deleteResult = await libraryApi.delete(libraryToDelete.libraryId);
+      const deleteMsg = deleteResult.requiresRestart ? 'Restart core to fully unload.' : 'Library hot-unloaded.';
+      showSnackbar(`${libraryToDelete.name} deleted. ${deleteMsg}`, 'success');
+      setLibraryToDelete(null);
       loadLibraries();
     } catch (error) {
       console.error('Delete failed:', error);
-      showSnackbar('Failed to delete library', 'error');
+      if (error.status === 409 && error.data?.flowsUsing?.length > 0) {
+        setForceDeleteData({ library: libraryToDelete, flowsUsing: error.data.flowsUsing });
+        setForceDeleteDialogOpen(true);
+      } else {
+        showSnackbar(error.message || 'Failed to delete library', 'error');
+        setLibraryToDelete(null);
+      }
+    }
+  };
+
+  const handleForceDelete = async () => {
+    setForceDeleteDialogOpen(false);
+    try {
+      await libraryApi.delete(forceDeleteData.library.libraryId, true);
+      showSnackbar(`${forceDeleteData.library.name} force-deleted.`, 'warning');
+      loadLibraries();
+    } catch (forceError) {
+      showSnackbar(forceError.message || 'Force delete failed', 'error');
+    } finally {
+      setForceDeleteData(null);
+      setLibraryToDelete(null);
+    }
+  };
+
+  const handleOpenUpdate = (library) => {
+    setLibraryToUpdate(library);
+    setUpdateFile(null);
+    setUpdateDialogOpen(true);
+  };
+
+  const handleUpdateFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      if (!file.name.endsWith('.zip')) {
+        showSnackbar('Please select a .zip file', 'error');
+        return;
+      }
+      setUpdateFile(file);
+    }
+  };
+
+  const handleConfirmUpdate = async () => {
+    if (!updateFile) {
+      showSnackbar('Please select a file', 'error');
+      return;
+    }
+    try {
+      setUpdating(true);
+      const result = await libraryApi.update(libraryToUpdate.libraryId, updateFile);
+      if (result.loadError) {
+        showSnackbar(`Updated to v${result.newVersion} but failed to load: ${result.loadError}`, 'warning');
+      } else if (result.requiresRestart) {
+        showSnackbar(`Updated to v${result.newVersion}. Restart core to activate.`, 'success');
+      } else {
+        showSnackbar(`Updated from v${result.previousVersion} → v${result.newVersion}. Flows intact.`, 'success');
+      }
+      setUpdateDialogOpen(false);
+      setLibraryToUpdate(null);
+      setUpdateFile(null);
+      loadLibraries();
+    } catch (error) {
+      showSnackbar(error.message || 'Failed to update library', 'error');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -170,7 +254,7 @@ const LibraryManager = () => {
 
       {/* Info Alert */}
       <Alert severity="info" sx={{ mb: 3 }}>
-        Changes to libraries (install, enable, disable, delete) require restarting the core service to take effect.
+        Node libraries support hot-reload and activate immediately. Extensions require a core service restart.
       </Alert>
 
       {/* Libraries Grid */}
@@ -269,6 +353,16 @@ const LibraryManager = () => {
 
                   <Box sx={{ flex: 1 }} />
 
+                  <Tooltip title="Update library">
+                    <IconButton
+                      size="small"
+                      onClick={() => handleOpenUpdate(library)}
+                      color="primary"
+                    >
+                      <UpdateIcon />
+                    </IconButton>
+                  </Tooltip>
+
                   <Tooltip title="Delete">
                     <IconButton
                       size="small"
@@ -284,6 +378,89 @@ const LibraryManager = () => {
           ))}
         </Grid>
       )}
+
+      {/* Update Library Dialog */}
+      <Dialog open={updateDialogOpen} onClose={() => !updating && setUpdateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Update Library</DialogTitle>
+        <DialogContent>
+          <Typography gutterBottom>
+            Upload a new version of <strong>{libraryToUpdate?.name}</strong> (v{libraryToUpdate?.version}).
+            Flows using this library will remain intact.
+          </Typography>
+          <Box sx={{ mt: 2 }}>
+            <Button
+              variant="outlined"
+              component="label"
+              startIcon={<UploadIcon />}
+              disabled={updating}
+            >
+              Select ZIP file
+              <input type="file" accept=".zip" hidden onChange={handleUpdateFileSelect} />
+            </Button>
+            {updateFile && (
+              <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
+                Selected: {updateFile.name}
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUpdateDialogOpen(false)} disabled={updating}>Cancel</Button>
+          <Button
+            onClick={handleConfirmUpdate}
+            variant="contained"
+            color="primary"
+            disabled={!updateFile || updating}
+            startIcon={updating ? <CircularProgress size={16} /> : <UpdateIcon />}
+          >
+            {updating ? 'Updating…' : 'Update'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete Library</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete <strong>{libraryToDelete?.name}</strong>? This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleConfirmDelete} color="error" variant="contained">Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Force Delete Dialog (library in use) */}
+      <Dialog open={forceDeleteDialogOpen} onClose={() => setForceDeleteDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="warning" />
+          Library In Use
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <strong>{forceDeleteData?.library?.name}</strong> cannot be deleted because it is used by the following flow(s):
+          </Alert>
+          <List dense disablePadding>
+            {forceDeleteData?.flowsUsing?.map((flow) => (
+              <ListItem key={flow.id} disableGutters>
+                <ListItemText
+                  primary={flow.name}
+                  secondary={`${flow.node_count} node(s) from this library`}
+                />
+              </ListItem>
+            ))}
+          </List>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Remove library nodes from those flows and save, then try again. Alternatively, force-delete will remove the library immediately and break the flows that use it.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setForceDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleForceDelete} color="error" variant="outlined">Force Delete</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Upload Dialog */}
       <Dialog open={uploadDialogOpen} onClose={() => !uploading && setUploadDialogOpen(false)} maxWidth="sm" fullWidth>

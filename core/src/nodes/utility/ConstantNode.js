@@ -44,6 +44,11 @@ export class ConstantNode extends BaseNode {
         },
         {
           type: 'subtitle',
+          text: '{{alias}}',
+          visible: '{{alias}}'
+        },
+        {
+          type: 'subtitle',
           text: '{{_constantValue}}',
           visible: '{{_constantValue}}'
         }
@@ -77,6 +82,14 @@ export class ConstantNode extends BaseNode {
     },
     
     properties: [
+      {
+        name: 'alias',
+        displayName: 'Alias',
+        type: 'string',
+        default: '',
+        required: false,
+        description: 'Optional name for this constant (shown in node subtitle)'
+      },
       {
         name: 'valueType',
         displayName: 'Value Type',
@@ -200,7 +213,7 @@ export class ConstantNode extends BaseNode {
         {
           type: 'property-group',
           title: 'Configuration',
-          properties: ['valueType', 'numberValue', 'stringValue', 'booleanValue', 'jsonValue']
+          properties: ['alias', 'valueType', 'numberValue', 'stringValue', 'booleanValue', 'jsonValue']
         }
       ]
     }

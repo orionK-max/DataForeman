@@ -60,6 +60,9 @@ const ChartLoader = ({
   // Write-on-change metadata for heartbeat feature
   const [tagMetadata, setTagMetadata] = useState({});
   const [lastValuesBefore, setLastValuesBefore] = useState({});
+
+  // Smart compression fallback warning
+  const [compressionError, setCompressionError] = useState(false);
   
   // Auto-refresh
   const [isAutoRefresh, setIsAutoRefresh] = useState(false);
@@ -190,14 +193,14 @@ const ChartLoader = ({
   }, [timeMode, timeDuration, timeOffset, fixedTimeRange, overrideTimeRange]);
 
   // Query chart data
-  const queryData = useCallback(async (isBackgroundRefresh = false) => {
+  const queryData = useCallback(async (isBackgroundRefresh = false, rangeOverride = null) => {
     const tags = chartConfig?.tags || [];
     
     if (!chartConfig || tags.length === 0) {
       return;
     }
 
-    const effectiveTimeRange = calculateTimeRange();
+    const effectiveTimeRange = rangeOverride || calculateTimeRange();
     
     if (!effectiveTimeRange || !effectiveTimeRange.from || !effectiveTimeRange.to) {
       return;
@@ -208,6 +211,7 @@ const ChartLoader = ({
       setLoading(true);
     }
     setError('');
+    setCompressionError(false);
 
     try {
       // Get tag IDs
@@ -276,6 +280,10 @@ const ChartLoader = ({
         if (response.last_values_before) {
           Object.assign(lastValsBeforeObj, response.last_values_before);
         }
+
+        if (response.compression_error) {
+          setCompressionError(true);
+        }
       }
       
       setLastValuesBefore(lastValsBeforeObj);
@@ -299,6 +307,25 @@ const ChartLoader = ({
   useEffect(() => {
     queryDataRef.current = queryData;
   }, [queryData]);
+
+  // Scroll back or forward by 50% of the current window, stops live mode
+  const handleScrollTime = useCallback((direction) => {
+    const current = calculateTimeRange();
+    if (!current?.from || !current?.to) return;
+    const from = current.from instanceof Date ? current.from : new Date(current.from);
+    const to   = current.to   instanceof Date ? current.to   : new Date(current.to);
+    const step  = (to.getTime() - from.getTime()) * 0.5;
+    const shift = direction === 'back' ? -step : step;
+    const newRange = {
+      from: new Date(from.getTime() + shift),
+      to:   new Date(to.getTime()   + shift),
+    };
+    setIsAutoRefresh(false);
+    setTimeMode('fixed');
+    setFixedTimeRange(newRange);
+    // Pass range directly to avoid stale closure on state updates
+    queryDataRef.current?.(false, newRange);
+  }, [calculateTimeRange, setIsAutoRefresh, setTimeMode, setFixedTimeRange]);
 
   // Auto-query once when chart config is loaded
   useEffect(() => {
@@ -413,7 +440,13 @@ const ChartLoader = ({
   });
 
   return (
-    <ChartRenderer
+    <>
+      {compressionError && (
+        <Alert severity="warning" sx={{ mb: 1 }}>
+          Smart compression encountered an error and fell back to a basic query. Some tags may show incomplete data. Try turning off Smart Compression.
+        </Alert>
+      )}
+      <ChartRenderer
       data={chartData}
       tagConfigs={mappedTagConfigs}
       axes={chartConfig.axes || []}
@@ -435,6 +468,7 @@ const ChartLoader = ({
       onRefreshIntervalChange={(val) => {}} // Not used in loader mode
       onPreferencesClose={onPreferencesClose}
       onResetZoom={onResetZoom || queryData}
+      onScrollTime={handleScrollTime}
       options={chartConfig} // Pass full chart config for options like xAxisTickCount
       tagMetadata={tagMetadata}
       lastValuesBefore={lastValuesBefore}
@@ -445,6 +479,7 @@ const ChartLoader = ({
         show: true,
       }}
     />
+    </>
   );
 };
 

@@ -137,7 +137,7 @@ Users can update DataForeman in two ways:
 
 ### Method 2: Use Update Script
 1. Open PowerShell in DataForeman directory
-2. Run: `.\windows-installer\update.ps1 -Version v1.2.0`
+2. Run: `.\windows-installer\update.ps1 -Version vX.X.X`
 3. Script handles the update automatically
 
 ## Files Excluded from Installer
