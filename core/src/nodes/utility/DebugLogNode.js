@@ -95,7 +95,7 @@ export class DebugLogNode extends BaseNode {
         name: 'message',
         displayName: 'Message Template',
         type: 'string',
-        default: 'Value: {{value}}',
+        default: '{{value}}',
         required: false,
         description: 'Custom message (use {{value}} for interpolation)',
         userExposable: true
@@ -140,7 +140,7 @@ export class DebugLogNode extends BaseNode {
           name: 'Simple Value Logging',
           description: 'Log the input value with default message',
           config: {
-            message: 'Value: {{value}}'
+            message: '{{value}}'
           }
         },
         {
@@ -179,7 +179,7 @@ export class DebugLogNode extends BaseNode {
    */
   async execute(context) {
     const inputData = context.getInputValue(0);
-    const messageTemplate = this.getParameter(context.node, 'message', 'Value: {{value}}');
+    const messageTemplate = this.getParameter(context.node, 'message', '{{value}}');
     
     // Handle null/undefined input
     if (inputData === null || inputData === undefined) {
@@ -197,7 +197,10 @@ export class DebugLogNode extends BaseNode {
     const timestamp = inputData.timestamp ?? Date.now();
     
     // Format the message with value interpolation
-    const formattedMessage = messageTemplate.replace(/\{\{value\}\}/g, String(value));
+    const displayValue = (value !== null && typeof value === 'object')
+      ? JSON.stringify(value)
+      : String(value);
+    const formattedMessage = messageTemplate.replace(/\{\{value\}\}/g, displayValue);
     
     // Always log at info level
     context.logInfo(formattedMessage);

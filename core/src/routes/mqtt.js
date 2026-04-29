@@ -30,7 +30,7 @@ async function _saveTagRefs(db, publisherId, template) {
 }
 
 const NANOMQ_BASIC_AUTH = 'Basic ' + Buffer.from(
-  `${process.env.NANOMQ_HTTP_USER || 'admin'}:${process.env.NANOMQ_HTTP_PASSWORD || 'public'}`
+  `${process.env.MQTT_BROKER_HTTP_USER || 'nmqadmin'}:${process.env.MQTT_BROKER_HTTP_PASSWORD || 'nMQ_Adm1n_Ch4ng3_M3_N0w_3f7a9b2c'}`
 ).toString('base64');
 
 export default async function mqttRoutes(app) {
