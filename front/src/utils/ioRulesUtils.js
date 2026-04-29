@@ -81,16 +81,18 @@ export function getInputConfig(metadata, nodeData) {
     };
   }
   
-  // Ultimate fallback - use static inputs length if available
-  const staticCount = metadata?.inputs?.length || 1;
+  // Ultimate fallback - use static inputs from metadata, preserving their displayNames
+  const staticInputs = metadata?.inputs || [];
+  const staticCount = staticInputs.length || 1;
   return {
     min: staticCount,
     max: staticCount,
     default: staticCount,
     canAdd: false,
     canRemove: false,
-    type: metadata?.inputs?.[0]?.type || 'main',
-    typeFixed: false
+    type: staticInputs[0]?.type || 'main',
+    typeFixed: false,
+    definitions: staticInputs.length > 0 ? staticInputs : undefined
   };
 }
 
@@ -259,9 +261,32 @@ export function generateInputs(metadata, nodeData) {
 export function generateOutputs(metadata, nodeData) {
   const config = getOutputConfig(metadata, nodeData);
   const outputs = [];
+
+  // If outputCount is not explicitly stored, derive it from a syncOutputCount property
+  let derivedCount = nodeData.outputCount;
+  if (derivedCount === undefined || derivedCount === null) {
+    const syncProp = metadata?.properties?.find(p => p.syncOutputCount);
+    if (syncProp) {
+      const arr = nodeData[syncProp.name];
+      if (Array.isArray(arr) && arr.length > 0) {
+        derivedCount = arr.length;
+      }
+    }
+  }
+  const count = derivedCount ?? config.count;
   
-  const count = nodeData.outputCount ?? config.count;
-  
+  // Derive output labels from syncOutputCount property if not stored
+  let derivedLabels = nodeData.outputLabels;
+  if ((!derivedLabels || derivedLabels.length === 0)) {
+    const syncProp = metadata?.properties?.find(p => p.syncOutputCount);
+    if (syncProp) {
+      const arr = nodeData[syncProp.name];
+      if (Array.isArray(arr)) {
+        derivedLabels = arr.map((r, i) => r.name || `Output ${i + 1}`);
+      }
+    }
+  }
+
   for (let i = 0; i < count; i++) {
     let type = config.type;
     
@@ -272,7 +297,7 @@ export function generateOutputs(metadata, nodeData) {
     
     outputs.push({
       type,
-      displayName: metadata.outputs?.[i]?.displayName || `Output ${i + 1}`,
+      displayName: derivedLabels?.[i] || metadata.outputs?.[i]?.displayName || `Output ${i + 1}`,
       description: metadata.outputs?.[i]?.description,
       index: i
     });

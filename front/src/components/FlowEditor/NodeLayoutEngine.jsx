@@ -239,7 +239,8 @@ const resolveBlockProps = (block, data, executionOrder) => {
         text: resolveTemplate(props.text, data),
         color: resolveColor(props.color, data),
         fontSize: props.fontSize,
-        fontWeight: props.fontWeight
+        fontWeight: props.fontWeight,
+        maxLength: props.maxLength
       };
 
     case 'text':

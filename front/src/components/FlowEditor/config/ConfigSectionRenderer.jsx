@@ -9,7 +9,7 @@ import CustomSection from './CustomSection';
 /**
  * Renders a config section based on its type
  */
-const ConfigSectionRenderer = ({ section, nodeData, metadata, flow, onChange, onAction }) => {
+const ConfigSectionRenderer = ({ section, nodeData, metadata, flow, onChange, onAction, isLast }) => {
   switch (section.type) {
     case 'tag-selector':
       return (
@@ -48,6 +48,7 @@ const ConfigSectionRenderer = ({ section, nodeData, metadata, flow, onChange, on
           metadata={metadata}
           flow={flow}
           onChange={onChange}
+          isLast={isLast}
         />
       );
     

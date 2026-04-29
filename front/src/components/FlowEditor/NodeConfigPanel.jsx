@@ -62,6 +62,7 @@ const NodeConfigPanel = ({ node, flow, onDataChange, onClose, onNodeAction }) =>
             flow={flow}
             onChange={handleChange}
             onAction={handleAction}
+            isLast={index === metadata.configUI.sections.length - 1}
           />
         ))}
       </Box>

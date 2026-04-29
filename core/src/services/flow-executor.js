@@ -1130,7 +1130,13 @@ class ScanExecutor {
           const outgoingEdges = executionEdges.filter(e => e.source === nodeId);
           for (const edge of outgoingEdges) {
             const targetPort = edge.targetHandle || 'input';
-            this.inputStateManager.updateInput(edge.target, targetPort, output);
+            // Handle multi-output arrays: route by sourceHandle index
+            let routedOutput = output;
+            if (Array.isArray(output) && edge.sourceHandle) {
+              const srcIdx = parseInt(edge.sourceHandle.replace('output-', '')) || 0;
+              routedOutput = output[srcIdx] ?? { value: null, quality: 0 };
+            }
+            this.inputStateManager.updateInput(edge.target, targetPort, routedOutput);
           }
           
           // Automatic logging now handled by executeNode via node's getLogMessages()
@@ -1210,8 +1216,14 @@ class ScanExecutor {
       if (!sourceOutput) continue; // Source hasn't executed yet
       
       const targetPort = edge.targetHandle || 'input';
+      // Handle multi-output arrays: route by sourceHandle index
+      let routedOutput = sourceOutput;
+      if (Array.isArray(sourceOutput) && edge.sourceHandle) {
+        const srcIdx = parseInt(edge.sourceHandle.replace('output-', '')) || 0;
+        routedOutput = sourceOutput[srcIdx] ?? { value: null, quality: 0 };
+      }
       // Pass the full output object to preserve quality codes
-      this.inputStateManager.updateInput(edge.target, targetPort, sourceOutput);
+      this.inputStateManager.updateInput(edge.target, targetPort, routedOutput);
     }
   }
   
