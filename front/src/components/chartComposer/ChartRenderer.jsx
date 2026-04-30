@@ -325,30 +325,22 @@ const ChartRenderer = React.forwardRef(({
         const queryEndTime   = requestedTimeRange ? new Date(requestedTimeRange.to).getTime()   : now;
         const result = timestamps.map(time => [time, tagData.get(time)]);
         const edgeExt = computeEdgeExtension(timestamps, queryStartTime, queryEndTime);
-        // Left anchor: only when extendCurveEdges is enabled.
-        // Interpolate between the last known value before the window and the first chart point
-        // to find the natural curve value at queryStartTime.
+        // Left anchor: only when extendCurveEdges is enabled AND a known prior value exists.
+        // Without lastValuesBefore the tag is brand-new — no left anchor, line starts at first data point.
         if (extendCurveEdges) {
-          let edgeValue;
           const lvb = lastValuesBefore?.[tagId];
           if (lvb && result.length >= 1) {
             const tPrev = new Date(lvb.ts).getTime();
             const vPrev = Number(lvb.v);
             const [t0, v0] = result[0];
             const span = t0 - tPrev;
-            edgeValue = span > 0
+            const edgeValue = span > 0
               ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span) // interpolate
               : v0;
-          } else if (result.length >= 2) {
-            const [t0, v0] = result[0];
-            const [t1, v1] = result[1];
-            const slope = (v1 - v0) / (t1 - t0);
-            edgeValue = v0 + slope * (queryStartTime - t0); // fallback: extrapolate
-          } else {
-            edgeValue = result[0][1];
+            result.unshift([queryStartTime, edgeValue]);           // visible anchor at left edge
+            result.unshift([queryStartTime - edgeExt, edgeValue]); // ghost beyond left edge
           }
-          result.unshift([queryStartTime, edgeValue]);           // visible anchor at left edge
-          result.unshift([queryStartTime - edgeExt, edgeValue]); // ghost beyond left edge
+          // No lvb: tag has no data before the window — skip left anchor to avoid extrapolation artifacts
         }
         // Right anchor: only when extendCurveEdges is enabled
         if (extendCurveEdges) {
@@ -413,27 +405,21 @@ const ChartRenderer = React.forwardRef(({
 
       if (persistedHeartbeat) {
         // We have a valid persisted heartbeat - create horizontal line across the visible range.
-        // Ghost + anchor on the left: interpolate between lastValuesBefore and first chart
-        // point to find the natural curve value at the left edge.
+        // Ghost + anchor on the left: only when a known prior value exists to interpolate from.
+        // Without lastValuesBefore the tag is brand-new — skip left anchor to avoid extrapolation artifacts.
         if (extendCurveEdges) {
-          let edgeValue = persistedHeartbeat.value;
           const lvb = lastValuesBefore?.[tagId];
           if (lvb && timestamps.length >= 1) {
             const tPrev = new Date(lvb.ts).getTime();
             const vPrev = Number(lvb.v);
             const t0 = timestamps[0], v0 = tagData.get(t0);
             const span = t0 - tPrev;
-            edgeValue = span > 0
+            const edgeValue = span > 0
               ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span)
               : v0;
-          } else if (timestamps.length >= 2) {
-            const t0 = timestamps[0], v0 = tagData.get(t0);
-            const t1 = timestamps[1], v1 = tagData.get(t1);
-            const slope = (v1 - v0) / (t1 - t0);
-            edgeValue = v0 + slope * (queryStartTime - t0);
+            result.push([queryStartTime - edgeExt, edgeValue]); // ghost
+            result.push([queryStartTime, edgeValue]);            // visible anchor
           }
-          result.push([queryStartTime - edgeExt, edgeValue]); // ghost
-          result.push([queryStartTime, edgeValue]);            // visible anchor
         }
         
         // Add all actual data points from current query (if any)
