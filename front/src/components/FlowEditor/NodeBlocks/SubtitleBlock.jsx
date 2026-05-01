@@ -6,12 +6,16 @@ import { Typography, useTheme } from '@mui/material';
  * 
  * Displays operation names, tag names, or other secondary information.
  */
-export const SubtitleBlock = ({ text, color, fontSize = 12, fontWeight = 400 }) => {
+export const SubtitleBlock = ({ text, color, fontSize = 12, fontWeight = 400, maxLength }) => {
   const theme = useTheme();
 
   if (!text) {
     return null;
   }
+
+  const displayText = maxLength && text.length > maxLength
+    ? text.slice(0, maxLength) + '…'
+    : text;
 
   return (
     <Typography
@@ -27,7 +31,7 @@ export const SubtitleBlock = ({ text, color, fontSize = 12, fontWeight = 400 }) 
         mb: 0.5
       }}
     >
-      {text}
+      {displayText}
     </Typography>
   );
 };

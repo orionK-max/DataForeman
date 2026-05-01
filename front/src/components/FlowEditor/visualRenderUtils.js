@@ -140,10 +140,19 @@ export const generateHandles = (visualHandles, inputs = [], outputs = [], data =
   const effectiveInputHandles = inputHandles.length === 0 && effectiveInputs.length > 0
     ? effectiveInputs.map((_, i) => ({ index: i, position: 'auto', color: 'auto', visible: true }))
     : inputHandles;
-  
-  const effectiveOutputHandles = outputHandles.length === 0 && effectiveOutputs.length > 0
-    ? effectiveOutputs.map((_, i) => ({ index: i, position: 'auto', color: 'auto', visible: true }))
-    : outputHandles;
+
+  // If ioRules produced more outputs than the static handle defs, expand to match
+  let effectiveOutputHandles;
+  if (outputHandles.length === 0 && effectiveOutputs.length > 0) {
+    effectiveOutputHandles = effectiveOutputs.map((_, i) => ({ index: i, position: 'auto', color: 'auto', visible: true }));
+  } else if (hasIoRules && generatedOutputs && generatedOutputs.length > outputHandles.length) {
+    effectiveOutputHandles = generatedOutputs.map((_, i) => ({
+      ...(outputHandles[0] || { position: 'auto', color: 'auto', visible: true }),
+      index: i
+    }));
+  } else {
+    effectiveOutputHandles = outputHandles;
+  }
 
   // Resolve input handle properties from generated definitions
   const resolvedInputs = effectiveInputHandles.map(handleDef => {

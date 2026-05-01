@@ -196,7 +196,7 @@ export default function FlowWidget({ flowId, config = {}, onFlowLoaded }) {
       localStorage.setItem(storageKey, JSON.stringify(inputValues));
       
       // Execute flow
-      const result = await executeFlow(flowId, inputValues);
+      const result = await executeFlow(flowId, null, inputValues);
       
       setSnackbar({ 
         open: true, 

@@ -10,18 +10,22 @@ import {
   Switch,
   Typography,
   Button,
+  IconButton,
   Divider,
   Collapse,
   Tooltip,
 } from '@mui/material';
 import Editor from '@monaco-editor/react';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import DeleteIcon from '@mui/icons-material/Delete';
+import AddIcon from '@mui/icons-material/Add';
 import { getInputConfig, parseInputConfig } from '../../../utils/ioRulesUtils';
 
 /**
  * Property group section - renders properties from node metadata
  * This replaces the old generic property renderer
  */
-const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange }) => {
+const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange, isLast = true }) => {
   const isManualFlow = flow?.execution_mode === 'manual';
   
   // Helper to check if property should be shown based on displayOptions.show
@@ -382,6 +386,125 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange }) =
           </Box>
         );
       
+      case 'json': {
+        // Structured port-list UI when syncOutputCount is set
+        if (property.syncOutputCount) {
+          const rows = Array.isArray(value) ? value : (Array.isArray(property.default) ? [...property.default] : [{ name: '', path: '' }]);
+          const updateRows = (newRows) => {
+            onChange({
+              [property.name]: newRows,
+              outputCount: newRows.length,
+              outputLabels: newRows.map((r, i) => r.name || `Output ${i + 1}`)
+            });
+          };
+          return (
+            <Box key={key} sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', fontWeight: 500 }}>
+                  {property.displayName}
+                </Typography>
+                <Tooltip title="Add output" placement="left">
+                  <IconButton
+                    size="small"
+                    onClick={() => updateRows([...rows, { name: '', path: '' }])}
+                  >
+                    <AddIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+              {rows.map((row, idx) => (
+                <Box key={idx} sx={{ display: 'flex', gap: 0.75, alignItems: 'center', mb: 0.75 }}>
+                  <TextField
+                    size="small"
+                    placeholder="Name"
+                    value={row.name || ''}
+                    onChange={(e) => {
+                      const updated = rows.map((r, i) => i === idx ? { ...r, name: e.target.value } : r);
+                      updateRows(updated);
+                    }}
+                    sx={{ flex: '0 0 38%' }}
+                    inputProps={{ style: { fontSize: '0.8rem' } }}
+                  />
+                  <TextField
+                    size="small"
+                    placeholder="Path (e.g. current.temp_c)"
+                    value={row.path || ''}
+                    onChange={(e) => {
+                      const updated = rows.map((r, i) => i === idx ? { ...r, path: e.target.value } : r);
+                      updateRows(updated);
+                    }}
+                    sx={{ flex: 1 }}
+                    inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
+                  />
+                  <IconButton
+                    size="small"
+                    onClick={() => updateRows(rows.filter((_, i) => i !== idx))}
+                    disabled={rows.length <= 1}
+                    sx={{ flexShrink: 0 }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+              {property.description && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  {property.description}
+                </Typography>
+              )}
+            </Box>
+          );
+        }
+        // Default: textarea for generic JSON
+        return (
+          <Box key={key} sx={{ mb: 2 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                mb: 0.5,
+                color: 'text.secondary',
+                fontSize: '0.75rem',
+                fontWeight: 500
+              }}
+            >
+              {property.displayName}
+            </Typography>
+            <TextField
+              fullWidth
+              size="small"
+              multiline
+              rows={4}
+              value={typeof value === 'string' ? value : JSON.stringify(value ?? property.default ?? {}, null, 2)}
+              onChange={(e) => {
+                try {
+                  const parsed = JSON.parse(e.target.value);
+                  handleChange(property.name, parsed);
+                } catch {
+                  handleChange(property.name, e.target.value);
+                }
+              }}
+              placeholder="{}"
+              sx={{
+                '& .MuiInputBase-root': {
+                  bgcolor: (theme) => theme.palette.mode === 'dark'
+                    ? 'rgba(0, 0, 0, 0.3)'
+                    : 'rgba(255, 255, 255, 0.9)',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  fontFamily: 'monospace',
+                  fontSize: '0.8rem',
+                },
+              }}
+            />
+            {property.description && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                {property.description}
+              </Typography>
+            )}
+          </Box>
+        );
+      }
+
       case 'collection':
         return (
           <Box key={key} sx={{ mb: 2, p: 2, border: '1px solid rgba(0, 0, 0, 0.12)', borderRadius: 1 }}>
@@ -624,12 +747,12 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange }) =
       {exposableProps.map(renderPropertyWithExposure)}
       
       {/* Divider before outputs */}
-      {exposableProps.length > 0 && isManualFlow && metadata.outputs && metadata.outputs.length > 0 && (
+      {isLast && exposableProps.length > 0 && isManualFlow && metadata.outputs && metadata.outputs.length > 0 && (
         <Divider sx={{ my: 2 }} />
       )}
       
       {/* Output Parameters - Exposure UI (manual flows only) */}
-      {isManualFlow && metadata.outputs && metadata.outputs.length > 0 && (
+      {isLast && isManualFlow && metadata.outputs && metadata.outputs.length > 0 && (
         <Box sx={{ mt: 3 }}>
           <Typography 
             variant="caption" 
@@ -666,24 +789,12 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange }) =
                     >
                       {output.displayName || outputId}
                     </Typography>
-                    {/* Output value - read-only display, no input chrome */}
-                    <Box 
-                      sx={{ 
-                        p: 1,
-                        minHeight: '40px',
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        borderRadius: 1,
-                        bgcolor: (theme) => theme.palette.mode === 'dark' 
-                          ? 'rgba(255, 255, 255, 0.02)'
-                          : 'rgba(0, 0, 0, 0.02)',
-                        fontFamily: 'monospace',
-                        fontSize: '0.85rem',
-                        color: 'text.secondary'
-                      }}
-                    >
-                      {output.description || '(output value)'}
-                    </Box>
+                    {/* Output description - compact icon hint */}
+                    {output.description && (
+                      <Tooltip title={output.description} placement="top" arrow>
+                        <InfoOutlinedIcon sx={{ fontSize: '0.95rem', color: 'text.disabled', cursor: 'help', mt: 0.5 }} />
+                      </Tooltip>
+                    )}
                   </Box>
                   <Tooltip 
                     title="Expose this output to make it visible when executing this flow manually or to return it as a value when using this flow as a function in other flows"

@@ -61,7 +61,8 @@ export class JSONOpsNode extends BaseNode {
           { label: 'Get Property', value: 'get-property' },
           { label: 'Has Property', value: 'has-property' },
           { label: 'Keys', value: 'keys' },
-          { label: 'Values', value: 'values' }
+          { label: 'Values', value: 'values' },
+          { label: 'Extract Many', value: 'extract-many' }
         ]
       },
       {
@@ -79,6 +80,32 @@ export class JSONOpsNode extends BaseNode {
         description: 'JSON stringify indent (0 for compact)',
         default: 0,
         required: false
+      },
+      {
+        name: 'extractions',
+        type: 'json',
+        displayName: 'Extractions',
+        description: 'Array of {name, path} objects. Each entry creates a separate output port.',
+        default: [{"name": "", "path": ""}],
+        required: false,
+        syncOutputCount: true,
+        displayOptions: {
+          show: { operation: ['extract-many'] }
+        }
+      }
+    ],
+    
+    ioRules: [
+      {
+        when: { operation: 'extract-many' },
+        outputs: {
+          min: 1,
+          max: 20,
+          default: 1,
+          canAdd: false,
+          canRemove: false,
+          type: 'main'
+        }
       }
     ],
     
@@ -126,50 +153,111 @@ export class JSONOpsNode extends BaseNode {
     },
     
     help: {
-      overview: "Handles JSON parsing, stringification, and property access using dot notation paths. Essential for working with structured data from APIs, configuration objects, and complex data structures.",
+      overview: "Performs JSON operations on incoming data. Supports 7 operations: parse, stringify, get-property, has-property, keys, values, and extract-many. Use extract-many to split a single object into multiple named output ports in one step.",
       useCases: [
         "Parsing JSON strings from HTTP responses or message queues",
-        "Extracting nested properties from complex objects",
+        "Extracting one or more nested properties from complex objects",
+        "Splitting a sensor payload into separate output ports (extract-many)",
         "Converting objects to JSON for storage or transmission",
-        "Validating presence of required fields in data structures"
+        "Validating presence of required fields in data structures",
+        "Listing all keys or values of a JSON object"
+      ],
+      operations: [
+        {
+          name: "parse",
+          description: "Converts a JSON string into a JavaScript object. Fails with bad quality if the input is not valid JSON."
+        },
+        {
+          name: "stringify",
+          description: "Converts an object or value to a JSON string. Use the Indent property (0 = compact, 2 or 4 = pretty-printed)."
+        },
+        {
+          name: "get-property",
+          description: "Reads a single value from an object using dot notation (e.g. 'device.location.city'). The path can also be supplied via the optional Parameter input port."
+        },
+        {
+          name: "has-property",
+          description: "Returns true/false depending on whether the path exists in the input object. Useful for guarding against missing fields before using get-property."
+        },
+        {
+          name: "keys",
+          description: "Returns an array of all top-level property names of the input object."
+        },
+        {
+          name: "values",
+          description: "Returns an array of all top-level property values of the input object."
+        },
+        {
+          name: "extract-many",
+          description: "Extracts multiple values from a single object and routes each one to a separate output port. Define the extractions as a JSON array of {name, path} objects. The number of output handles on the canvas updates automatically as you add or remove entries."
+        }
       ],
       examples: [
         {
-          title: "Parse JSON",
-          description: "Convert JSON string to object",
+          title: "Parse JSON string",
+          description: "Convert a JSON string arriving from an HTTP response into an object",
           configuration: { operation: 'parse' },
           input: '{"name":"Sensor-1","value":42}',
           output: { name: 'Sensor-1', value: 42 }
         },
         {
-          title: "Get Nested Property",
-          description: "Extract deeply nested value",
-          configuration: { operation: 'get-property', path: 'device.location.building' },
-          input: { device: { location: { building: 'A', floor: 2 } } },
-          output: 'A'
-        },
-        {
-          title: "Stringify with Formatting",
-          description: "Convert object to pretty JSON",
+          title: "Stringify with pretty-print",
+          description: "Convert an object to a readable JSON string",
           configuration: { operation: 'stringify', indent: 2 },
           input: { temp: 22.5, unit: 'C' },
           output: '{\n  "temp": 22.5,\n  "unit": "C"\n}'
         },
         {
-          title: "Check Property",
-          description: "Verify field exists",
+          title: "Get nested property",
+          description: "Extract a deeply nested value using dot notation",
+          configuration: { operation: 'get-property', path: 'device.location.building' },
+          input: { device: { location: { building: 'A', floor: 2 } } },
+          output: 'A'
+        },
+        {
+          title: "Check property existence",
+          description: "Verify a field exists before reading it",
           configuration: { operation: 'has-property', path: 'config.enabled' },
           input: { config: { enabled: true } },
           output: true
+        },
+        {
+          title: "Get object keys",
+          description: "List all top-level keys of an object",
+          configuration: { operation: 'keys' },
+          input: { temp: 22.5, humidity: 60, pressure: 1013 },
+          output: ['temp', 'humidity', 'pressure']
+        },
+        {
+          title: "Get object values",
+          description: "List all top-level values of an object",
+          configuration: { operation: 'values' },
+          input: { temp: 22.5, humidity: 60, pressure: 1013 },
+          output: [22.5, 60, 1013]
+        },
+        {
+          title: "Extract many — sensor payload",
+          description: "Split a sensor payload into three separate output ports in one node",
+          configuration: {
+            operation: 'extract-many',
+            extractions: [
+              { name: 'temperature', path: 'readings.temp' },
+              { name: 'humidity',    path: 'readings.hum' },
+              { name: 'timestamp',   path: 'meta.ts' }
+            ]
+          },
+          input: { readings: { temp: 23.1, hum: 55 }, meta: { ts: 1714300000 } },
+          output: ['output-0 → 23.1', 'output-1 → 55', 'output-2 → 1714300000']
         }
       ],
       tips: [
         "Dot notation paths: 'user.profile.email' accesses nested properties",
-        "Parse errors return null with bad quality - check error field",
-        "Indent 0 produces compact JSON, 2 or 4 for readability",
-        "keys operation returns array of property names at root level",
-        "values operation returns array of property values",
-        "Use has-property to avoid errors when fields may be missing"
+        "Array index access is not supported in paths — use array-ops for that",
+        "Parse errors return null with bad quality — the error field contains the message",
+        "Indent 0 produces compact JSON; use 2 or 4 for human-readable output",
+        "For extract-many, each {name, path} entry maps to one output handle — names appear as handle labels on the canvas",
+        "The Parameter input port (index 1) can override the path field at runtime for get-property and has-property",
+        "Use has-property before get-property when a field may be absent to avoid bad-quality propagation"
       ],
       relatedNodes: ["array-ops", "string-ops", "type-convert"]
     }
@@ -194,6 +282,11 @@ export class JSONOpsNode extends BaseNode {
     
     const inputValue = inputData.value;
     const inputQuality = inputData.quality ?? 0;
+
+    // extract-many returns an array directly (one result per extraction)
+    if (operation === 'extract-many') {
+      return this._extractMany(inputValue, inputQuality, node);
+    }
 
     try {
       let result;
@@ -250,6 +343,39 @@ export class JSONOpsNode extends BaseNode {
     } catch (error) {
       return { value: null, error: `JSON parse error: ${error.message}` };
     }
+  }
+
+  /**
+   * Extract multiple values from an object, one per output port
+   * Returns an array of {value, quality} objects aligned to output ports
+   */
+  _extractMany(inputValue, inputQuality, node) {
+    const rawExtractions = this.getParameter(node, 'extractions', []);
+    let extractionsList;
+    try {
+      extractionsList = Array.isArray(rawExtractions) ? rawExtractions
+        : (typeof rawExtractions === 'string' ? JSON.parse(rawExtractions) : []);
+    } catch {
+      extractionsList = [];
+    }
+
+    if (!extractionsList.length) {
+      return [{ value: null, quality: 1, error: 'No extractions configured' }];
+    }
+
+    if (typeof inputValue !== 'object' || inputValue === null) {
+      return extractionsList.map(() => ({ value: null, quality: 1, error: 'Input is not an object' }));
+    }
+
+    return extractionsList.map(({ path }) => {
+      if (!path) return { value: null, quality: 1, error: 'Empty path' };
+      try {
+        const val = this._getNestedProperty(inputValue, path);
+        return { value: val, quality: inputQuality };
+      } catch (err) {
+        return { value: null, quality: 1, error: err.message };
+      }
+    });
   }
 
   /**

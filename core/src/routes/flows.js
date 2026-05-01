@@ -227,9 +227,10 @@ export default async function flowRoutes(app) {
     // Enrich flow definition with current connection data
     if (flow.definition && flow.definition.nodes) {
       // Get all unique connection IDs from nodes
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const connectionIds = new Set();
       flow.definition.nodes.forEach(node => {
-        if (node.data?.connectionId) {
+        if (node.data?.connectionId && UUID_RE.test(node.data.connectionId)) {
           connectionIds.add(node.data.connectionId);
         }
       });

@@ -36,6 +36,9 @@ import { JSONOpsNode } from './data/JSONOpsNode.js';
 // Script nodes
 import { JavaScriptNode } from './scripts/JavaScriptNode.js';
 
+// Communication nodes
+import { HttpRequestNode } from './communication/HttpRequestNode.js';
+
 // File nodes
 import { LoadFileNode } from './files/LoadFileNode.js';
 import { SaveFileNode } from './files/SaveFileNode.js';
@@ -99,6 +102,9 @@ export async function registerAllNodes(options = {}) {
   
   // Script operations (legacy - skip validation until Phase 4 refactor)
   NodeRegistry.register('script-js', JavaScriptNode, { skipValidation: true });
+
+  // Communication operations
+  NodeRegistry.register('http-request', HttpRequestNode);
 
   // File operations
   NodeRegistry.register('load-file', LoadFileNode);

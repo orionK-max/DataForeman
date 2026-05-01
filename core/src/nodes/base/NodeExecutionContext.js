@@ -79,7 +79,16 @@ export class NodeExecutionContext {
     });
     if (!edge) return null;
 
-    return this.nodeOutputs.get(edge.source) || null;
+    const rawOutput = this.nodeOutputs.get(edge.source);
+    if (!rawOutput) return null;
+
+    // Handle multi-output arrays (e.g. extract-many returns [{value, quality}, ...])
+    if (Array.isArray(rawOutput) && edge.sourceHandle) {
+      const srcIdx = parseInt(edge.sourceHandle.replace('output-', '')) || 0;
+      return rawOutput[srcIdx] ?? null;
+    }
+
+    return rawOutput;
   }
 
   /**
