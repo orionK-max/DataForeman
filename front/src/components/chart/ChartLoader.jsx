@@ -70,11 +70,13 @@ const ChartLoader = ({
   const hasQueriedRef = useRef(false); // Track if we've done initial query
   const queryDataRef = useRef(null); // Stable reference to queryData function
   const prevOverrideRef = useRef(null); // Track previous override value (start with null to detect initial override)
+  const tagMetaCacheRef = useRef(null); // Cache tag metadata — static data, only fetch once per chart load
   
   // Load chart configuration
   useEffect(() => {
     let alive = true;
     hasQueriedRef.current = false; // Reset query flag when loading new chart
+    tagMetaCacheRef.current = null; // Invalidate tag metadata cache when chart changes
 
     (async () => {
       setLoadingChart(true);
@@ -226,17 +228,19 @@ const ChartLoader = ({
         return;
       }
 
-      // Fetch tag metadata to get connection_ids and write-on-change settings
-      const tagMetaResponse = await chartComposerService.getTagMetadata(tagIds);
-      const tagMeta = tagMetaResponse.items || [];
+      // Fetch tag metadata to get connection_ids and write-on-change settings.
+      // Metadata is static data (connection_id, on_change config, poll rates) — cache it after
+      // first load and reuse on subsequent background refreshes to avoid repeated DB queries.
+      if (!tagMetaCacheRef.current) {
+        const tagMetaResponse = await chartComposerService.getTagMetadata(tagIds);
+        tagMetaCacheRef.current = tagMetaResponse.items || [];
+        // Update state once so ChartRenderer receives the initial metadata
+        const metadataObj = {};
+        tagMetaCacheRef.current.forEach(meta => { metadataObj[meta.tag_id] = meta; });
+        setTagMetadata(metadataObj);
+      }
+      const tagMeta = tagMetaCacheRef.current;
       const metaMap = new Map(tagMeta.map(t => [t.tag_id, t]));
-      
-      // Store tag metadata for write-on-change feature
-      const metadataObj = {};
-      tagMeta.forEach(meta => {
-        metadataObj[meta.tag_id] = meta;
-      });
-      setTagMetadata(metadataObj);
 
       // Group tags by connection_id
       const tagsByConnection = new Map();
@@ -377,7 +381,7 @@ const ChartLoader = ({
           if (pollRates.length > 0) {
             effectiveInterval = Math.min(...pollRates);
           } else {
-            effectiveInterval = 1000; // Default 1 second
+            effectiveInterval = refreshInterval * 1000; // Fall back to prop when no poll rates stored
           }
         } else {
           effectiveInterval = refreshInterval * 1000; // Fallback to prop
