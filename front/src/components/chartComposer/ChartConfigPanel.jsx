@@ -15,6 +15,9 @@ import {
   FormControlLabel,
   Slider,
   Stack,
+  Switch,
+  Divider,
+  ButtonGroup,
 } from '@mui/material';
 import {
   Add,
@@ -24,7 +27,7 @@ import { useChartComposer } from '../../contexts/ChartComposerContext';
 import ConnectionSelector from './ConnectionSelector';
 import QueryControls from './QueryControls';
 
-const TABS = ['Query List', 'Series', 'Display', 'Axes & Scaling', 'References'];
+const TABS = ['Query List', 'Series', 'Display', 'Axes & Scaling', 'References', 'Forecast'];
 
 const ChartConfigPanel = ({ 
   compact = false,
@@ -42,6 +45,7 @@ const ChartConfigPanel = ({
   onUpdateGridConfig: propUpdateGridConfig = null,
   onUpdateBackgroundConfig: propUpdateBackgroundConfig = null,
   onUpdateDisplayConfig: propUpdateDisplayConfig = null,
+  onUpdateForecastConfig: propUpdateForecastConfig = null,
 }) => {
   // Try to get from context, but allow props to override
   let contextValues = null;
@@ -64,6 +68,7 @@ const ChartConfigPanel = ({
   const updateGridConfig = propUpdateGridConfig || contextValues?.updateGridConfig;
   const updateBackgroundConfig = propUpdateBackgroundConfig || contextValues?.updateBackgroundConfig;
   const updateDisplayConfig = propUpdateDisplayConfig || contextValues?.updateDisplayConfig;
+  const updateForecastConfig = propUpdateForecastConfig || contextValues?.updateForecastConfig;
 
   // Validate that we have the required data
   if (!chartConfig) {
@@ -1244,9 +1249,177 @@ const ChartConfigPanel = ({
           </Box>
         );
 
+      case 5: // Forecast
+        return renderForecastTab();
+
       default:
         return null;
     }
+  };
+
+  const renderForecastTab = () => {
+    const fc = chartConfig.forecast || {};
+    const enabled = !!fc.enabled;
+    const mode = fc.mode || 'simple';
+    const horizon = fc.horizon ?? 24;
+    const autoRefreshMs = fc.autoRefreshMs ?? 0;
+    const vizMode = fc.vizMode || 'line';
+    const selectedTagIds = fc.selectedTagIds || [];
+
+    const AUTO_REFRESH_OPTIONS = [
+      { label: 'Off', value: 0 },
+      { label: '5 min', value: 300000 },
+      { label: '15 min', value: 900000 },
+      { label: '30 min', value: 1800000 },
+      { label: '1 hour', value: 3600000 },
+    ];
+
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={enabled}
+              onChange={(e) => updateForecastConfig?.('enabled', e.target.checked)}
+            />
+          }
+          label={<Typography variant="body2" sx={{ fontWeight: 600 }}>Enable AI Forecast</Typography>}
+        />
+
+        {!enabled && (
+          <Typography variant="caption" color="text.secondary">
+            When enabled, a forecast icon appears in the chart toolbar. Click it to generate predictions using TimesFM.
+          </Typography>
+        )}
+
+        {enabled && (
+          <>
+            <Divider />
+
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
+                MODE
+              </Typography>
+              <ButtonGroup size="small" variant="outlined">
+                <Button
+                  variant={mode === 'simple' ? 'contained' : 'outlined'}
+                  onClick={() => updateForecastConfig?.('mode', 'simple')}
+                  sx={{ textTransform: 'none', fontSize: '0.8125rem' }}
+                >
+                  Simple
+                </Button>
+                <Button
+                  variant={mode === 'research' ? 'contained' : 'outlined'}
+                  onClick={() => updateForecastConfig?.('mode', 'research')}
+                  sx={{ textTransform: 'none', fontSize: '0.8125rem' }}
+                >
+                  Research
+                </Button>
+              </ButtonGroup>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                {mode === 'simple'
+                  ? 'Single dashed line for all visible tags.'
+                  : 'Select tags, visualization style, and confidence bands.'}
+              </Typography>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, minWidth: 60 }}>
+                HORIZON
+              </Typography>
+              <TextField
+                value={horizon}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
+                  if (!isNaN(val) && val > 0) updateForecastConfig?.('horizon', val);
+                }}
+                size="small"
+                sx={{ width: 80, '& .MuiInputBase-root': { fontSize: '0.8125rem', height: 28 } }}
+              />
+              <Typography variant="caption" color="text.secondary">steps</Typography>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, minWidth: 60 }}>
+                AUTO-REFRESH
+              </Typography>
+              <Select
+                value={autoRefreshMs}
+                onChange={(e) => updateForecastConfig?.('autoRefreshMs', e.target.value)}
+                size="small"
+                sx={{ minWidth: 110, fontSize: '0.8125rem', height: 28, '& .MuiSelect-select': { py: 0.5, fontSize: '0.8125rem' } }}
+              >
+                {AUTO_REFRESH_OPTIONS.map(opt => (
+                  <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.8125rem' }}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </Box>
+
+            {mode === 'research' && (
+              <>
+                <Divider />
+
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
+                    TAGS TO FORECAST
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, maxHeight: 120, overflow: 'auto' }}>
+                    {(chartConfig.tagConfigs || []).filter(t => !t.hidden).map(tag => {
+                      const tagId = tag.tag_id;
+                      const allIds = (chartConfig.tagConfigs || []).filter(t => !t.hidden).map(t => t.tag_id);
+                      const checked = selectedTagIds.length === 0 || selectedTagIds.includes(tagId);
+                      return (
+                        <FormControlLabel
+                          key={tagId}
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={checked}
+                              onChange={(e) => {
+                                let next = selectedTagIds.length === 0 ? [...allIds] : [...selectedTagIds];
+                                if (e.target.checked) {
+                                  next = [...new Set([...next, tagId])];
+                                } else {
+                                  next = next.filter(id => id !== tagId);
+                                }
+                                if (next.length === allIds.length) next = [];
+                                updateForecastConfig?.('selectedTagIds', next);
+                              }}
+                              sx={{ p: 0.5 }}
+                            />
+                          }
+                          label={<Typography variant="caption">{tag.alias || tag.tag_name || `Tag ${tag.tag_id}`}</Typography>}
+                          sx={{ m: 0 }}
+                        />
+                      );
+                    })}
+                  </Box>
+                </Box>
+
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
+                    VISUALIZATION STYLE
+                  </Typography>
+                  <Select
+                    value={vizMode}
+                    onChange={(e) => updateForecastConfig?.('vizMode', e.target.value)}
+                    size="small"
+                    sx={{ minWidth: 160, fontSize: '0.8125rem', height: 28, '& .MuiSelect-select': { py: 0.5, fontSize: '0.8125rem' } }}
+                  >
+                    <MenuItem value="line" sx={{ fontSize: '0.8125rem' }}>Line only</MenuItem>
+                    <MenuItem value="line_band" sx={{ fontSize: '0.8125rem' }}>Line + confidence band</MenuItem>
+                    <MenuItem value="fan" sx={{ fontSize: '0.8125rem' }}>Fan (multiple quantiles)</MenuItem>
+                  </Select>
+                </Box>
+              </>
+            )}
+          </>
+        )}
+      </Box>
+    );
   };
 
 

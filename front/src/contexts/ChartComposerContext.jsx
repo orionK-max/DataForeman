@@ -43,6 +43,7 @@ export const ChartComposerProvider = ({ children }) => {
     interpolation: 'linear',
     xAxisTickCount: 5, // Default X-axis tick count
     extendCurveEdges: true, // Extend anchor ghost points beyond chart edges to preserve smooth curve shape
+    forecast: { enabled: false, mode: 'simple', horizon: 24, autoRefreshMs: 0, selectedTagIds: [], vizMode: 'line' },
   });
   const [loadedChart, setLoadedChart] = useState(null); // { id, name, is_shared }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -164,6 +165,14 @@ export const ChartComposerProvider = ({ children }) => {
     setChartConfig(prev => ({
       ...prev,
       display: { ...prev.display, [field]: value },
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const updateForecastConfig = useCallback((field, value) => {
+    setChartConfig(prev => ({
+      ...prev,
+      forecast: { ...(prev.forecast || {}), [field]: value },
     }));
     setHasUnsavedChanges(true);
   }, []);
@@ -465,6 +474,14 @@ export const ChartComposerProvider = ({ children }) => {
             display: opts.display,
           }));
         }
+
+        // Update forecast config if present
+        if (opts.forecast) {
+          setChartConfig(prev => ({
+            ...prev,
+            forecast: opts.forecast,
+          }));
+        }
         
         // Update interpolation if present
         if (opts.interpolation) {
@@ -594,6 +611,7 @@ export const ChartComposerProvider = ({ children }) => {
       background: { color: '#000000', opacity: 1 },
       display: { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
       interpolation: 'linear',
+      forecast: { enabled: false, mode: 'simple', horizon: 24, autoRefreshMs: 0, selectedTagIds: [], vizMode: 'line' },
     });
     setHasUnsavedChanges(false);
     setNeedsAutoQuery(false);
@@ -918,6 +936,7 @@ export const ChartComposerProvider = ({ children }) => {
     updateGridConfig,
     updateBackgroundConfig,
     updateDisplayConfig,
+    updateForecastConfig,
     updateSelectedTags,
     queryData,
     loadSavedTags,

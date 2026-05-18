@@ -128,6 +128,8 @@ services:
       # NanoMQ HTTP API credentials
       MQTT_BROKER_HTTP_USER: ${MQTT_BROKER_HTTP_USER:-nmqadmin}
       MQTT_BROKER_HTTP_PASSWORD: ${MQTT_BROKER_HTTP_PASSWORD:-nMQ_Adm1n_Ch4ng3_M3_N0w_3f7a9b2c}
+      # Forecast service
+      FORECAST_SERVICE_URL: ${FORECAST_SERVICE_URL:-http://forecast:8100}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
       interval: 5s
@@ -242,6 +244,22 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - front
+
+  forecast:
+    build: ./forecast
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    environment:
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - ./var/timesfm-cache:/root/.cache/huggingface
+    # Internal only — only core needs to reach it
+    expose:
+      - "8100"
 
 volumes:
   db-data:

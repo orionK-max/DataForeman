@@ -153,6 +153,8 @@ const SaveChartButton = () => {
             showTooltip: chartConfig.display?.showTooltip === true,
             legendPosition: chartConfig.display?.legendPosition || 'bottom',
           },
+          // Forecast settings
+          ...(chartConfig.forecast ? { forecast: chartConfig.forecast } : {}),
           // Global interpolation (optional)
           interpolation: chartConfig.interpolation || 'linear',
           // X-axis tick count

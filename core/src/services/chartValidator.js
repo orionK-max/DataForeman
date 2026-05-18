@@ -269,6 +269,18 @@ export function validateChartOptions(options, { partial = false, strict = false 
   } else if (!partial) {
     value.xAxisTickCount = 5;
   }
+
+  // Forecast config — pass through as-is (structure validated loosely)
+  if (options.forecast && typeof options.forecast === 'object') {
+    value.forecast = {
+      enabled: options.forecast.enabled === true,
+      mode: ['simple', 'research'].includes(options.forecast.mode) ? options.forecast.mode : 'simple',
+      horizon: Number.isInteger(options.forecast.horizon) && options.forecast.horizon > 0 ? options.forecast.horizon : 24,
+      autoRefreshMs: Number.isFinite(options.forecast.autoRefreshMs) && options.forecast.autoRefreshMs >= 0 ? options.forecast.autoRefreshMs : 0,
+      selectedTagIds: Array.isArray(options.forecast.selectedTagIds) ? options.forecast.selectedTagIds.filter(id => typeof id === 'number') : [],
+      vizMode: ['line', 'band', 'fan'].includes(options.forecast.vizMode) ? options.forecast.vizMode : 'line',
+    };
+  }
   
   return {
     valid: errors.length === 0,

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button, Paper, Toolbar, Divider, Chip, Tooltip, Switch, FormControlLabel, TextField, MenuItem } from '@mui/material';
-import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight, ScatterPlot } from '@mui/icons-material';
+import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button, Paper, Toolbar, Divider, Chip, Tooltip, Switch, FormControlLabel, TextField, MenuItem, CircularProgress } from '@mui/material';
+import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight, ScatterPlot, AutoGraph } from '@mui/icons-material';
 import { ChartComposerProvider, useChartComposer } from '../contexts/ChartComposerContext';
 import ChartRenderer from '../components/chartComposer/ChartRenderer';
 import PointsTable from '../components/chartComposer/PointsTable';
@@ -31,6 +31,7 @@ const ChartComposerContent = () => {
     updateGridConfig,
     updateBackgroundConfig,
     updateDisplayConfig,
+    updateForecastConfig,
     autoRefresh, 
     setAutoRefresh,
     refreshIntervalValue,
@@ -78,7 +79,23 @@ const ChartComposerContent = () => {
   const [compactMode, setCompactMode] = React.useState(false); // Preview compact dashboard view
   const [showPreferences, setShowPreferences] = React.useState(false); // Chart preferences panel
   const [crosshairEnabled, setCrosshairEnabled] = React.useState(false); // Crosshair toggle
+  const [forecastLoading, setForecastLoading] = React.useState(false); // Mirrors ChartRenderer forecast loading state
   const chartRef = React.useRef(null); // Reference to chart for zoom controls
+
+  const handleForecastClick = React.useCallback(() => {
+    if (!chartRef.current) return;
+    setForecastLoading(true);
+    chartRef.current.triggerForecast();
+    // Poll until done (ChartRenderer manages the actual state; we just reflect loading visually)
+    const poll = setInterval(() => {
+      if (chartRef.current && !chartRef.current.isForecastLoading()) {
+        setForecastLoading(false);
+        clearInterval(poll);
+      }
+    }, 500);
+    // Safety timeout
+    setTimeout(() => { setForecastLoading(false); clearInterval(poll); }, 120000);
+  }, []);
 
   // Chart resize handlers
   const handleResizeStart = React.useCallback((e) => {
@@ -384,6 +401,21 @@ const ChartComposerContent = () => {
                   Points
                 </Button>
               </Tooltip>
+              {chartConfig.forecast?.enabled && (
+                <Tooltip title="Generate AI forecast for visible tags">
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="primary"
+                    startIcon={forecastLoading ? <CircularProgress size={14} color="inherit" /> : <AutoGraph />}
+                    onClick={handleForecastClick}
+                    disabled={forecastLoading}
+                    sx={{ minWidth: 110 }}
+                  >
+                    Forecast
+                  </Button>
+                </Tooltip>
+              )}
               <Tooltip title="Live auto-refresh">
                 <Button
                   size="small"
@@ -556,7 +588,7 @@ const ChartComposerContent = () => {
                   loading={loading}
                   compactMode={compactMode}
                   requestedTimeRange={timeRange}
-                  options={{ xAxisTickCount: chartConfig.xAxisTickCount, extendCurveEdges: chartConfig.extendCurveEdges ?? true }}
+                  options={{ xAxisTickCount: chartConfig.xAxisTickCount, extendCurveEdges: chartConfig.extendCurveEdges ?? true, forecast: chartConfig.forecast }}
                   onZoomChange={(xDomain, yDomain) => setVisibleTimeRange(xDomain)}
                   tagMetadata={tagMetadata}
                   lastValuesBefore={lastValuesBefore}
@@ -569,6 +601,7 @@ const ChartComposerContent = () => {
                   updateGridConfig={updateGridConfig}
                   updateBackgroundConfig={updateBackgroundConfig}
                   updateDisplayConfig={updateDisplayConfig}
+                  updateForecastConfig={updateForecastConfig}
                   updateChartConfig={updateChartConfig}
                   onPreferencesClose={handlePreferencesClose}
                   timeModeBadge={{

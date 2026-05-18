@@ -621,6 +621,50 @@ export const ChartOptionsSchema = {
       max: 20,
       default: 5,
       description: 'Number of X-axis tick marks'
+    },
+
+    // Forecast configuration (TimesFM)
+    forecast: {
+      type: 'object',
+      required: false,
+      description: 'AI forecast settings (TimesFM)',
+      properties: {
+        enabled: {
+          type: 'boolean',
+          default: false,
+          description: 'Whether forecast overlay is active'
+        },
+        mode: {
+          type: 'enum',
+          values: ['simple', 'research'],
+          default: 'simple',
+          description: 'simple = all tags, single line; research = tag picker + viz style'
+        },
+        horizon: {
+          type: 'integer',
+          default: 24,
+          min: 1,
+          max: 256,
+          description: 'Number of future steps to predict'
+        },
+        autoRefreshMs: {
+          type: 'integer',
+          default: 0,
+          description: 'Auto-refresh interval in ms (0 = off)'
+        },
+        selectedTagIds: {
+          type: 'array',
+          required: false,
+          default: [],
+          description: 'Tag IDs to forecast in research mode (empty = all visible tags)'
+        },
+        vizMode: {
+          type: 'enum',
+          values: ['line', 'line_band', 'fan'],
+          default: 'line',
+          description: 'Visualization style for research mode'
+        }
+      }
     }
   }
 };

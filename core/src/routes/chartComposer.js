@@ -1048,4 +1048,34 @@ export async function chartComposerRoutes(app) {
       return reply.code(500).send({ error: 'metadata_fetch_failed' });
     }
   });
+
+  // Enqueue a forecast_generation job for the given tags + time range.
+  // Returns immediately with the job object; client polls GET /api/jobs/:id for result.
+  app.post('/forecast', async (req, reply) => {
+    const { tag_ids, conn_id, from, to, horizon = 24, quantiles = false } = req.body || {};
+
+    if (!Array.isArray(tag_ids) || tag_ids.length === 0) {
+      return reply.code(400).send({ error: 'tag_ids array is required' });
+    }
+    if (!from || !to) {
+      return reply.code(400).send({ error: 'from and to are required' });
+    }
+
+    try {
+      const job = await app.jobs.enqueue('forecast_generation', {
+        tag_ids: tag_ids.map(Number),
+        conn_id: conn_id || null,
+        from,
+        to,
+        horizon: Math.min(256, Math.max(1, Number(horizon))),
+        quantiles: Boolean(quantiles)
+      }, {});
+
+      req.log.info({ jobId: job.id, tag_ids, from, to, horizon }, 'forecast job enqueued');
+      return job;
+    } catch (e) {
+      req.log.error({ err: e }, 'failed to enqueue forecast job');
+      return reply.code(500).send({ error: 'failed to enqueue forecast' });
+    }
+  });
 }

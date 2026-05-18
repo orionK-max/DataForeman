@@ -187,6 +187,32 @@ export const chartComposerService = {
    */
   executeImport: (importData, validation, newName = null) =>
     apiClient.post('/charts/import/execute', { importData, validation, newName }),
+
+  // ===== Forecast =====
+
+  /**
+   * Enqueue a forecast generation job for the given tags + time range.
+   * Returns a job object immediately; poll getForecastJob(id) for status/result.
+   * @param {Object} params
+   * @param {number[]} params.tag_ids
+   * @param {string} params.from - ISO timestamp
+   * @param {string} params.to - ISO timestamp
+   * @param {number} params.horizon - Number of steps to predict (1-256)
+   * @param {boolean} params.quantiles - Include lower/upper bands
+   * @param {string|null} params.conn_id
+   * @returns {Promise<Object>} Job object { id, status, ... }
+   */
+  enqueueForecast: ({ tag_ids, from, to, horizon = 24, quantiles = false, conn_id = null }) =>
+    apiClient.post('/historian/forecast', { tag_ids, from, to, horizon, quantiles, conn_id }),
+
+  /**
+   * Poll a forecast job by ID. Check job.status ('queued'|'running'|'done'|'failed').
+   * Result is in job.result.tags when status === 'done'.
+   * @param {string} jobId
+   * @returns {Promise<Object>} Job object
+   */
+  getForecastJob: (jobId) =>
+    apiClient.get(`/jobs/${jobId}`),
 };
 
 export default chartComposerService;

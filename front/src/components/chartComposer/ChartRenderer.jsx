@@ -1,9 +1,10 @@
 import React from 'react';
-import { Card, CardContent, Box, CircularProgress, Typography, IconButton, Stack, Tooltip, Switch, FormControlLabel, TextField, MenuItem, useTheme } from '@mui/material';
-import { ZoomIn, ZoomOut, RestartAlt, Settings, DashboardCustomize, ChevronLeft, ChevronRight } from '@mui/icons-material';
+import { Card, CardContent, Box, CircularProgress, Typography, IconButton, Stack, Tooltip, Switch, FormControlLabel, TextField, MenuItem, useTheme, Snackbar, Alert } from '@mui/material';
+import { ZoomIn, ZoomOut, RestartAlt, Settings, DashboardCustomize, ChevronLeft, ChevronRight, AutoGraph, Clear } from '@mui/icons-material';
 import ReactECharts from 'echarts-for-react';
 import ChartConfigPanel from './ChartConfigPanel';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
+import chartComposerService from '../../services/chartComposerService';
 
 const ChartRenderer = React.forwardRef(({ 
   data = [], 
@@ -44,6 +45,7 @@ const ChartRenderer = React.forwardRef(({
   updateGridConfig = null,
   updateBackgroundConfig = null,
   updateDisplayConfig = null,
+  updateForecastConfig = null,
   updateChartConfig = null,
   onPreferencesClose = null,
   onResetZoom = null,
@@ -92,11 +94,23 @@ const ChartRenderer = React.forwardRef(({
   // Expose methods via ref for parent
   React.useImperativeHandle(ref, () => ({
     getEchartsInstance: () => chartRef.current?.getEchartsInstance(),
+    triggerForecast: () => handleRecalculate(),
+    clearForecast: () => { setForecastData(null); setForecastLastRun(null); },
+    isForecastLoading: () => forecastLoading,
+    hasForecastData: () => !!forecastData,
   }));
   
   // Persistent storage for last heartbeat values for write-on-change tags
   // Structure: { tagId: { value, originalTime, heartbeatInterval } }
   const persistedHeartbeats = React.useRef({});
+
+  // Forecast state
+  const [forecastData, setForecastData] = React.useState(null); // { tags: [...] }
+  const [forecastJobId, setForecastJobId] = React.useState(null);
+  const [forecastLoading, setForecastLoading] = React.useState(false);
+  const [forecastLastRun, setForecastLastRun] = React.useState(null);
+  const [forecastToast, setForecastToast] = React.useState(null); // { severity, message }
+  const forecastAutoRefreshRef = React.useRef(null);
   
   // Watch for shouldOpenPreferences flag and open preferences panel
   React.useEffect(() => {
@@ -105,6 +119,91 @@ const ChartRenderer = React.forwardRef(({
       setShouldOpenPreferences(false); // Reset the flag
     }
   }, [shouldOpenPreferences, setShouldOpenPreferences]);
+
+  // Forecast: trigger job and build data
+  const handleRecalculate = React.useCallback(async () => {
+    const forecastConfig = options?.forecast;
+    if (!forecastConfig?.enabled) return;
+    const visibleTags = tagConfigs.filter(t => !t.hidden);
+    if (!visibleTags.length) return;
+
+    const tagIds = forecastConfig.mode === 'research' && forecastConfig.selectedTagIds?.length
+      ? forecastConfig.selectedTagIds
+      : visibleTags.map(t => t.tag_id);
+
+    const needsQuantiles = forecastConfig.mode === 'research' && forecastConfig.vizMode !== 'line';
+
+    setForecastLoading(true);
+    setForecastData(null);
+    try {
+      const job = await chartComposerService.enqueueForecast({
+        tag_ids: tagIds,
+        from: requestedTimeRange?.from instanceof Date ? requestedTimeRange.from.toISOString() : requestedTimeRange?.from,
+        to: requestedTimeRange?.to instanceof Date ? requestedTimeRange.to.toISOString() : requestedTimeRange?.to,
+        horizon: forecastConfig.horizon || 24,
+        quantiles: needsQuantiles,
+      });
+      setForecastJobId(job.id);
+    } catch {
+      setForecastLoading(false);
+      setForecastToast({ severity: 'error', message: 'Failed to start forecast job.' });
+    }
+  }, [options?.forecast, tagConfigs, requestedTimeRange]);
+
+  // Poll forecast job
+  React.useEffect(() => {
+    if (!forecastJobId) return;
+    const poll = async () => {
+      try {
+        const job = await chartComposerService.getForecastJob(forecastJobId);
+        if (job.status === 'completed' || job.status === 'done') {
+          setForecastLoading(false);
+          setForecastJobId(null);
+          setForecastLastRun(new Date());
+
+          // Check if all tags failed
+          const tags = job.result?.tags || [];
+          const successTags = tags.filter(t => !t.error);
+          const failedTags = tags.filter(t => t.error);
+
+          if (successTags.length === 0) {
+            const firstError = failedTags[0]?.error || 'unknown';
+            const msg = firstError === 'forecast_service_unavailable'
+              ? 'Forecast service is not running. Start the forecast Docker container.'
+              : firstError === 'insufficient_data' || firstError === 'insufficient_numeric_data'
+                ? 'Not enough data to generate forecast. Try a longer time range.'
+                : `Forecast failed: ${firstError}`;
+            setForecastToast({ severity: 'error', message: msg });
+          } else {
+            if (failedTags.length > 0) {
+              setForecastToast({ severity: 'warning', message: `Forecast generated for ${successTags.length} tag(s). ${failedTags.length} tag(s) had insufficient data.` });
+            }
+            setForecastData({ tags: successTags });
+          }
+        } else if (job.status === 'failed') {
+          setForecastLoading(false);
+          setForecastJobId(null);
+          const msg = job.error === 'model_loading'
+            ? 'Forecast model is warming up. Please try again in a moment.'
+            : (job.error || 'Forecast generation failed.');
+          setForecastToast({ severity: 'warning', message: msg });
+        }
+      } catch {
+        // ignore transient poll errors
+      }
+    };
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, [forecastJobId]);
+
+  // Auto-refresh forecast
+  React.useEffect(() => {
+    if (forecastAutoRefreshRef.current) clearInterval(forecastAutoRefreshRef.current);
+    const refreshMs = options?.forecast?.autoRefreshMs;
+    if (!options?.forecast?.enabled || !refreshMs || refreshMs <= 0) return;
+    forecastAutoRefreshRef.current = setInterval(() => handleRecalculate(), refreshMs);
+    return () => clearInterval(forecastAutoRefreshRef.current);
+  }, [options?.forecast?.enabled, options?.forecast?.autoRefreshMs, handleRecalculate]);
   
   // Trigger callback when preferences close
   React.useEffect(() => {
@@ -732,6 +831,73 @@ const ChartRenderer = React.forwardRef(({
       });
     }
     
+    // Inject forecast series
+    if (forecastData?.tags) {
+      const forecastConfig = options?.forecast;
+      const vizMode = forecastConfig?.vizMode || 'line';
+      const showBand = forecastConfig?.mode === 'research' && (vizMode === 'line_band' || vizMode === 'fan');
+
+      forecastData.tags.forEach(tagForecast => {
+        if (tagForecast.error || !tagForecast.timestamps?.length) return;
+        const tagConfig = tagConfigs.find(t => t.tag_id === tagForecast.tag_id);
+        if (!tagConfig || tagConfig.hidden) return;
+        const axisId = tagConfig.axisId || 'default';
+        const yAxisIndex = echartsData.axisIndexMap.get(axisId) ?? 0;
+        const color = tagConfig.color || '#3b82f6';
+        const label = tagConfig.alias || tagConfig.tag_name || `Tag ${tagConfig.tag_id}`;
+
+        const pointData = tagForecast.timestamps.map((ts, i) => [new Date(ts).getTime(), tagForecast.point_forecast[i]]);
+
+        // Point forecast line
+        processedSeries.push({
+          name: `${label} (Forecast)`,
+          type: 'line',
+          data: pointData,
+          showSymbol: false,
+          lineStyle: { color, width: Math.max(1, (tagConfig.thickness || 2) - 0.5), type: 'dashed', opacity: 0.8 },
+          itemStyle: { color },
+          yAxisIndex,
+          connectNulls: false,
+          z: 3,
+        });
+
+        // Confidence band
+        if (showBand && tagForecast.lower_band && tagForecast.upper_band) {
+          const lowerData = tagForecast.timestamps.map((ts, i) => [new Date(ts).getTime(), tagForecast.lower_band[i]]);
+          const upperData = tagForecast.timestamps.map((ts, i) => [new Date(ts).getTime(), tagForecast.upper_band[i] - tagForecast.lower_band[i]]);
+          const stackKey = `_forecast_band_${tagForecast.tag_id}`;
+          processedSeries.push({
+            name: `_forecast_lower_${tagForecast.tag_id}`,
+            type: 'line',
+            data: lowerData,
+            showSymbol: false,
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: 'transparent' },
+            stack: stackKey,
+            yAxisIndex,
+            connectNulls: false,
+            tooltip: { show: false },
+            legendHoverLink: false,
+            z: 2,
+          });
+          processedSeries.push({
+            name: `_forecast_upper_${tagForecast.tag_id}`,
+            type: 'line',
+            data: upperData,
+            showSymbol: false,
+            lineStyle: { opacity: 0.2, color, type: 'dashed' },
+            areaStyle: { color, opacity: 0.12 },
+            stack: stackKey,
+            yAxisIndex,
+            connectNulls: false,
+            tooltip: { show: false },
+            legendHoverLink: false,
+            z: 2,
+          });
+        }
+      });
+    }
+
     // Calculate grid margins based on axes with offsets
     const leftAxes = yAxisConfig.filter(axis => axis.position === 'left');
     const rightAxes = yAxisConfig.filter(axis => axis.position === 'right');
@@ -851,12 +1017,14 @@ const ChartRenderer = React.forwardRef(({
         show: display.showLegend !== false && !compactMode,
         bottom: 0,
         type: 'scroll',
+        formatter: (name) => (name.startsWith('_forecast_') ? '' : name),
         textStyle: {
           color: '#fff',
         },
         pageTextStyle: {
           color: '#fff',
         },
+        selector: false,
       },
       xAxis: (() => {
         // Calculate minInterval dynamically based on time range and tick count
@@ -864,15 +1032,24 @@ const ChartRenderer = React.forwardRef(({
         if (requestedTimeRange) {
           const timeRangeMs = new Date(requestedTimeRange.to).getTime() - new Date(requestedTimeRange.from).getTime();
           const tickCount = options?.xAxisTickCount ?? 5;
-          // Calculate the interval per tick, then set minInterval to 1/10th of that to allow flexibility
           const intervalPerTick = timeRangeMs / tickCount;
-          minInterval = Math.max(1000, intervalPerTick / 10); // At least 1 second
+          minInterval = Math.max(1000, intervalPerTick / 10);
         }
-        
+
+        // Extend x-axis max to cover forecast timestamps if present
+        let xMax = requestedTimeRange ? new Date(requestedTimeRange.to).getTime() : 'dataMax';
+        if (forecastData?.tags) {
+          forecastData.tags.forEach(tagForecast => {
+            if (!tagForecast.timestamps?.length) return;
+            const lastTs = new Date(tagForecast.timestamps[tagForecast.timestamps.length - 1]).getTime();
+            if (xMax === 'dataMax' || lastTs > xMax) xMax = lastTs;
+          });
+        }
+
         return {
           type: 'time',
           min: requestedTimeRange ? new Date(requestedTimeRange.from).getTime() : 'dataMin',
-          max: requestedTimeRange ? new Date(requestedTimeRange.to).getTime() : 'dataMax',
+          max: xMax,
           boundaryGap: false,
           axisPointer: {
             show: true,
@@ -943,7 +1120,7 @@ const ChartRenderer = React.forwardRef(({
         },
       ],
     };
-  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme, showDataPoints]);
+  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme, showDataPoints, forecastData, options]);
 
   // Loading state
   if (loading) {
@@ -968,6 +1145,7 @@ const ChartRenderer = React.forwardRef(({
   const hasNoData = !data || data.length === 0;
 
   return (
+    <>
     <Card sx={{ 
       height, 
       display: 'flex', 
@@ -1097,6 +1275,31 @@ const ChartRenderer = React.forwardRef(({
 
           {/* Right side controls */}
           <Stack direction="row" spacing={0.5} alignItems="center">
+            {/* Forecast controls — visible when forecast is enabled and context supports it */}
+            {!showPreferences && options?.forecast?.enabled && (contextType === 'composer' || contextType === 'dashboard') && (
+              <>
+                <Tooltip title={forecastLastRun ? `Last forecast: ${Math.round((Date.now() - forecastLastRun.getTime()) / 60000)} min ago — click to recalculate` : 'Generate forecast'}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={handleRecalculate}
+                      disabled={forecastLoading}
+                      sx={{ color: forecastData ? 'primary.main' : 'inherit' }}
+                    >
+                      {forecastLoading ? <CircularProgress size={16} /> : <AutoGraph fontSize="small" />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                {forecastData && (
+                  <Tooltip title="Clear forecast overlay">
+                    <IconButton size="small" onClick={() => { setForecastData(null); setForecastLastRun(null); }}>
+                      <Clear fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </>
+            )}
+
             {/* Unsaved changes indicator */}
             {hasUnsavedChanges && !showPreferences && (
               <Typography variant="caption" color="warning.main" sx={{ mr: 1 }}>
@@ -1162,6 +1365,7 @@ const ChartRenderer = React.forwardRef(({
                   display,
                   xAxisTickCount: options?.xAxisTickCount ?? 5,
                   extendCurveEdges: options?.extendCurveEdges ?? true,
+                  forecast: options?.forecast ?? { enabled: false, mode: 'simple', horizon: 24, autoRefreshMs: 0, selectedTagIds: [], vizMode: 'line' },
                 }}
                 onUpdateTagConfig={updateTagConfig}
                 onUpdateAxis={updateAxis}
@@ -1173,6 +1377,7 @@ const ChartRenderer = React.forwardRef(({
                 onUpdateGridConfig={updateGridConfig}
                 onUpdateBackgroundConfig={updateBackgroundConfig}
                 onUpdateDisplayConfig={updateDisplayConfig}
+                onUpdateForecastConfig={updateForecastConfig}
                 onUpdateChartConfig={updateChartConfig}
               />
             </Box>
@@ -1313,6 +1518,19 @@ const ChartRenderer = React.forwardRef(({
         </Box>
       </CardContent>
     </Card>
+
+    {/* Forecast status toast */}
+    <Snackbar
+      open={!!forecastToast}
+      autoHideDuration={6000}
+      onClose={() => setForecastToast(null)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+    >
+      <Alert onClose={() => setForecastToast(null)} severity={forecastToast?.severity || 'info'} sx={{ width: '100%' }}>
+        {forecastToast?.message}
+      </Alert>
+    </Snackbar>
+  </>
   );
 });
 
