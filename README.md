@@ -772,6 +772,19 @@ Validation runs automatically during `npm start` and `npm run start:rebuild`.
 - **[Developer Guide](docs/permission-system-developer-guide.md)** - Permission system guide
 - **[Testing Checklist](docs/permission-system-testing-checklist.md)** - Testing procedures
 
+### Versioning
+
+The app version must be updated in **two places** when cutting a release:
+
+1. **`package.json`** (root) — `"version"` field; source of truth for the repo
+2. **`docker-compose.yml`** — `APP_VERSION` default value in the core service environment (e.g., `APP_VERSION: ${APP_VERSION:-0.7.0}`)
+
+The `APP_VERSION` env var is passed into the core container and used for:
+- Extension compatibility checks (`requires.dataforemanVersion` in `library.manifest.json`)
+- Displayed in the UI and API responses
+
+Keep both in sync on every release.
+
 ### Database Migrations
 
 Migrations are located in `core/migrations/` and `core/migrations-tsdb/`. The project uses a **per-release migration strategy**:

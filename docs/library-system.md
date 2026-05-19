@@ -2,81 +2,14 @@
 
 ## Overview
 
-DataForeman's Extension System enables developers to create, distribute, and install **installable modules** that can extend any part of the platform — not just Flow Studio nodes. This mechanism allows organizations to:
-
-- Package proprietary business logic as reusable flow nodes
-- Distribute specialized industrial protocol handlers
-- Add entirely new features (pages, API endpoints, job workers, chart integrations)
-- Bundle heavy optional capabilities (e.g., AI forecasting, ML anomaly detection) that not every user needs
-- Share custom PLC code generation capabilities
-- Extend platform functionality without modifying core code
-
-There are two module types:
+DataForeman's Extension System enables developers to create, distribute, and install **installable modules** that extend any part of the platform — not just Flow Studio nodes. There are two module types:
 
 | Type | Key | Purpose |
 |------|-----|---------|
 | **Library** | `type: "node-library"` | Provides new Flow Studio nodes only |
-| **Extension** | `type: "extension"` | Can provide nodes, API routes, job workers, and frontend UI |
+| **Extension** | `type: "extension"` | Nodes, API routes, job workers, and/or frontend UI |
 
-Forecast, advanced analytics, and other large optional capabilities should be packaged as **extensions**.
-
----
-
-## Roadmap: What Needs to Be Built
-
-The current system is functional for node libraries but needs additional infrastructure to support full extensions. Below is the outstanding work list — update status as work progresses.
-
-### Agreed Extension Install Flow
-
-When a user installs an extension that requires a sidecar Docker service:
-
-1. Extension ZIP uploaded via **Admin → Libraries**
-2. DF installs the extension (nodes, API routes, job workers registered)
-3. DF writes `EXTENSION_<NAME>_ENABLED=true` to the `# Extensions` section of `.env`
-4. DF shells out: `docker compose --profile <name> up -d` (Docker socket already mounted — same mechanism as Diagnostics page service restart)
-5. Library Manager shows download/startup progress via health URL polling
-6. On first install, UI shows: *"Starting for the first time may take several minutes while the service image downloads."*
-7. Extension appears in **Diagnostics page** service list (dynamically, based on installed extensions — not hardcoded)
-8. On uninstall: DF stops the container and removes the `.env` flag
-
-**Prerequisites in `docker-compose.yml` (done at release time, not by user):**
-- Each first-party extension service pre-declared with a Docker Compose profile (e.g., `profiles: ["forecast"]`)
-- Service is invisible and never started until the extension is installed
-- No user edits to `docker-compose.yml` ever required
-
-### Backend
-
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| B1 | Expose DF version via API (`GET /api/version`) | 🔲 TODO | Extensions need this to validate compatibility on install |
-| B2 | Enforce `requirements.dataforemanVersion` semver in `LibraryManager` | 🔲 TODO | Field exists, check is `// TODO` (logs only). Use `semver` package. |
-| B3 | `registerJobHandler(type, fn)` hook on `app` object | 🔲 TODO | Extensions must be able to register custom job worker types from their `routes.js`. Currently the `handlers` Map in `jobs.js` is closed. |
-| B4 | On extension install: write `.env` flag + start Docker profile via `child_process` | 🔲 TODO | Uses same `docker` shell-out as Diagnostics restart. On uninstall: stop container + remove flag. |
-| B5 | Service health check polling after install | 🔲 TODO | Ping `requires.services[].healthUrl` after install; surface status in Library Manager. Show first-time download warning if service takes >10s. |
-| B6 | Diagnostics page: dynamic service list from installed extensions | 🔲 TODO | Currently hardcoded `['ingestor', 'connectivity', 'broker']`. Should include installed extension services dynamically. |
-
-### Frontend
-
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| F1 | React lazy component loader for extension pages | 🔲 TODO | `PluginRegistry` resolves `componentUrl` to `/api/extensions/{id}/assets/...` but there's no actual React lazy-loader consuming it. Extensions can't render pages yet. |
-| F2 | UI slot injection system | 🔲 TODO | Named injection points in existing UI pages (e.g., Chart Composer settings tabs, sidebar sections) where extensions can register React components. Without this, extensions can only add top-level sidebar pages. |
-| F3 | Sidecar service status badge in Library Manager UI | 🔲 TODO | Depends on B5. Show green/red health indicator + first-time download warning per extension. |
-
-### Manifest
-
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| M1 | Add `requires.services[]` to manifest schema | 🔲 TODO | Example: `"services": [{ "name": "forecast", "profile": "forecast", "healthUrl": "http://forecast:8100/health" }]` |
-| M2 | Update `validateManifest()` to accept new fields | 🔲 TODO | Extend validation in `LibraryManager.validateManifest()` |
-
-### Future / Lower Priority
-
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| F4 | Version management: install and switch between module versions | 🔲 TODO | Currently only one version per libraryId can exist simultaneously |
-| F5 | Inter-module dependencies | 🔲 TODO | Modules declaring dependencies on other modules |
-| F6 | Marketplace / central repository | 🔲 TODO | Central index for discovering and downloading modules |
+All operations (install, enable, disable, update, delete) are **hot-reload** — no service restart required.
 
 ---
 
@@ -85,51 +18,45 @@ When a user installs an extension that requires a sidecar Docker service:
 ### Components
 
 1. **LibraryManager** (`core/src/nodes/base/LibraryManager.js`)
-   - Singleton service managing module lifecycle
-   - Handles discovery, validation, and dynamic loading
-   - Integrates with database for persistence and state management
-   - Registers library categories/sections dynamically on load
-   - Coordinates with CategoryService for palette organization
+   - Singleton managing module lifecycle (discovery, validation, dynamic loading)
+   - On load: registers nodes, calls `activate(app)` for extensions, registers extension routes
+   - Integrates with DB for persistence and state management
 
 2. **NodeRegistry** (`core/src/nodes/base/NodeRegistry.js`)
-   - Enhanced with library metadata tracking
-   - Associates nodes with their source library
-   - Provides library-aware node queries
+   - Tracks which nodes belong to which library
+   - Unregisters all nodes when a library is unloaded
 
 3. **CategoryService** (`core/src/services/CategoryService.js`)
-   - Manages dynamic category/section registration
-   - Initializes core categories from CategoryDefinitions
-   - Auto-creates library categories with is_core=false
-   - Cleans up empty library categories on uninstall
+   - Dynamic category/section registration for node palette
+   - Auto-creates library categories on install, removes empty ones on uninstall
 
 4. **Database Schema**
-   - `node_libraries` table: Library metadata, manifest, enabled/disabled state
-   - `node_categories` table: Dynamic category storage (core + library)
-   - `node_sections` table: Dynamic section storage within categories
-   - `flow_library_dependencies` table: Tracks which flows use library nodes
+   - `node_libraries`: library metadata, manifest, enabled state, load errors, `updated_at`
+   - `node_categories` / `node_sections`: dynamic palette categories
+   - `flow_library_dependencies`: tracks which flows use which library nodes
 
 5. **API Endpoints** (`core/src/routes/libraries.js`)
-   - RESTful API for library management
-   - Multipart upload handling
-   - Permission-based access control
-   - Hot-reload support (no restart required)
-   - Extension API routes registered at `/api/extensions/{libraryId}/`
+   - Full CRUD + enable/disable/update operations
+   - Extension HTTP routes mounted at `/api/extensions/{libraryId}/`
+   - Extension assets served at `/api/extensions/{libraryId}/assets/{file}`
 
 6. **Frontend PluginRegistry** (`front/src/utils/PluginRegistry.js`)
    - Loaded at app startup from `GET /api/flows/libraries`
-   - Registers sidebar items and routes from `uiExtensions[]` in manifest
+   - Registers sidebar items, routes, and chart plugins from `uiExtensions[]`
    - Notifies subscribers when extensions change
+   - Asset URLs use `?cb=<updated_at_timestamp>` for cache busting
 
-7. **Frontend UI** (`front/src/pages/LibraryManager.jsx`)
-   - Administrative interface for library management
-   - Upload, enable, disable, delete operations
-   - Library details and status display
+7. **ExtensionLoader** (`front/src/utils/ExtensionLoader.js`)
+   - Fetches extension JS assets from the API (with auth)
+   - Creates blob URLs for dynamic `import()`
+   - In-memory cache per URL; cache cleared when URL changes (via `?cb=` param)
+
+---
 
 ## Module Structure
 
-### Types
+### Node Library
 
-**Node Library** — adds flow nodes only:
 ```
 my-library/
 ├── library.manifest.json
@@ -139,558 +66,383 @@ my-library/
     └── AnotherNode.js
 ```
 
-**Extension** — adds nodes, API routes, job workers, and/or frontend UI:
+### Extension
+
 ```
 my-extension/
 ├── library.manifest.json
-├── index.js                 # optional: exports registerNodes()
+├── index.js                 # optional: exports activate(app) and/or registerNodes()
 └── extension/
-    └── routes.js            # optional: default export Fastify plugin
+    ├── routes.js            # optional: Fastify plugin for API routes
+    └── assets/
+        ├── MyToolbar.js     # optional: frontend React component (plain ES module)
+        └── MyConfigTab.js   # optional: frontend React component
 ```
 
-### Manifest Format
+---
+
+## Manifest Format
 
 ```json
 {
   "schemaVersion": 1,
-  "libraryId": "my-library",
-  "name": "My Custom Library",
+  "libraryId": "my-extension",
+  "name": "My Extension",
   "version": "1.0.0",
-  "description": "Custom nodes for specific industrial use case",
-  "author": "Company Name",
-  "type": "node-library",
+  "type": "extension",
+  "description": "Adds AI forecasting to charts.",
 
-  "requirements": {
-    "dataforemanVersion": ">=0.5.0",
-    "nodeSchemaVersion": 1,
-    "requiresSubscription": false
-  },
-
-  "provides": {
-    "nodeTypes": ["my-library:my-custom", "my-library:another"]
+  "requires": {
+    "dataforemanVersion": ">=0.7.0",
+    "services": [
+      {
+        "name": "forecast",
+        "profile": "forecast",
+        "healthUrl": "http://forecast:8100/health"
+      }
+    ]
   },
 
   "uiExtensions": [
+    {
+      "type": "chart-plugin",
+      "id": "forecast",
+      "configKey": "forecast",
+      "toolbarComponentUrl": "extension/assets/ForecastToolbar.js",
+      "configTabUrl": "extension/assets/ForecastConfigTab.js",
+      "configTabLabel": "Forecast",
+      "configTabIcon": "AutoGraph",
+      "toolbarSlot": "data"
+    },
     {
       "type": "sidebar-item",
       "title": "My Feature",
       "path": "/my-feature",
       "icon": "MyIcon",
       "feature": "flows",
-      "componentUrl": "MyFeaturePage.js"
+      "componentUrl": "extension/assets/MyFeaturePage.js"
     }
-  ],
-
-  "metadata": {
-    "tags": ["industrial", "custom"],
-    "license": "MIT"
-  }
+  ]
 }
 ```
 
 **Key manifest fields:**
-- `schemaVersion` (required): Must be `1`
-- `libraryId` (required): Unique identifier, lowercase alphanumeric and hyphens only
-- `name` (required): Human-readable name
-- `version` (required): Semantic version string (e.g., `1.0.0`)
-- `type`: `"node-library"` (default) or `"extension"`
-- `requirements.dataforemanVersion`: Semver range for minimum compatible DF version (e.g., `">=0.5.0"`)
-- `provides.nodeTypes`: Array of node type identifiers this module registers
-- `uiExtensions`: Array of frontend extension points (sidebar items, pages)
 
-**Planned manifest fields (not yet implemented — see roadmap):**
-- `requirements.services`: Array of Docker sidecar services the extension depends on
+| Field | Required | Notes |
+|-------|----------|-------|
+| `schemaVersion` | ✅ | Must be `1` |
+| `libraryId` | ✅ | Unique, lowercase alphanumeric + hyphens |
+| `name` | ✅ | Human-readable |
+| `version` | ✅ | Semver string (e.g. `1.0.0`) |
+| `type` | | `"node-library"` (default) or `"extension"` |
+| `requires.dataforemanVersion` | | Semver range, e.g. `">=0.7.0"` |
+| `requires.services[]` | | Docker sidecar services the extension needs |
+| `uiExtensions[]` | | Frontend extension points (see below) |
 
-### Entry Point (index.js)
+### `uiExtensions` Types
 
-The `index.js` file registers all library nodes:
+#### `chart-plugin`
+
+Adds a button to Chart Composer toolbar + a settings tab to Chart settings.
+
+| Field | Notes |
+|-------|-------|
+| `id` | Unique identifier for this plugin |
+| `configKey` | Key in `chartConfig` where this plugin's settings are stored |
+| `toolbarComponentUrl` | Path to toolbar React component asset (relative to library root) |
+| `configTabUrl` | Path to settings tab React component asset |
+| `configTabLabel` | Label shown on the settings tab |
+| `configTabIcon` | MUI icon name for the tab |
+| `toolbarSlot` | Where the button appears: `data` (default), `view`, `zoom`, or `tools` |
+
+#### `sidebar-item`
+
+Adds an entry to the main left navigation.
+
+| Field | Notes |
+|-------|-------|
+| `title` | Menu item label |
+| `path` | Frontend route path |
+| `icon` | MUI icon name |
+| `feature` | Feature gate (e.g. `flows`) |
+| `componentUrl` | Path to page React component asset |
+
+---
+
+## Extension Entry Points
+
+### index.js — Backend Activation
+
+For extensions, `index.js` exports `activate(app)` (and optionally `registerNodes()`):
 
 ```javascript
-export async function registerNodes(registry, options = {}) {
-  const library = options.library;
-  const libraryId = library?.libraryId ?? 'my-library';
-  const cacheBuster = `?t=${Date.now()}`;
+import forecastRoutes from './extension/routes.js';
 
-  const { MyCustomNode } = await import(`./nodes/MyCustomNode.js${cacheBuster}`);
-  const { AnotherNode } = await import(`./nodes/AnotherNode.js${cacheBuster}`);
+export async function activate(app) {
+  // Register job workers
+  app.jobs.register('forecast_generation', async (job) => {
+    // ... handle job
+  });
 
-  registry.register(`${libraryId}:my-custom`, MyCustomNode, { library });
-  registry.register(`${libraryId}:another`, AnotherNode, { library });
+  // Register HTTP routes (in addition to the auto-mounted extension/routes.js)
+  await app.register(forecastRoutes, { prefix: '/api/historian' });
 }
 ```
 
-### Extension Routes (extension/routes.js)
+> **Note:** `extension/routes.js` is also auto-mounted at `/api/extensions/{libraryId}/` — use `activate()` for routes that need a different prefix (e.g. `/api/historian/forecast`).
 
-For `type: "extension"` modules, `extension/routes.js` is loaded as a Fastify plugin and mounted at `/api/extensions/{libraryId}/`. Use this to add API endpoints, serve frontend assets, or register job workers (once B3 is implemented).
+### extension/routes.js — HTTP Routes
 
 ```javascript
 export default async function routes(app, options) {
-  const { library, db } = options;
-
   app.get('/status', async (req, reply) => {
-    return { status: 'ok', version: library.version };
-  });
-
-  // Serve frontend assets at /api/extensions/{id}/assets/
-  app.get('/assets/:file', async (req, reply) => {
-    // serve static files from extension/assets/
+    return { status: 'ok' };
   });
 }
 ```
 
-### Node Implementation
+### Frontend Asset Components
 
-Library nodes follow the same structure as built-in nodes:
+Extension frontend components are plain ES modules that use `window.__DF` globals instead of bundled React/MUI:
 
 ```javascript
-export default class MyCustomNode {
-  constructor() {
-    this.description = {
-      schemaVersion: 1,
-      name: 'my-custom',
-      displayName: 'My Custom Node',
-      version: 1,
-      description: 'Performs custom business logic',
-      
-      category: 'UTILITY',      // See available categories below
-      section: 'CUSTOM',        // Can use existing sections or custom names
-      icon: '⚙️',
-      color: '#2196F3',
-      
-      inputs: [
-        {
-          type: 'main',
-          displayName: 'Input'
-        }
-      ],
-      outputs: [
-        {
-          type: 'main',
-          displayName: 'Output'
-        }
-      ],
-      
-      properties: [
-        {
-          name: 'myProperty',
-          displayName: 'My Property',
-          type: 'string',
-          default: '',
-          description: 'Configuration property'
-        }
-      ]
-    };
-  }
+const { React, MUI, MUIIcons, services } = window.__DF;
+const { Button, Tooltip } = MUI;
+const { useState } = React;
+const { chartComposer } = services; // forecastPoints(), getForecastJob(), etc.
 
-  async execute(context) {
-    const { myProperty } = context.node.parameters;
-    
-    // Custom logic here
-    const result = {
-      value: `Processed: ${myProperty}`,
-      quality: 192,
-      timestamp: Date.now()
-    };
-    
-    return { main: result };
-  }
+export default function MyToolbar({ tagConfigs, timeRange, chartConfig, onSeriesChange }) {
+  // Props passed by ChartComposer:
+  //   tagConfigs     — visible tag config objects
+  //   timeRange      — { from, to } (Date objects or ISO strings)
+  //   chartConfig    — full chart config object
+  //   contextType    — 'composer' | 'dashboard'
+  //   onSeriesChange — (EChartsSeries[] | null) => void — push series into chart
+
+  return React.createElement(Button, {
+    size: 'small',
+    variant: 'outlined',
+    color: 'inherit',
+    sx: { minWidth: 100 }
+  }, 'My Button');
 }
 ```
 
-**Schema Requirements:**
-- Must follow `FlowNodeSchema` validation (see `core/src/schemas/FlowNodeSchema.js`)
-- `version` must be a positive integer (not a string)
-- `inputs`/`outputs` require `type` (valid: main, trigger, number, string, boolean, object, array)
-- `properties` require `name`, `displayName`, and `type`
-- `category` and `section` control node palette organization (see below)
-- See [Flow Node Schema Documentation](./flow-node-schema.md) for complete schema reference
+**Button style convention** — match the toolbar:
+- `size="small"`, `variant="outlined"` (idle) or `"contained"` (active)
+- `startIcon={<SomeIcon fontSize="small" />}`
+- `sx={{ minWidth: 100 }}` (or `90` for secondary actions)
 
-**Available Categories and Sections:**
+**X-axis auto-extension:** When `onSeriesChange` pushes series with timestamps beyond the chart's current `timeRange.to` (e.g. a forecast horizon), the chart's x-axis automatically extends to show the full data range. Call `onSeriesChange(null)` to remove the extension series and restore the original range.
 
-Your nodes will be organized in the Flow Studio palette based on the `category` and `section` you specify.
+---
 
-**Core Categories:**
+## Sidecar Docker Services
 
-| Category | Key | Icon | Sections | Description |
-|----------|-----|------|----------|-------------|
-| **Tag Operations** | `TAG_OPERATIONS` | 📊 | `BASIC`, `ADVANCED` | Read and write tag values |
-| **Logic & Math** | `LOGIC_MATH` | 🔢 | `MATH`, `COMPARISON`, `CONTROL`, `ADVANCED` | Calculations, comparisons, and logic |
-| **Communication** | `COMMUNICATION` | 📡 | `BASIC`, `DATABASE` | External integrations (HTTP, email, databases) |
-| **Data Transform** | `DATA_TRANSFORM` | 🔄 | `BASIC` | Transform and manipulate data |
-| **Utility** | `UTILITY` | 🛠️ | `BASIC` | Helper and utility nodes |
-| **Other** | `OTHER` | 📦 | `BASIC` | Miscellaneous/uncategorized |
+Extensions that require a sidecar service declare it in `requires.services[]`. DataForeman will:
 
-**Dynamic Category System:**
+1. Write `EXTENSION_<NAME>_ENABLED=true` to the `.env` file
+2. Run `docker compose --profile <profile> up -d` to start the container
+3. Poll the `healthUrl` and report status in Library Manager
+4. On uninstall: stop the container and set the flag to `false`
 
-Libraries can extend the node palette by specifying custom categories and sections:
+**Prerequisites in `docker-compose.yml`** (done at release time):
+- Service pre-declared with a Docker Compose profile (e.g. `profiles: ["forecast"]`)
+- Service is invisible until the extension is installed — users never edit docker-compose.yml
 
-- **Use existing categories**: Add your nodes to core categories like `LOGIC_MATH` or `COMMUNICATION`
-- **Create custom categories**: Specify any category key (e.g., `ROBOTICS`, `VISION`, `SAFETY`)
-- **Create custom sections**: Add new sections to existing or custom categories (e.g., `TEST_SECTION`, `ADVANCED_VISION`)
+The extension's service health is shown as a status chip in Library Manager and included in the library list API response.
 
-**How it works:**
-- Categories/sections are automatically created when your library is installed
-- They appear in the node browser only while your library is active
-- When your library is uninstalled, empty categories/sections are automatically removed
-- No core code modification required - everything is dynamic and database-driven
-
-**Example - Using existing category:**
-```javascript
-category: 'COMMUNICATION',  // Use core category
-section: 'BASIC',           // Use core section
-```
-
-**Example - Creating custom category and section:**
-```javascript
-category: 'ROBOTICS',       // New custom category
-section: 'MOTION_CONTROL',  // New custom section
-icon: '🤖'                  // Custom icon (optional)
-```
-
-**Note:** Core categories are defined in `core/src/nodes/base/CategoryDefinitions.js` and stored with `is_core=true`. Library categories are stored with `is_core=false` and managed dynamically by `CategoryService.js`.
+---
 
 ## Creating a Module
 
 ### Step 1: Development
 
-1. Create module directory structure
-2. Write node implementations following schema requirements (if providing nodes)
-3. Create `extension/routes.js` for API endpoints (if extension type)
-4. Create manifest with module metadata
-5. Implement `registerNodes()` in index.js (if providing nodes)
+1. Create the directory structure (see above)
+2. Write node implementations following the [Flow Node Schema](./flow-node-schema.md)
+3. Create `extension/routes.js` for API endpoints
+4. Write frontend asset components using `window.__DF` globals
+5. Create `library.manifest.json`
 6. Test locally before packaging
 
-### Step 2: Source Code Protection
-
-Libraries are distributed as plain JavaScript by default. For proprietary code:
-
-**Obfuscation (Recommended):**
-```bash
-npm install -g javascript-obfuscator
-javascript-obfuscator nodes/ --output nodes-obfuscated/
-# Replace original files with obfuscated versions
-```
-
-**Important:** 
-- Obfuscate BEFORE creating distribution package
-- Test obfuscated code to ensure functionality
-- Keep unobfuscated source in secure location
-- Distribution responsibility lies with library author
-
-**Note:** Licensing/activation systems can be implemented within node code but are not enforced by the platform.
-
-### Step 3: Packaging
-
-Create a ZIP archive with all files at root level:
+### Step 2: Packaging
 
 ```bash
 cd my-library
 zip -r my-library.zip .
 ```
 
-**Packaging Rules:**
-- Files must be at root of ZIP (not nested in a directory)
-- Include manifest, index.js, and all node files
-- Verify archive structure: `unzip -l my-library.zip`
+**Rules:**
+- Files must be at the ZIP root (not nested in a subdirectory)
+- Include manifest, index.js, and all node/asset files
+- Verify: `unzip -l my-library.zip`
 
-## Installing a Module
+---
 
-### Via Web UI (Recommended)
+## Installing & Managing Modules
 
-1. Navigate to **Admin → Libraries**
-2. Click **Upload Library** button
-3. Select your `.zip` file
-4. Module will be uploaded, validated, and loaded
-5. Restart core service for changes to take effect
+### Install
 
-### Via API
+**Web UI:** Admin → Libraries → Upload Library → select ZIP
 
-**Upload Module:**
+**API:**
 ```bash
 curl -X POST http://localhost:8080/api/flows/libraries/upload \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -F "file=@my-library.zip"
 ```
 
-**Response:**
-```json
-{
-  "message": "Library installed and loaded",
-  "libraryId": "my-library",
-  "name": "My Custom Library",
-  "version": "1.0.0"
-}
-```
+### Update
 
-Or if loading failed:
-```json
-{
-  "message": "Library installed but failed to load",
-  "libraryId": "my-library",
-  "name": "My Custom Library",
-  "version": "1.0.0",
-  "loadError": "Schema validation failed..."
-}
-```
-
-## Managing Modules
-
-### List Modules
+**Web UI:** Admin → Libraries → click the update icon on the library card → select new ZIP
 
 **API:**
 ```bash
-curl http://localhost:8080/api/flows/libraries \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+curl -X PUT http://localhost:8080/api/flows/libraries/my-library/update \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "file=@my-library-v2.zip"
 ```
 
-**Response:**
-```json
-[
-  {
-    "id": 1,
-    "library_id": "my-library",
-    "name": "My Custom Library",
-    "version": "1.0.0",
-    "manifest": { ... },
-    "enabled": true,
-    "installed_at": "2025-12-07T02:00:00.000Z",
-    "last_loaded_at": "2025-12-07T02:15:00.000Z",
-    "load_errors": null
-  }
-]
-```
+The library is hot-unloaded, files replaced, then hot-reloaded — no restart required. After updating an extension with frontend assets, **hard-refresh the browser** (`Ctrl+Shift+R`) so new assets are fetched.
 
-### Get Library Details
+### Enable/Disable
 
-**API:**
 ```bash
-curl http://localhost:8080/api/flows/libraries/my-library \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-### Enable/Disable Library
-
-**Enable:**
-```bash
+# Enable
 curl -X POST http://localhost:8080/api/flows/libraries/my-library/enable \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
 
-Library is enabled in database and immediately hot-loaded into memory. **No restart required.**
-
-**Disable:**
-```bash
+# Disable
 curl -X POST http://localhost:8080/api/flows/libraries/my-library/disable \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
-Library is disabled in database and immediately hot-unloaded from memory. **No restart required.**
+Both operations are hot-reload — no restart required.
 
-**Note:** Hot-reload allows instant library management without data loss from restarting services.
+### Delete
 
-### Delete Library
-
-**API:**
 ```bash
 curl -X DELETE http://localhost:8080/api/flows/libraries/my-library \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
-**Safety Check:**
+Prevented if flows are using the library. Use `?force=true` to override.
 
-The system will prevent deletion if the library is in use by any flows:
+### Check Usage
 
-```json
-{
-  "error": "Library is in use",
-  "message": "Cannot delete library \"My Library\" because it is used by 3 flow(s)",
-  "flowsUsing": [
-    { "id": "...", "name": "Production Flow", "node_count": 2 },
-    { "id": "...", "name": "Quality Check", "node_count": 1 }
-  ],
-  "hint": "Remove library nodes from these flows first, or use ?force=true to delete anyway"
-}
-```
-
-**Force Delete:**
-
-To delete a library even when it's in use (will break flows):
-
-```bash
-curl -X DELETE "http://localhost:8080/api/flows/libraries/my-library?force=true" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-**Note:** Deleting a library removes it from database and filesystem and hot-unloads it from memory. **No restart required.** Flows using deleted libraries will fail to execute.
-
-### Check Library Usage
-
-Before deleting, check which flows use the library:
-
-**API:**
 ```bash
 curl http://localhost:8080/api/flows/libraries/my-library/usage \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
-**Response:**
-```json
-{
-  "libraryId": "my-library",
-  "libraryName": "My Library",
-  "version": "1.0.0",
-  "usedByFlows": 2,
-  "flows": [
-    {
-      "flowId": "...",
-      "flowName": "Production Flow",
-      "deployed": true,
-      "ownerEmail": "user@example.com",
-      "nodeCount": 2,
-      "nodes": [
-        { "node_id": "node-123", "node_type": "my-library:custom-node" },
-        { "node_id": "node-456", "node_type": "my-library:another-node" }
-      ]
-    }
-  ]
-}
-```
+---
 
-## Using Library Nodes
+## Asset Cache Busting
 
-### In Flow Studio
+Extension frontend assets are cached aggressively in the browser. The system handles this automatically:
 
-1. Open any flow in Flow Studio
-2. Click **Add Node** button or press `/`
-3. Search for your node by name
-4. Library nodes appear with their configured icon and description
-5. Drag onto canvas like any other node
+- Asset URLs include a `?cb=<timestamp>` parameter derived from the library's `updated_at` DB field
+- Any update (via the update button) changes `updated_at`, which changes all asset URLs
+- New URLs bypass the browser cache and fetch fresh JS from the server
+- If no `updated_at` is available, falls back to `?v=<version>`
 
-**Node Identification:**
-- Node type format: `libraryId:node-type` (e.g., `my-library:my-custom`)
-- Library attribution shown in node palette
-- Full library metadata available via API
+**After updating an extension:** always hard-refresh the browser (`Ctrl+Shift+R`).
 
-### In Flow Definitions
+---
 
-Library nodes are referenced by their full type identifier:
+## Hot-Reload
 
-```json
-{
-  "nodes": [
-    {
-      "id": "node-123",
-      "type": "my-library:my-custom",
-      "parameters": {
-        "myProperty": "value"
-      }
-    }
-  ]
-}
-```
+All library operations support hot-reload:
+
+| Operation | Hot-Reload |
+|-----------|-----------|
+| Install (node-library) | ✅ |
+| Install (extension) | ✅ |
+| Enable | ✅ |
+| Disable | ✅ |
+| Update | ✅ |
+| Delete | ✅ |
+
+Running flows and data ingest are not disrupted.
+
+---
+
+## Permissions
+
+| Action | Required Permission |
+|--------|-------------------|
+| Upload/Install | `flows.libraries:update` |
+| List/View | `flows.libraries:read` |
+| Enable/Disable | `flows.libraries:update` |
+| Update | `flows.libraries:update` |
+| Delete | `flows.libraries:delete` |
+
+---
 
 ## Troubleshooting
 
 ### Library Upload Fails
-
-**Issue:** Upload returns 400 error
-
-**Causes:**
-- Missing or invalid manifest file
-- ZIP structure incorrect (files nested in directory)
-- Invalid manifest JSON format
+- Missing/invalid manifest JSON
+- Files nested inside a subdirectory in the ZIP
 - Missing required manifest fields
-
-**Solution:**
-- Verify manifest.json is valid JSON
-- Ensure files are at ZIP root: `unzip -l library.zip`
-- Check all required manifest fields present
-- Review error message in response
+- Check response error message
 
 ### Library Loads But Nodes Don't Work
-
-**Issue:** Library shows as loaded but nodes malfunction or flows fail
-
-**Causes:**
-- Node schema validation errors
-- Missing or incorrect `execute()` method
-- Obfuscation broke functionality
-- Missing dependencies
-- **Flow uses library that was deleted**
-
-**Solution:**
-- Check `load_errors` field in library details
-- Review core service logs: `docker compose logs core | grep library-id`
-- Test unobfuscated version first
-- Verify all imports resolve correctly
-- Check if library exists: `GET /api/flows/libraries/:id`
-- Check library usage before deletion: `GET /api/flows/libraries/:id/usage`
+- Check `load_errors` in library details
+- Review logs: `docker compose logs core | grep LibraryManager`
+- Verify `execute()` method exists on node class
+- Check `flow_library_dependencies` if flows reference deleted libraries
 
 ### Schema Validation Errors
+- `version must be a positive integer` → use `version: 1`, not `"1.0.0"`
+- `type is required` → outputs/inputs need `type` field
+- Valid port types: `main`, `trigger`, `number`, `string`, `boolean`, `object`, `array`
+- See [Flow Node Schema](./flow-node-schema.md)
 
-**Issue:** `Schema validation failed for 'library:node'`
+### Extension Frontend Component Not Appearing
+- Check browser console for load errors
+- Verify asset URL in PluginRegistry: `GET /api/flows/libraries` → check `uiExtensions[].toolbarComponentUrl`
+- If button appeared before but vanished after update: hard-refresh the browser
+- Confirm `window.__DF.MUI` etc. are available (host app must expose globals)
 
-**Common Errors:**
-- `version must be a positive integer` → Use `version: 1` not `version: "1.0.0"`
-- `type is required` → Outputs missing `type` field
-- `displayName is required` → Properties missing `displayName`
-- `type "any" is not valid` → Use valid types: main, trigger, number, string, boolean, object, array
+### Extension API Route Returns 404
+- Ensure `activate(app)` registers the route (or `extension/routes.js` exports a default function)
+- Check core logs for `[LibraryManager] Extension activated:` message
+- Routes from `extension/routes.js` are auto-mounted at `/api/extensions/{libraryId}/`
+- Routes from `activate()` need explicit prefix (e.g. `/api/historian`)
 
-**Solution:**
-- Review [Flow Node Schema](./flow-node-schema.md) documentation
-- Compare against working example (test-library)
-- Validate schema before packaging
+---
 
-### Nodes Don't Appear in Palette
+## Node Categories
 
-**Issue:** Library loaded but nodes not visible in Flow Studio
+**Core Categories:**
 
-**Causes:**
-- Node not registered in `registerNodes()`
-- Wrong node type prefix (missing `libraryId:`)
-- Frontend rendering issue (React Flow warnings)
+| Key | Display | Sections |
+|-----|---------|---------|
+| `TAG_OPERATIONS` | Tag Operations | `BASIC`, `ADVANCED` |
+| `LOGIC_MATH` | Logic & Math | `MATH`, `COMPARISON`, `CONTROL`, `ADVANCED` |
+| `COMMUNICATION` | Communication | `BASIC`, `DATABASE` |
+| `DATA_TRANSFORM` | Data Transform | `BASIC` |
+| `UTILITY` | Utility | `BASIC` |
+| `OTHER` | Other | `BASIC` |
 
-**Solution:**
-- Verify `registerNodes()` calls `registry.register()` for all nodes
-- Ensure node types use format: `${libraryId}:node-type`
-- Check browser console for errors
-- Restart core service after library changes
+Libraries can use existing categories or create custom ones. Custom categories are created automatically on install and removed (if empty) on uninstall.
 
-## Database Schema
-
-- `node_libraries` — library metadata, manifest, enabled/disabled state, load errors
-- `node_categories` / `node_sections` — dynamic palette categories (core + library-provided)
-- `flow_library_dependencies` — tracks which flows use which library nodes; prevents accidental deletion
-
-## Hot-Reload
-
-Libraries support hot-reload — install, enable, disable, and delete without restarting the core service. Node.js dynamic `import()` loads/unloads modules at runtime; NodeRegistry tracks and removes nodes per library. Running flows and data ingest are not disrupted.
-
-## Permissions
-
-Library management requires admin permissions:
-
-- **Upload/Install:** `flows.libraries:update`
-- **List/View:** `flows.libraries:read`
-- **Enable/Disable:** `flows.libraries:update`
-- **Delete:** `flows.libraries:delete`
-
-Default admin role has all permissions. Configure via permission system.
+---
 
 ## Best Practices
 
 - Only install modules from trusted sources; review code before installing
-- Test in a non-production environment first
-- Check library usage (`GET /api/flows/libraries/:id/usage`) before updates or deletions
-- Back up flows before installing module updates with breaking changes
-- Use semantic versioning in your own modules
+- Test in non-production first
+- Check library usage before updates or deletions
+- Bump the version in `library.manifest.json` on every release
+- Use `window.__DF` for all React/MUI access in frontend assets — do not bundle your own copies
+- Store state in `chartConfig[configKey]` for persistence across sessions
 
-## Example: Complete Module
+---
 
-See `temp/test-library/` for a working example including manifest, node implementation, and registration code.
-
-## Support
+## References
 
 - Logs: `docker compose logs core | grep LibraryManager`
-- Schema reference: `docs/flow-node-schema.md`
-- Example: `temp/test-library/`
+- Flow Node Schema: `docs/flow-node-schema.md`
+- Example extension: `forecast-extension/` at repo root

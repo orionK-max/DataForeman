@@ -4,8 +4,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install Docker CLI for service restart functionality
-RUN apk add --no-cache docker-cli
+# Install Docker CLI + Compose plugin for extension service management
+RUN apk add --no-cache docker-cli docker-cli-compose
 
 # Install PostgreSQL client for database initialization
 RUN apk add --no-cache postgresql-client

@@ -8,6 +8,9 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+
+const _require = createRequire(import.meta.url);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -203,46 +206,62 @@ class LibraryManagerClass {
       }
     }
 
-    // Check version compatibility
-    if (manifest.requirements?.dataforemanVersion) {
-      // TODO: Implement semver checking
-      // For now, just log the requirement
-      console.log(`[LibraryManager] ${manifest.libraryId} requires DataForeman ${manifest.requirements.dataforemanVersion}`);
+    // Check version compatibility (supports both requires.dataforemanVersion and legacy requirements.dataforemanVersion)
+    const versionRange = manifest.requires?.dataforemanVersion || manifest.requirements?.dataforemanVersion;
+    if (versionRange && options.appVersion) {
+      try {
+        const semver = _require('semver');
+        if (!semver.satisfies(options.appVersion, versionRange)) {
+          throw new Error(`Requires DataForeman ${versionRange}, but running ${options.appVersion}`);
+        }
+        console.log(`[LibraryManager] ${manifest.libraryId} version check passed (requires ${versionRange}, running ${options.appVersion})`);
+      } catch (e) {
+        if (e.message.includes('Requires DataForeman')) throw e;
+        console.warn(`[LibraryManager] semver check skipped: ${e.message}`);
+      }
     }
 
-    // Load nodes if index.js exists
+    // Load nodes/activation if index.js exists
     if (hasIndex) {
       // Dynamic import of library (with cache busting to handle updates)
       const cacheBuster = `?t=${Date.now()}`;
       const indexUrl = `file://${indexPath}${cacheBuster}`;
       const library = await import(indexUrl);
 
-      if (typeof library.registerNodes !== 'function') {
-        throw new Error('Library must export a registerNodes function');
-      }
+      if (isExtension) {
+        // Extensions export activate(app) instead of registerNodes
+        if (typeof library.activate === 'function' && options.app) {
+          await library.activate(options.app);
+          console.log(`[LibraryManager] Extension activated: ${manifest.libraryId}`);
+        }
+      } else {
+        if (typeof library.registerNodes !== 'function') {
+          throw new Error('Library must export a registerNodes function');
+        }
 
-      // Register nodes
-      const registrationOptions = {
-        library: manifest,
-        ...options
-      };
+        // Register nodes
+        const registrationOptions = {
+          library: manifest,
+          ...options
+        };
 
-      await library.registerNodes(NodeRegistry, registrationOptions);
+        await library.registerNodes(NodeRegistry, registrationOptions);
 
-      // Register categories/sections from library nodes (if db is available)
-      if (options.db) {
-        const { CategoryService } = await import('../../services/CategoryService.js');
-        const libraryNodes = NodeRegistry.getNodesByLibrary(manifest.libraryId);
-        
-        for (const node of libraryNodes) {
-          const description = NodeRegistry.getDescription(node.type);
-          if (description && description.category && description.section) {
-            await CategoryService.registerCategorySection(
-              options.db,
-              description.category,
-              description.section,
-              description
-            );
+        // Register categories/sections from library nodes (if db is available)
+        if (options.db) {
+          const { CategoryService } = await import('../../services/CategoryService.js');
+          const libraryNodes = NodeRegistry.getNodesByLibrary(manifest.libraryId);
+          
+          for (const node of libraryNodes) {
+            const description = NodeRegistry.getDescription(node.type);
+            if (description && description.category && description.section) {
+              await CategoryService.registerCategorySection(
+                options.db,
+                description.category,
+                description.section,
+                description
+              );
+            }
           }
         }
       }
@@ -388,10 +407,59 @@ class LibraryManagerClass {
       errors.push('type must be either "node-library" or "extension"');
     }
 
+    // Validate requires section
+    if (manifest.requires) {
+      if (manifest.requires.dataforemanVersion && typeof manifest.requires.dataforemanVersion !== 'string') {
+        errors.push('requires.dataforemanVersion must be a semver range string (e.g., ">=0.5.0")');
+      }
+      if (manifest.requires.services !== undefined) {
+        if (!Array.isArray(manifest.requires.services)) {
+          errors.push('requires.services must be an array');
+        } else {
+          manifest.requires.services.forEach((svc, i) => {
+            if (!svc.name) errors.push(`requires.services[${i}].name is required`);
+            if (!svc.profile) errors.push(`requires.services[${i}].profile is required`);
+            if (!svc.healthUrl) errors.push(`requires.services[${i}].healthUrl is required`);
+          });
+        }
+      }
+    }
+
+    // Legacy: also accept requirements.dataforemanVersion (old field name)
+    if (manifest.requirements?.dataforemanVersion && typeof manifest.requirements.dataforemanVersion !== 'string') {
+      errors.push('requirements.dataforemanVersion must be a semver range string');
+    }
+
     // Validate provides section
     if (manifest.provides) {
       if (manifest.provides.nodeTypes && !Array.isArray(manifest.provides.nodeTypes)) {
         errors.push('provides.nodeTypes must be an array');
+      }
+    }
+
+    // Validate uiExtensions entries
+    if (manifest.uiExtensions !== undefined) {
+      if (!Array.isArray(manifest.uiExtensions)) {
+        errors.push('uiExtensions must be an array');
+      } else {
+        const validUiTypes = ['sidebar-item', 'route', 'chart-plugin'];
+        manifest.uiExtensions.forEach((ext, i) => {
+          if (!ext.type) {
+            errors.push(`uiExtensions[${i}].type is required`);
+          } else if (!validUiTypes.includes(ext.type)) {
+            errors.push(`uiExtensions[${i}].type must be one of: ${validUiTypes.join(', ')}`);
+          }
+
+          if (ext.type === 'chart-plugin') {
+            if (!ext.id) errors.push(`uiExtensions[${i}].id is required for chart-plugin`);
+            if (!ext.toolbarComponentUrl && !ext.configTabUrl) {
+              errors.push(`uiExtensions[${i}] chart-plugin must provide at least one of toolbarComponentUrl or configTabUrl`);
+            }
+            if (ext.configTabUrl && !ext.configTabLabel) {
+              errors.push(`uiExtensions[${i}].configTabLabel is required when configTabUrl is set`);
+            }
+          }
+        });
       }
     }
 

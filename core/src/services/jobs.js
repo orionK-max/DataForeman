@@ -751,13 +751,6 @@ export const jobsPlugin = fp(async (app) => {
 		await executeFlow(ctx);
 	}, { maxAttempts: 1, description: 'Execute a flow with all its nodes' });
 
-	// Forecast generator - runs TimesFM inference for chart tag forecasting
-	register('forecast_generation', async (ctx) => {
-		const forecastGenerator = (await import('../workers/forecast-generator.js')).default;
-		await forecastGenerator(ctx);
-	}, { maxAttempts: 1, description: 'Generate AI time-series forecast using TimesFM' });
-
-
 	// Graceful shutdown hook
 	app.addHook('onClose', async () => {
 		try {

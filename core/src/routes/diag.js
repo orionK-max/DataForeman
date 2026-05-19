@@ -664,7 +664,21 @@ export async function diagRoutes(app) {
     }
 
     const { serviceName } = req.params;
-    const allowedServices = ['ingestor', 'connectivity', 'broker'];
+    const coreServices = ['ingestor', 'connectivity', 'broker'];
+
+    // Build dynamic allowed list: core services + services from installed extensions
+    let extensionServices = [];
+    try {
+      const { rows } = await app.db.query(
+        `SELECT manifest FROM node_libraries WHERE enabled = true AND manifest->>'type' = 'extension'`
+      );
+      for (const row of rows) {
+        const services = row.manifest?.requires?.services || [];
+        extensionServices.push(...services.map(s => s.name));
+      }
+    } catch { /* DB may not be ready */ }
+
+    const allowedServices = [...coreServices, ...extensionServices];
     
     if (!allowedServices.includes(serviceName)) {
       return reply.code(400).send({ error: 'invalid_service', message: `Service must be one of: ${allowedServices.join(', ')}` });

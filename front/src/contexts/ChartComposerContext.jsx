@@ -43,7 +43,6 @@ export const ChartComposerProvider = ({ children }) => {
     interpolation: 'linear',
     xAxisTickCount: 5, // Default X-axis tick count
     extendCurveEdges: true, // Extend anchor ghost points beyond chart edges to preserve smooth curve shape
-    forecast: { enabled: false, mode: 'simple', horizon: 24, autoRefreshMs: 0, selectedTagIds: [], vizMode: 'line' },
   });
   const [loadedChart, setLoadedChart] = useState(null); // { id, name, is_shared }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -169,10 +168,10 @@ export const ChartComposerProvider = ({ children }) => {
     setHasUnsavedChanges(true);
   }, []);
 
-  const updateForecastConfig = useCallback((field, value) => {
+  const updateExtensionConfig = useCallback((configKey, field, value) => {
     setChartConfig(prev => ({
       ...prev,
-      forecast: { ...(prev.forecast || {}), [field]: value },
+      [configKey]: { ...(prev[configKey] || {}), [field]: value },
     }));
     setHasUnsavedChanges(true);
   }, []);
@@ -475,14 +474,6 @@ export const ChartComposerProvider = ({ children }) => {
           }));
         }
 
-        // Update forecast config if present
-        if (opts.forecast) {
-          setChartConfig(prev => ({
-            ...prev,
-            forecast: opts.forecast,
-          }));
-        }
-        
         // Update interpolation if present
         if (opts.interpolation) {
           setChartConfig(prev => ({
@@ -511,6 +502,19 @@ export const ChartComposerProvider = ({ children }) => {
         setRefreshIntervalValue(opts.refreshIntervalValue !== undefined ? opts.refreshIntervalValue : 'auto');
         if (opts.customRefreshInterval !== undefined) {
           setCustomRefreshInterval(opts.customRefreshInterval);
+        }
+
+        // Load extension-namespaced configs (non-core plain object keys, e.g. opts.forecast)
+        const CORE_OPTS = new Set([
+          'axes', 'referenceLines', 'tags', 'grid', 'background', 'display',
+          'interpolation', 'xAxisTickCount', 'extendCurveEdges',
+          'smartCompression', 'maxDataPoints', 'refreshIntervalValue', 'customRefreshInterval',
+        ]);
+        const extConfigs = Object.fromEntries(
+          Object.entries(opts).filter(([k, v]) => !CORE_OPTS.has(k) && v !== null && typeof v === 'object' && !Array.isArray(v))
+        );
+        if (Object.keys(extConfigs).length > 0) {
+          setChartConfig(prev => ({ ...prev, ...extConfigs }));
         }
         
         // Set time range based on time mode
@@ -611,7 +615,6 @@ export const ChartComposerProvider = ({ children }) => {
       background: { color: '#000000', opacity: 1 },
       display: { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
       interpolation: 'linear',
-      forecast: { enabled: false, mode: 'simple', horizon: 24, autoRefreshMs: 0, selectedTagIds: [], vizMode: 'line' },
     });
     setHasUnsavedChanges(false);
     setNeedsAutoQuery(false);
@@ -936,7 +939,7 @@ export const ChartComposerProvider = ({ children }) => {
     updateGridConfig,
     updateBackgroundConfig,
     updateDisplayConfig,
-    updateForecastConfig,
+    updateExtensionConfig,
     updateSelectedTags,
     queryData,
     loadSavedTags,

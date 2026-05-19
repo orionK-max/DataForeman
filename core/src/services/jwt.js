@@ -28,6 +28,7 @@ export const jwtPlugin = fp(async (app) => {
     const url = req.raw?.url || req.url || '';
     // Public endpoints: health/metrics and selected auth routes
   if (url.startsWith('/health') || url.startsWith('/metrics')) return;
+  if (url === '/api/version') return;
   // Public connectivity system summary (used for UI chips)
   if (url.startsWith('/api/connectivity/summary')) return;
   // MQTT auth/acl/webhook endpoints (called by nanoMQ broker internally)

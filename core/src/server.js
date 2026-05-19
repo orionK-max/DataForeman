@@ -12,7 +12,7 @@ import pino from 'pino';
 import { jwtPlugin } from './services/jwt.js';
 import { permissionsPlugin } from './services/permissions.js';
 import { authRoutes } from './routes/auth.js';
-import { healthRoutes } from './routes/health.js';
+import { healthRoutes, versionRoute } from './routes/health.js';
 import { metricsRoutes } from './routes/metrics.js';
 import { configRoutes } from './routes/config.js';
 import { auditPlugin } from './services/audit.js';
@@ -82,12 +82,17 @@ export async function buildServer() {
   // Ensure log directories exist with open permissions
   ensureLoggingDirsSync();
   const app = Fastify({ logger });
-  // App version from core/package.json
+    // App version: prefer APP_VERSION env var (set by docker-compose from root package.json), fall back to core/package.json
   try {
-    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-    app.decorate('appVersion', String(pkg.version || '0.0.0'));
+    const envVersion = process.env.APP_VERSION;
+    if (envVersion) {
+      app.decorate('appVersion', String(envVersion));
+    } else {
+      const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+      app.decorate('appVersion', String(pkg.version || '0.0.0'));
+    }
   } catch {
-    app.decorate('appVersion', String(process.env.APP_VERSION || '0.0.0'));
+    app.decorate('appVersion', '0.0.0');
   }
   // Tolerate empty JSON bodies: if Content-Type is application/json but body is empty, parse as {}
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -134,10 +139,15 @@ export async function buildServer() {
   await app.register(tsdbPlugin);
   await app.register(permissionsPlugin);
   
-  // Register all flow node types (including external libraries)
-  // Must be after dbPlugin so we can query enabled libraries
+  // Jobs plugin + routes (admin only) – register once then start dispatcher
+  await app.register(jobsPlugin); // services.jobs
+  await app.register(jobsRoutes, { prefix: '/api' }); // /api/jobs endpoints (admin)
+  try { app.jobs.start(); } catch (e) { app.log.error({ err: e }, 'failed to start jobs dispatcher'); }
+
+  // Register all flow node types (including external libraries/extensions)
+  // Must be after dbPlugin and jobsPlugin so extensions can register job handlers
   await registerAllNodes({ db: app.db, app });
-  
+
   // Start flow log cleanup scheduler after db is available (daily at 2 AM)
   startFlowLogCleanupScheduler(app.log, app.db);
   // Ensure hypertable is created before applying policies
@@ -164,6 +174,7 @@ export async function buildServer() {
   registerSessionRetention(app);
 
   await app.register(healthRoutes, { prefix: '/health' });
+  await app.register(versionRoute);
   await app.register(metricsRoutes, { prefix: '/metrics' });
   // unified auth routes
   await app.register(authRoutes, { prefix: '/api/auth' });
@@ -182,10 +193,6 @@ export async function buildServer() {
   await app.register(libraryRoutes); // Node library management - no prefix, routes define their own paths
   await app.register(adminFlowsRoutes, { prefix: '/api/admin/flows' }); // Admin flow configuration
   await app.register(mqttRoutes); // MQTT management and authentication - no prefix, routes define their own paths
-  // Jobs plugin + routes (admin only) – register once then start dispatcher
-  await app.register(jobsPlugin); // services.jobs
-  await app.register(jobsRoutes, { prefix: '/api' }); // /api/jobs endpoints (admin)
-  try { app.jobs.start(); } catch (e) { app.log.error({ err: e }, 'failed to start jobs dispatcher'); }
 
   // TEMP debug route to list routes
   app.get('/__routes', async () => ({ routes: app.printRoutes() }));

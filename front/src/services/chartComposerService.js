@@ -195,15 +195,17 @@ export const chartComposerService = {
    * Returns a job object immediately; poll getForecastJob(id) for status/result.
    * @param {Object} params
    * @param {number[]} params.tag_ids
-   * @param {string} params.from - ISO timestamp
-   * @param {string} params.to - ISO timestamp
+   * @param {string} params.from - ISO timestamp (chart range start)
+   * @param {string} params.to - ISO timestamp (chart range end)
+   * @param {string} [params.context_from] - ISO timestamp — start of data fed to model (defaults to from)
+   * @param {string} [params.context_to] - ISO timestamp — end of data fed to model (defaults to to)
    * @param {number} params.horizon - Number of steps to predict (1-256)
    * @param {boolean} params.quantiles - Include lower/upper bands
    * @param {string|null} params.conn_id
    * @returns {Promise<Object>} Job object { id, status, ... }
    */
-  enqueueForecast: ({ tag_ids, from, to, horizon = 24, quantiles = false, conn_id = null }) =>
-    apiClient.post('/historian/forecast', { tag_ids, from, to, horizon, quantiles, conn_id }),
+  enqueueForecast: ({ tag_ids, from, to, context_from, context_to, horizon = 24, quantiles = false, conn_id = null, model = 'timesfm-2.5-200m' }) =>
+    apiClient.post('/extensions/forecast', { tag_ids, from, to, context_from, context_to, horizon, quantiles, conn_id, model }),
 
   /**
    * Poll a forecast job by ID. Check job.status ('queued'|'running'|'done'|'failed').
@@ -213,6 +215,17 @@ export const chartComposerService = {
    */
   getForecastJob: (jobId) =>
     apiClient.get(`/jobs/${jobId}`),
+
+  /**
+   * Get point count per tag for a given time range.
+   * Used by Settings/Forecast to preview how many data points will feed the model.
+   * @param {number[]} tag_ids
+   * @param {string} from - ISO timestamp
+   * @param {string} to - ISO timestamp
+   * @returns {Promise<Object>} Map of { [tag_id]: count }
+   */
+  forecastPointCount: ({ tag_ids, from, to }) =>
+    apiClient.get(`/extensions/forecast/point-count?tag_ids=${encodeURIComponent(tag_ids.join(','))}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
 };
 
 export default chartComposerService;

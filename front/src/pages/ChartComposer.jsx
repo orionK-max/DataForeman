@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button, Paper, Toolbar, Divider, Chip, Tooltip, Switch, FormControlLabel, TextField, MenuItem, CircularProgress } from '@mui/material';
-import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight, ScatterPlot, AutoGraph } from '@mui/icons-material';
+import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button, Paper, Toolbar, Divider, Chip, Tooltip, Switch, FormControlLabel, TextField, MenuItem } from '@mui/material';
+import { ExpandMore, ExpandLess, ArrowBack, Settings, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight, ScatterPlot } from '@mui/icons-material';
 import { ChartComposerProvider, useChartComposer } from '../contexts/ChartComposerContext';
 import ChartRenderer from '../components/chartComposer/ChartRenderer';
 import PointsTable from '../components/chartComposer/PointsTable';
@@ -9,6 +9,31 @@ import SaveChartButton from '../components/chartComposer/SaveChartButton';
 import ExportChartButton from '../components/chartComposer/ExportChartButton';
 import chartComposerService from '../services/chartComposerService';
 import useSetPageTitle from '../hooks/useSetPageTitle';
+import { PluginRegistry } from '../utils/PluginRegistry';
+import ExtensionChartPlugin from '../components/shared/ExtensionChartPlugin.jsx';
+
+/**
+ * Renders all chart-plugin toolbar components assigned to a given slot.
+ * Slot values (from manifest toolbarSlot): 'data' | 'view' | 'zoom' | 'tools'
+ */
+const ToolbarSlotPlugins = ({ slot, plugins, chartConfig, timeRange, onSeriesChange, onChartConfigChange }) => {
+  const slotPlugins = plugins.filter(p => p.toolbarComponentUrl && (p.toolbarSlot ?? 'data') === slot);
+  if (slotPlugins.length === 0) return null;
+  return slotPlugins.map(plugin => (
+    <ExtensionChartPlugin
+      key={plugin.id}
+      plugin={plugin}
+      toolbarProps={{
+        tagConfigs: chartConfig.tagConfigs,
+        timeRange,
+        chartConfig,
+        contextType: 'composer',
+        onSeriesChange: (series) => onSeriesChange(plugin.id, series),
+        onChartConfigChange,
+      }}
+    />
+  ));
+};
 
 const ChartComposerContent = () => {
   const { id } = useParams();
@@ -31,7 +56,7 @@ const ChartComposerContent = () => {
     updateGridConfig,
     updateBackgroundConfig,
     updateDisplayConfig,
-    updateForecastConfig,
+    updateExtensionConfig,
     autoRefresh, 
     setAutoRefresh,
     refreshIntervalValue,
@@ -79,22 +104,13 @@ const ChartComposerContent = () => {
   const [compactMode, setCompactMode] = React.useState(false); // Preview compact dashboard view
   const [showPreferences, setShowPreferences] = React.useState(false); // Chart preferences panel
   const [crosshairEnabled, setCrosshairEnabled] = React.useState(false); // Crosshair toggle
-  const [forecastLoading, setForecastLoading] = React.useState(false); // Mirrors ChartRenderer forecast loading state
   const chartRef = React.useRef(null); // Reference to chart for zoom controls
+  const [extensionSeries, setExtensionSeries] = React.useState({}); // pluginId → ECharts series array
 
-  const handleForecastClick = React.useCallback(() => {
-    if (!chartRef.current) return;
-    setForecastLoading(true);
-    chartRef.current.triggerForecast();
-    // Poll until done (ChartRenderer manages the actual state; we just reflect loading visually)
-    const poll = setInterval(() => {
-      if (chartRef.current && !chartRef.current.isForecastLoading()) {
-        setForecastLoading(false);
-        clearInterval(poll);
-      }
-    }, 500);
-    // Safety timeout
-    setTimeout(() => { setForecastLoading(false); clearInterval(poll); }, 120000);
+  // Track chart plugins (re-render toolbar when extensions are installed/removed)
+  const [chartPlugins, setChartPlugins] = React.useState(() => PluginRegistry.getChartPlugins());
+  React.useEffect(() => {
+    return PluginRegistry.subscribe(() => setChartPlugins(PluginRegistry.getChartPlugins()));
   }, []);
 
   // Chart resize handlers
@@ -379,10 +395,11 @@ const ChartComposerContent = () => {
                 </Button>
               </Tooltip>
             </Box>
+            <ToolbarSlotPlugins slot="view" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} />
           </Box>
-          
+
           <Divider orientation="vertical" flexItem />
-          
+
           {/* Data Group */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
             <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
@@ -401,21 +418,6 @@ const ChartComposerContent = () => {
                   Points
                 </Button>
               </Tooltip>
-              {chartConfig.forecast?.enabled && (
-                <Tooltip title="Generate AI forecast for visible tags">
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="primary"
-                    startIcon={forecastLoading ? <CircularProgress size={14} color="inherit" /> : <AutoGraph />}
-                    onClick={handleForecastClick}
-                    disabled={forecastLoading}
-                    sx={{ minWidth: 110 }}
-                  >
-                    Forecast
-                  </Button>
-                </Tooltip>
-              )}
               <Tooltip title="Live auto-refresh">
                 <Button
                   size="small"
@@ -463,6 +465,8 @@ const ChartComposerContent = () => {
                   />
                 )}
               </Box>
+              {/* Extension chart-plugin toolbar components assigned to the 'data' slot */}
+              <ToolbarSlotPlugins slot="data" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} />
             </Box>
           </Box>
           
@@ -496,29 +500,7 @@ const ChartComposerContent = () => {
                   Fwd
                 </Button>
               </Tooltip>
-              <Tooltip title="Zoom In">
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ZoomIn />}
-                  onClick={handleZoomIn}
-                  sx={{ minWidth: 90 }}
-                >
-                  In
-                </Button>
-              </Tooltip>
-              <Tooltip title="Zoom Out">
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ZoomOut />}
-                  onClick={handleZoomOut}
-                  sx={{ minWidth: 90 }}
-                >
-                  Out
-                </Button>
-              </Tooltip>
-              <Tooltip title="Reset Zoom & Re-query">
+               <Tooltip title="Reset Zoom & Re-query">
                 <Button
                   size="small"
                   variant="outlined"
@@ -530,6 +512,7 @@ const ChartComposerContent = () => {
                 </Button>
               </Tooltip>
             </Box>
+            <ToolbarSlotPlugins slot="zoom" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} />
           </Box>
           
           <Divider orientation="vertical" flexItem />
@@ -554,6 +537,7 @@ const ChartComposerContent = () => {
               </Tooltip>
               <ExportChartButton />
             </Box>
+            <ToolbarSlotPlugins slot="tools" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} />
           </Box>
         </Toolbar>
       </Paper>
@@ -588,7 +572,16 @@ const ChartComposerContent = () => {
                   loading={loading}
                   compactMode={compactMode}
                   requestedTimeRange={timeRange}
-                  options={{ xAxisTickCount: chartConfig.xAxisTickCount, extendCurveEdges: chartConfig.extendCurveEdges ?? true, forecast: chartConfig.forecast }}
+                  options={{
+                    xAxisTickCount: chartConfig.xAxisTickCount,
+                    extendCurveEdges: chartConfig.extendCurveEdges ?? true,
+                    ...Object.fromEntries(
+                      Object.entries(chartConfig).filter(([k, v]) =>
+                        !['tagConfigs', 'axes', 'referenceLines', 'grid', 'background', 'display', 'interpolation', 'xAxisTickCount', 'extendCurveEdges'].includes(k) &&
+                        v !== null && typeof v === 'object' && !Array.isArray(v)
+                      )
+                    ),
+                  }}
                   onZoomChange={(xDomain, yDomain) => setVisibleTimeRange(xDomain)}
                   tagMetadata={tagMetadata}
                   lastValuesBefore={lastValuesBefore}
@@ -601,7 +594,7 @@ const ChartComposerContent = () => {
                   updateGridConfig={updateGridConfig}
                   updateBackgroundConfig={updateBackgroundConfig}
                   updateDisplayConfig={updateDisplayConfig}
-                  updateForecastConfig={updateForecastConfig}
+                  updateExtensionConfig={updateExtensionConfig}
                   updateChartConfig={updateChartConfig}
                   onPreferencesClose={handlePreferencesClose}
                   timeModeBadge={{
@@ -617,6 +610,7 @@ const ChartComposerContent = () => {
                   externalSetCrosshairEnabled={setCrosshairEnabled}
                   hideInternalControls={true}
                   showDataPoints={showDataPoints}
+                  externalExtensionSeries={extensionSeries}
                 />
                 
                 {/* Resize handle */}

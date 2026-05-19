@@ -153,8 +153,13 @@ const SaveChartButton = () => {
             showTooltip: chartConfig.display?.showTooltip === true,
             legendPosition: chartConfig.display?.legendPosition || 'bottom',
           },
-          // Forecast settings
-          ...(chartConfig.forecast ? { forecast: chartConfig.forecast } : {}),
+          // Extension config namespaces (e.g. forecast, custom plugins) — pass through as-is
+          ...Object.fromEntries(
+            Object.entries(chartConfig).filter(([k, v]) =>
+              !['tagConfigs', 'axes', 'referenceLines', 'grid', 'background', 'display', 'interpolation', 'xAxisTickCount', 'extendCurveEdges'].includes(k) &&
+              v !== null && typeof v === 'object' && !Array.isArray(v)
+            )
+          ),
           // Global interpolation (optional)
           interpolation: chartConfig.interpolation || 'linear',
           // X-axis tick count

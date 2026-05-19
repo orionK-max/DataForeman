@@ -270,16 +270,16 @@ export function validateChartOptions(options, { partial = false, strict = false 
     value.xAxisTickCount = 5;
   }
 
-  // Forecast config — pass through as-is (structure validated loosely)
-  if (options.forecast && typeof options.forecast === 'object') {
-    value.forecast = {
-      enabled: options.forecast.enabled === true,
-      mode: ['simple', 'research'].includes(options.forecast.mode) ? options.forecast.mode : 'simple',
-      horizon: Number.isInteger(options.forecast.horizon) && options.forecast.horizon > 0 ? options.forecast.horizon : 24,
-      autoRefreshMs: Number.isFinite(options.forecast.autoRefreshMs) && options.forecast.autoRefreshMs >= 0 ? options.forecast.autoRefreshMs : 0,
-      selectedTagIds: Array.isArray(options.forecast.selectedTagIds) ? options.forecast.selectedTagIds.filter(id => typeof id === 'number') : [],
-      vizMode: ['line', 'band', 'fan'].includes(options.forecast.vizMode) ? options.forecast.vizMode : 'line',
-    };
+  // Extension config namespaces — pass through plain objects not owned by core.
+  // Extensions write to their own configKey (e.g. options.forecast, options.myPlugin).
+  const CORE_OPTION_KEYS = new Set([
+    'axes', 'referenceLines', 'tags', 'grid', 'background', 'display',
+    'xAxisTickCount', 'extendCurveEdges'
+  ]);
+  for (const [key, val] of Object.entries(options)) {
+    if (!CORE_OPTION_KEYS.has(key) && val !== null && typeof val === 'object' && !Array.isArray(val)) {
+      value[key] = val;
+    }
   }
   
   return {

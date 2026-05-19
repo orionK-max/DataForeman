@@ -11,6 +11,7 @@ import {
   Divider,
   Box,
   Chip,
+  Typography,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import CableIcon from '@mui/icons-material/Cable';
@@ -38,10 +39,19 @@ const Sidebar = () => {
   const { can } = usePermissions();
   const theme = useMuiTheme();
   const [extensions, setExtensions] = React.useState([]);
+  const [appVersion, setAppVersion] = React.useState(null);
 
   // Subscribe to plugin registry changes
   React.useEffect(() => {
     return PluginRegistry.subscribe(setExtensions);
+  }, []);
+
+  // Fetch app version once on mount
+  React.useEffect(() => {
+    fetch('/api/version')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.version) setAppVersion(data.version); })
+      .catch(() => {});
   }, []);
 
   // Choose logo based on theme mode
@@ -121,10 +131,12 @@ const Sidebar = () => {
         sx={{
           p: 2,
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           borderTop: 1,
           borderColor: 'divider',
+          gap: 0.5,
         }}
       >
         <img
@@ -136,6 +148,11 @@ const Sidebar = () => {
             objectFit: 'contain',
           }}
         />
+        {appVersion && (
+          <Typography variant="caption" color="text.disabled" sx={{ letterSpacing: 0.5 }}>
+            v{appVersion}
+          </Typography>
+        )}
       </Box>
     </Drawer>
   );
