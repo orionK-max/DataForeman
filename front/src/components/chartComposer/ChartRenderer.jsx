@@ -115,6 +115,21 @@ const ChartRenderer = React.forwardRef(({
     });
   }, []);
   
+  // When extension series are cleared, ECharts' default merge mode (notMerge=false) keeps stale
+  // series by index. Use replaceMerge to force-remove them when the count drops to zero.
+  const hadExtensionSeriesRef = React.useRef(false);
+  React.useEffect(() => {
+    const merged = { ...extensionSeriesMap, ...(externalExtensionSeries || {}) };
+    const hasAny = Object.values(merged).some(arr => Array.isArray(arr) && arr.length > 0);
+    if (hadExtensionSeriesRef.current && !hasAny) {
+      const instance = chartRef.current?.getEchartsInstance?.();
+      if (instance) {
+        instance.setOption(option, { replaceMerge: ['series'] });
+      }
+    }
+    hadExtensionSeriesRef.current = hasAny;
+  }, [extensionSeriesMap, externalExtensionSeries]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // extensionZoom: when forecast data arrives, store the desired zoom window here.
   // This flows into the dataZoom options so ECharts applies it on the next render
   // (dispatchAction gets overridden by the simultaneous options re-render, so we use state instead).
@@ -144,6 +159,16 @@ const ChartRenderer = React.forwardRef(({
       setExtensionZoom(null);
     }
   }, [externalExtensionSeries]);
+
+  // When the user navigates (requestedTimeRange changes) while extensionZoom is active,
+  // release the zoom lock so the chart responds normally to back/forward navigation.
+  const prevRequestedTimeRangeRef = React.useRef(requestedTimeRange);
+  React.useEffect(() => {
+    if (prevRequestedTimeRangeRef.current !== requestedTimeRange) {
+      prevRequestedTimeRangeRef.current = requestedTimeRange;
+      setExtensionZoom(null);
+    }
+  }, [requestedTimeRange]);
 
   // Watch for shouldOpenPreferences flag and open preferences panel
   React.useEffect(() => {
@@ -949,9 +974,13 @@ const ChartRenderer = React.forwardRef(({
           minInterval = Math.max(1000, intervalPerTick / 10);
         }
 
-        // Calculate x-axis max — extend to cover extension series data (e.g. forecast horizon)
+        // Calculate x-axis max — extend to cover extension series data (e.g. forecast horizon),
+        // but only while the extensionZoom is active. Once the user navigates away, the zoom
+        // lock is released and the x-axis should follow requestedTimeRange normally.
         const xMax = requestedTimeRange
-          ? Math.max(new Date(requestedTimeRange.to).getTime(), extensionDataMaxTs ?? 0)
+          ? (extensionZoom
+            ? Math.max(new Date(requestedTimeRange.to).getTime(), extensionDataMaxTs ?? 0)
+            : new Date(requestedTimeRange.to).getTime())
           : 'dataMax';
 
 

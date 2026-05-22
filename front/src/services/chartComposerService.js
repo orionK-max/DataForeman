@@ -226,6 +226,24 @@ export const chartComposerService = {
    */
   forecastPointCount: ({ tag_ids, from, to }) =>
     apiClient.get(`/extensions/forecast/point-count?tag_ids=${encodeURIComponent(tag_ids.join(','))}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+
+  /**
+   * Enqueue a simulation_generation job (Chronos-2 multivariate what-if).
+   * Returns a job object immediately; poll getForecastJob(id) for status/result.
+   * @param {Object} params
+   * @param {number[]} params.tag_ids
+   * @param {Object} params.tagRoles - { [tag_id]: "target"|"past_covariate"|"future_covariate" }
+   * @param {Object} params.futureOverrides - { [tag_id]: { [ts_iso]: value } }
+   * @param {string} params.anchor - ISO timestamp — simulation split point
+   * @param {number} params.contextMs - Context window duration in ms
+   * @param {number} [params.stepMs] - Bucket interval in ms (from Resolution Info Bar)
+   * @param {number} params.horizon - Horizon steps (1-1024)
+   * @param {boolean} params.quantiles - Include lower/upper bands
+   * @param {string} params.model - Model key (default 'chronos-2')
+   * @returns {Promise<Object>} Job object { id, status, ... }
+   */
+  enqueueSimulation: ({ tag_ids, tagRoles, futureOverrides, anchor, contextMs, stepMs, horizon = 24, quantiles = false, model = 'chronos-2' }) =>
+    apiClient.post('/extensions/forecast/simulate', { tag_ids, tagRoles, futureOverrides, anchor, contextMs, stepMs, horizon, quantiles, model }),
 };
 
 export default chartComposerService;
