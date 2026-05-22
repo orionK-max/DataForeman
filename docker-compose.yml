@@ -134,6 +134,12 @@ services:
       # Compose project file path — used by the library manager to start/stop extension services
       COMPOSE_PROJECT_FILE: ${COMPOSE_PROJECT_FILE:-/app/docker-compose.yml}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-dataforeman}
+      # Server Monitor extension
+      SERVER_MONITOR_HOST: ${SERVER_MONITOR_HOST:-}
+      SERVER_MONITOR_USER: ${SERVER_MONITOR_USER:-root}
+      SERVER_MONITOR_PASSWORD: ${SERVER_MONITOR_PASSWORD:-}
+      SERVER_MONITOR_SSH_PORT: ${SERVER_MONITOR_SSH_PORT:-22}
+      SERVER_MONITOR_POLL_INTERVAL: ${SERVER_MONITOR_POLL_INTERVAL:-60}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
       interval: 5s
@@ -262,7 +268,7 @@ services:
     environment:
       HF_HOME: /root/.cache/huggingface
     volumes:
-      - ./var/timesfm-cache:/root/.cache/huggingface
+      - ./var/hf-model-cache:/root/.cache/huggingface
     # Internal only — only core needs to reach it
     expose:
       - "8100"
