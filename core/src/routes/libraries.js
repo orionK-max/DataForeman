@@ -84,7 +84,7 @@ async function manageExtensionService(profile, serviceName, action = 'up') {
 
   let cmd;
   if (action === 'up') {
-    cmd = `${composeCmd} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --no-recreate`;
+    cmd = `${composeCmd} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --no-recreate ${serviceName}`;
   } else if (action === 'remove') {
     // Stop and remove the container directly — avoids compose dependency resolution errors
     const containerName = `${COMPOSE_PROJECT_NAME}-${serviceName}-1`;
@@ -886,10 +886,15 @@ export default async function libraryRoutes(app) {
         for (const svc of services) {
           try {
             await manageExtensionService(svc.profile, svc.name, 'remove');
-            await setEnvExtensionFlag(svc.name, false);
             req.log.info({ libraryId, service: svc.name }, 'Extension service stopped');
           } catch (err) {
             req.log.warn({ libraryId, service: svc.name, err }, 'Failed to stop extension service');
+          }
+
+          try {
+            await setEnvExtensionFlag(svc.name, false);
+          } catch (err) {
+            req.log.warn({ libraryId, service: svc.name, err }, 'Failed to clear extension enable flag');
           }
         }
       }

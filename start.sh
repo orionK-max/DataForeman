@@ -29,7 +29,7 @@ if [[ -f var/extensions.env ]]; then
     [[ "$key" =~ ^EXTENSION_(.+)_ENABLED$ ]] && [[ "$value" == "true" ]] || continue
     profile="${BASH_REMATCH[1],,}"
     echo "Starting extension: $profile"
-    docker compose --profile "$profile" up -d || echo "⚠️  Failed to start extension: $profile"
+    docker compose --profile "$profile" up -d "$profile" || echo "⚠️  Failed to start extension: $profile"
   done < <(grep -E '^EXTENSION_[A-Z0-9_]+_ENABLED=true' var/extensions.env 2>/dev/null)
 fi
 
