@@ -50,7 +50,7 @@ fi
 
 # Start Docker services (db, nats, tsdb, core, connectivity, rotator, broker)
 echo "📦 Starting Docker services..."
-docker compose up -d db nats tsdb core connectivity rotator broker
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db nats tsdb core connectivity rotator broker
 echo ""
 
 # Wait a moment for services to be ready

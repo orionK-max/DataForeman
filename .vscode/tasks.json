@@ -12,7 +12,7 @@
 		{
 			"label": "rebuild-core",
 			"type": "shell",
-			"command": "docker compose build core; docker compose up -d core",
+			"command": "docker compose -f docker-compose.yml -f docker-compose.dev.yml build core; docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d core",
 			"args": [],
 			"isBackground": false,
 			"group": "build"
@@ -20,14 +20,14 @@
 		{
 			"label": "rebuild-connectivity",
 			"type": "shell",
-			"command": "docker compose build connectivity; docker compose up -d connectivity",
+			"command": "docker compose -f docker-compose.yml -f docker-compose.dev.yml build connectivity; docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d connectivity",
 			"isBackground": false,
 			"group": "build"
 		},
 		{
 			"label": "rebuild-core-and-connectivity",
 			"type": "shell",
-			"command": "docker compose build core connectivity; docker compose up -d core connectivity",
+			"command": "docker compose -f docker-compose.yml -f docker-compose.dev.yml build core connectivity; docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d core connectivity",
 			"isBackground": false,
 			"group": "build"
 		}

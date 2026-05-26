@@ -42,7 +42,7 @@ echo ""
 
 # Build Docker services
 echo "📦 Building Docker services (core, connectivity, front)..."
-docker compose build core connectivity front
+docker compose -f docker-compose.yml -f docker-compose.dev.yml build core connectivity front
 
 # Install/update frontend dependencies
 echo "📦 Installing frontend dependencies..."
@@ -78,8 +78,8 @@ echo "   Frontend Prod: http://localhost:8080"
 echo ""
 
 # Start all services (including Caddy for network access)
-docker compose up -d db nats tsdb core connectivity rotator front broker
-docker compose --profile tls up -d caddy
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db nats tsdb core connectivity rotator front broker
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tls up -d caddy
 
 # Start frontend in dev mode (background)
 cd front
