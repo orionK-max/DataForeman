@@ -664,7 +664,7 @@ export async function diagRoutes(app) {
     }
 
     const { serviceName } = req.params;
-    const coreServices = ['ingestor', 'connectivity', 'broker'];
+    const coreServices = ['ingestor', 'connectivity', 'broker', 'core'];
 
     // Build dynamic allowed list: core services + services from installed extensions
     let extensionServices = [];
