@@ -249,18 +249,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and push ingestor
-        uses: docker/build-push-action@v5
-        with:
-          context: ingestor
-          file: ingestor/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/orionk-max/dataforeman-ingestor:latest
-            ghcr.io/orionk-max/dataforeman-ingestor:v${{ steps.meta.outputs.version_number }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Build and push front
         uses: docker/build-push-action@v5
         with:

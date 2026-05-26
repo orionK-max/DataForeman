@@ -1,0 +1,43 @@
+# Developer override — build all services from source instead of pulling pre-built images.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# This overrides the image: references in docker-compose.yml with local build: contexts.
+
+services:
+  core:
+    image: ""
+    build:
+      context: core
+      dockerfile: Dockerfile
+
+  connectivity:
+    image: ""
+    build:
+      context: connectivity
+      dockerfile: Dockerfile
+
+  front:
+    image: ""
+    build:
+      context: front
+      dockerfile: Dockerfile
+
+  rotator:
+    image: ""
+    build:
+      context: ops
+      dockerfile: Dockerfile
+
+  broker:
+    image: ""
+    build:
+      context: nanomq
+      dockerfile: Dockerfile
+
+  forecast:
+    image: ""
+    build:
+      context: extensions/forecast/service
+      dockerfile: Dockerfile
