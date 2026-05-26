@@ -196,65 +196,92 @@ jobs:
           retention-days: 30
 
   build-docker-images:
-    name: Build and Push Docker Images
+    name: Build and Push Docker Images to GHCR
     runs-on: ubuntu-latest
     needs: create-release
-    # Skip this job if Docker credentials are not configured
-    # The job will be skipped but won't fail the overall workflow
-    if: false
-    
+    permissions:
+      contents: read
+      packages: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.create-release.outputs.version }}
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Log in to Docker Hub
+
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      
-      - name: Extract metadata
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract version number
         id: meta
         run: |
           VERSION="${{ needs.create-release.outputs.version }}"
-          VERSION_NUMBER="${VERSION#v}"
-          echo "version_number=$VERSION_NUMBER" >> $GITHUB_OUTPUT
-      
-      - name: Build and push Core image
+          echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
+
+      - name: Build and push core
         uses: docker/build-push-action@v5
         with:
-          context: ./core
+          context: core
+          file: core/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/dataforeman-core:latest
-            ${{ secrets.DOCKER_USERNAME }}/dataforeman-core:${{ steps.meta.outputs.version_number }}
+            ghcr.io/orionk-max/dataforeman-core:latest
+            ghcr.io/orionk-max/dataforeman-core:v${{ steps.meta.outputs.version_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
-      - name: Build and push Connectivity image
+
+      - name: Build and push connectivity
         uses: docker/build-push-action@v5
         with:
-          context: ./connectivity
+          context: connectivity
+          file: connectivity/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/dataforeman-connectivity:latest
-            ${{ secrets.DOCKER_USERNAME }}/dataforeman-connectivity:${{ steps.meta.outputs.version_number }}
+            ghcr.io/orionk-max/dataforeman-connectivity:latest
+            ghcr.io/orionk-max/dataforeman-connectivity:v${{ steps.meta.outputs.version_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
-      - name: Build and push Frontend image
+
+      - name: Build and push ingestor
         uses: docker/build-push-action@v5
         with:
-          context: ./front
+          context: ingestor
+          file: ingestor/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/dataforeman-front:latest
-            ${{ secrets.DOCKER_USERNAME }}/dataforeman-front:${{ steps.meta.outputs.version_number }}
+            ghcr.io/orionk-max/dataforeman-ingestor:latest
+            ghcr.io/orionk-max/dataforeman-ingestor:v${{ steps.meta.outputs.version_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push front
+        uses: docker/build-push-action@v5
+        with:
+          context: front
+          file: front/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/orionk-max/dataforeman-front:latest
+            ghcr.io/orionk-max/dataforeman-front:v${{ steps.meta.outputs.version_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push ops (rotator)
+        uses: docker/build-push-action@v5
+        with:
+          context: ops
+          file: ops/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/orionk-max/dataforeman-ops:latest
+            ghcr.io/orionk-max/dataforeman-ops:v${{ steps.meta.outputs.version_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
