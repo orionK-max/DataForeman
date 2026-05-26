@@ -11,20 +11,21 @@ import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Project root is 3 levels up from core/src/routes/ — used for .env and compose file on host.
+// Project root is 3 levels up from core/src/routes/ — resolves to /app/ inside Docker.
+// var/ is mounted from host (./var:/app/var), so var/extensions.env persists across restarts.
 // Inside Docker, COMPOSE_PROJECT_FILE env var points to the mounted docker-compose.yml.
 const PROJECT_ROOT = path.resolve(__dirname, '../../..');
 const COMPOSE_FILE = process.env.COMPOSE_PROJECT_FILE || path.join(PROJECT_ROOT, 'docker-compose.yml');
 const COMPOSE_PROJECT_NAME = process.env.COMPOSE_PROJECT_NAME || 'dataforeman';
 
 /**
- * Write or remove an extension enable flag in .env
- * Manages a dedicated "# Extensions" section at the end of the file.
+ * Write or remove an extension enable flag in var/extensions.env
+ * This file is mounted from the host via ./var:/app/var and survives container restarts.
  */
 async function setEnvExtensionFlag(extensionName, enabled) {
-  const envPath = path.join(PROJECT_ROOT, '.env');
+  const envPath = path.join(PROJECT_ROOT, 'var', 'extensions.env');
   let content = '';
-  try { content = await fs.readFile(envPath, 'utf8'); } catch { /* .env may not exist */ }
+  try { content = await fs.readFile(envPath, 'utf8'); } catch { /* file may not exist yet */ }
 
   const flagKey = `EXTENSION_${extensionName.toUpperCase()}_ENABLED`;
   const flagLine = `${flagKey}=${enabled ? 'true' : 'false'}`;
@@ -32,8 +33,6 @@ async function setEnvExtensionFlag(extensionName, enabled) {
   if (content.includes(flagKey)) {
     content = content.replace(new RegExp(`^${flagKey}=.*$`, 'm'), flagLine);
   } else {
-    const section = '\n########################################\n# Extensions\n########################################\n';
-    if (!content.includes('# Extensions')) content += section;
     content += `${flagLine}\n`;
   }
   await fs.writeFile(envPath, content, 'utf8');

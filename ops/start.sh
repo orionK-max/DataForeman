@@ -146,14 +146,14 @@ if [[ "$WITH_CADDY" == "true" ]]; then
 fi
 
 # Auto-start extension services that were previously installed
-# Reads EXTENSION_<NAME>_ENABLED=true flags from .env
-if [[ -f .env ]]; then
+# Reads EXTENSION_<NAME>_ENABLED=true flags from var/extensions.env (written by core on install)
+if [[ -f var/extensions.env ]]; then
   while IFS='=' read -r key value; do
     [[ "$key" =~ ^EXTENSION_(.+)_ENABLED$ ]] && [[ "$value" == "true" ]] || continue
     profile="${BASH_REMATCH[1],,}" # lowercase the profile name
     echo "Starting extension service: $profile"
     docker compose --profile "$profile" up -d || echo "⚠️  Failed to start extension service: $profile"
-  done < <(grep -E '^EXTENSION_[A-Z0-9_]+_ENABLED=true' .env 2>/dev/null)
+  done < <(grep -E '^EXTENSION_[A-Z0-9_]+_ENABLED=true' var/extensions.env 2>/dev/null)
 fi
 
 wait_for_core "http://localhost:3000/health" || true

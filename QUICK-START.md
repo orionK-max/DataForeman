@@ -21,7 +21,7 @@
 
 Look for "Terminal" in your applications menu and open it. You should see a black or white window with a prompt (something like `username@computer:~$`).
 
-### Step 2: Download the two required files
+### Step 2: Download the required files
 
 Create a folder and download the configuration files:
 
@@ -30,9 +30,11 @@ mkdir ~/dataforeman && cd ~/dataforeman
 
 curl -o docker-compose.yml https://raw.githubusercontent.com/orionK-max/DataForeman/main/docker-compose.yml
 curl -o .env https://raw.githubusercontent.com/orionK-max/DataForeman/main/.env.example
+curl -o start.sh https://raw.githubusercontent.com/orionK-max/DataForeman/main/start.sh
+chmod +x start.sh
 ```
 
-**What this does:** Creates a `dataforeman` folder with the two files needed to run DataForeman. No GitHub account needed.
+**What this does:** Creates a `dataforeman` folder with the files needed to run DataForeman. No GitHub account needed.
 
 ### Step 3: Configure your password (optional)
 
@@ -47,7 +49,7 @@ Press `Ctrl+X`, then `Y`, then `Enter` to save.
 ### Step 4: Start DataForeman
 
 ```bash
-docker compose up -d
+bash start.sh
 ```
 
 **This will take 2-5 minutes the first time** as it downloads the pre-built images. You'll see progress output — wait until the prompt returns.
@@ -92,7 +94,7 @@ If any service shows "Exited" or is missing, wait another minute and check again
 If DataForeman is not running, open a terminal in your `dataforeman` folder and type:
 
 ```bash
-docker compose up -d
+bash start.sh
 ```
 
 Then go to http://localhost:8080 in your browser.
