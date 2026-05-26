@@ -430,7 +430,7 @@ const ChartComposerContent = () => {
                   Live
                 </Button>
               </Tooltip>
-              <Box sx={{ display: 'flex', gap: 0.5, visibility: autoRefresh ? 'visible' : 'hidden', minWidth: 84 }}>
+              <Box sx={{ display: 'flex', gap: 0.5, visibility: autoRefresh ? 'visible' : 'hidden', width: autoRefresh ? 'auto' : 0, minWidth: autoRefresh ? 84 : 0, overflow: 'hidden' }}>
                 <TextField
                   select
                   value={refreshIntervalValue}

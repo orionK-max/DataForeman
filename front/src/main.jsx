@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import * as MUI from '@mui/material'
 import * as MUIIcons from '@mui/icons-material'
+import ReactECharts from 'echarts-for-react'
 import chartComposerService from './services/chartComposerService.js'
 
 // Expose host globals for dynamically-loaded extension modules.
@@ -11,6 +12,7 @@ window.__DF = {
   React,
   MUI,
   MUIIcons,
+  ReactECharts,
   services: {
     chartComposer: chartComposerService,
   },
