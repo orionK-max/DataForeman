@@ -11,10 +11,11 @@ import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Project root is 3 levels up from core/src/routes/ — resolves to /app/ inside Docker.
+// Inside Docker, src/ is copied to /app/src/ so this file is at /app/src/routes/libraries.js.
+// Two levels up from /app/src/routes/ reaches /app/ (the container working directory).
 // var/ is mounted from host (./var:/app/var), so var/extensions.env persists across restarts.
 // Inside Docker, COMPOSE_PROJECT_FILE env var points to the mounted docker-compose.yml.
-const PROJECT_ROOT = path.resolve(__dirname, '../../..');
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const COMPOSE_FILE = process.env.COMPOSE_PROJECT_FILE || path.join(PROJECT_ROOT, 'docker-compose.yml');
 const COMPOSE_PROJECT_NAME = process.env.COMPOSE_PROJECT_NAME || 'dataforeman';
 
