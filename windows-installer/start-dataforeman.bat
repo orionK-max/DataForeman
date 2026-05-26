@@ -45,8 +45,11 @@ if errorlevel 1 (
 
 echo [1/3] Checking environment...
 if not exist ".env" (
-    echo .env file not found, creating from .env.example...
-    copy .env.example .env >nul
+    echo .env file not found, creating from .env.windows...
+    copy "%~dp0..\windows-installer\.env.windows" .env >nul 2>&1
+    if errorlevel 1 (
+        echo WARNING: Could not create .env automatically. Please copy .env.windows to .env manually.
+    )
     echo Please edit .env file to set your passwords and configuration.
     echo.
 )
@@ -79,25 +82,10 @@ if not exist "logs" (
     )
 )
 
-echo [2/3] Building and starting DataForeman services...
-
-REM Check if images need to be built (first run detection)
-docker images dataforeman-core --format "{{.Repository}}" 2>nul | findstr "dataforeman-core" >nul
-if errorlevel 1 (
-    echo.
-    echo *** FIRST RUN DETECTED ***
-    echo Building container images from source...
-    echo This will take several minutes. Please wait - the window will stay open until complete.
-    echo.
-    docker compose build
-    if errorlevel 1 (
-        echo.
-        echo [ERROR] Failed to build images.
-        echo.
-        pause
-        exit /b 1
-    )
-)
+echo [2/3] Starting DataForeman services...
+echo On first run, Docker will pull pre-built images from the registry.
+echo This may take several minutes depending on your internet connection.
+echo.
 
 echo Starting services...
 docker compose up -d
