@@ -237,9 +237,12 @@ export default function OverviewTab() {
     setRestartMessage(null);
     try {
       const result = await diagnosticService.restartService(serviceName);
+      const successText = serviceName === 'core'
+        ? 'Core reboot command was issued. Expect temporary errors until core is fully booted.'
+        : (result.message || `${serviceName} restart initiated successfully`);
       setRestartMessage({ 
         type: 'success', 
-        text: result.message || `${serviceName} restart initiated successfully` 
+        text: successText
       });
       // Refresh both statuses after a delay
       setTimeout(() => {

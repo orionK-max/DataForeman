@@ -133,9 +133,19 @@ const ChartRenderer = React.forwardRef(({
   // extensionZoom: when forecast data arrives, store the desired zoom window here.
   // This flows into the dataZoom options so ECharts applies it on the next render
   // (dispatchAction gets overridden by the simultaneous options re-render, so we use state instead).
+  // Skip zoom lock in rolling/shifted (live) modes to allow chart to scroll naturally with live updates.
   const [extensionZoom, setExtensionZoom] = React.useState(null); // { startValue, endValue } | null
   React.useEffect(() => {
     if (!externalExtensionSeries) return;
+    
+    // In live modes (rolling/shifted), don't lock the zoom to forecast data
+    // because the chart should naturally scroll with time updates.
+    const isLiveMode = timeModeBadge?.mode === 'rolling' || timeModeBadge?.mode === 'shifted';
+    if (isLiveMode) {
+      setExtensionZoom(null);
+      return;
+    }
+    
     let minTs = null, maxTs = null;
     for (const seriesArr of Object.values(externalExtensionSeries)) {
       if (!Array.isArray(seriesArr)) continue;
@@ -158,7 +168,7 @@ const ChartRenderer = React.forwardRef(({
     } else {
       setExtensionZoom(null);
     }
-  }, [externalExtensionSeries]);
+  }, [externalExtensionSeries, timeModeBadge]);
 
   // When the user navigates (requestedTimeRange changes) while extensionZoom is active,
   // release the zoom lock so the chart responds normally to back/forward navigation.
