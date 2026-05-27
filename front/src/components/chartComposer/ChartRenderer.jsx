@@ -831,7 +831,20 @@ const ChartRenderer = React.forwardRef(({
           const yIdx = echartsData.axisIndexMap.get(s._axisId) ?? 0;
           return { ...s, yAxisIndex: yIdx };
         });
-        processedSeries.push(...resolved);
+
+        const resolvedWithPoints = resolved.map(s => {
+          if (!showDataPoints) return s;
+          if (s.type !== 'line') return s;
+          if (!Array.isArray(s.data) || s.data.length === 0) return s;
+          if (s._noPointToggle === true) return s;
+          return {
+            ...s,
+            showSymbol: true,
+            symbolSize: s.symbolSize ?? 6,
+          };
+        });
+
+        processedSeries.push(...resolvedWithPoints);
         // Track the max timestamp across all extension series data
         for (const s of extSeries) {
           if (Array.isArray(s.data)) {
@@ -884,10 +897,17 @@ const ChartRenderer = React.forwardRef(({
         },
         formatter: (params) => {
           if (!params || params.length === 0) return '';
-          
-          // Get time from first param
-          const time = params[0].value[0];
+
+          // Get time from ECharts payload safely (can be undefined while tooltip is kept alive).
+          const firstParam = params[0] || {};
+          const rawValue = firstParam.value;
+          const time = Array.isArray(rawValue)
+            ? rawValue[0]
+            : (firstParam.axisValue ?? firstParam.axisValueLabel ?? null);
+          if (time == null) return '';
+
           const date = new Date(time);
+          if (Number.isNaN(date.getTime())) return '';
           const timeStr = date.toLocaleTimeString();
           const ms = date.getMilliseconds().toString().padStart(3, '0');
           
@@ -936,8 +956,13 @@ const ChartRenderer = React.forwardRef(({
               ) {
                 const t0 = data[prevIdx][0], v0 = data[prevIdx][1];
                 const t1 = data[nextIdx][0], v1 = data[nextIdx][1];
-                const frac = (time - t0) / (t1 - t0);
-                allValues.set(s.name, { color, value: v0 + frac * (v1 - v0) });
+                if (t1 !== t0) {
+                  const frac = (time - t0) / (t1 - t0);
+                  const interpolatedValue = v0 + frac * (v1 - v0);
+                  if (Number.isFinite(interpolatedValue)) {
+                    allValues.set(s.name, { color, value: interpolatedValue });
+                  }
+                }
               } else if (prevIdx >= 0 && data[prevIdx][1] !== null && data[prevIdx][1] !== undefined) {
                 // Past the last data point — show last value
                 allValues.set(s.name, { color, value: data[prevIdx][1] });
@@ -950,6 +975,7 @@ const ChartRenderer = React.forwardRef(({
             if (s.name.startsWith('_refline_dummy_')) return;
             const entry = allValues.get(s.name);
             if (!entry) return;
+            if (!Number.isFinite(entry.value)) return;
             html += `
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${entry.color};"></span>

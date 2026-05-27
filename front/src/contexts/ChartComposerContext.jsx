@@ -60,6 +60,7 @@ export const ChartComposerProvider = ({ children }) => {
   const [customRefreshInterval, setCustomRefreshInterval] = useState(5); // seconds for custom
   const [chartHeight, setChartHeight] = useState(720);
   const [originalTimeWindow, setOriginalTimeWindow] = useState(null); // For sliding window in auto-refresh
+  const [forecastLiveShiftMs, setForecastLiveShiftMs] = useState(0); // Right-shift for forecast zone in live mode
   
   // Time mode state
   const [timeMode, setTimeMode] = useState('fixed');
@@ -798,10 +799,10 @@ export const ChartComposerProvider = ({ children }) => {
             // Update time range to reflect sliding window
             setTimeRange({ from: effectiveFrom, to: effectiveTo });
           } else if (timeMode === 'rolling') {
-            // Rolling mode: slide window to now
-            // Add 100ms buffer to account for ingestion batching delays
-            effectiveTo = new Date(now + 100);
-            effectiveFrom = new Date(now - originalTimeWindow);
+            // Rolling mode: slide window to now, right-shifted when forecast is active
+            const clampedShift = Math.min(forecastLiveShiftMs || 0, (originalTimeWindow || 0) / 2);
+            effectiveTo = new Date(now + clampedShift + 100);
+            effectiveFrom = new Date(now - ((originalTimeWindow || 0) - clampedShift));
             // Update time range to reflect sliding window
             setTimeRange({ from: effectiveFrom, to: effectiveTo });
           }
@@ -854,7 +855,7 @@ export const ChartComposerProvider = ({ children }) => {
     return () => {
       clearInterval(timer);
     };
-  }, [autoRefresh, refreshIntervalValue, customRefreshInterval, chartConfig.tagConfigs, timeRange, originalTimeWindow, timeMode, timeOffset, maxDataPoints, smartCompression]);
+  }, [autoRefresh, refreshIntervalValue, customRefreshInterval, chartConfig.tagConfigs, timeRange, originalTimeWindow, timeMode, timeOffset, maxDataPoints, smartCompression, forecastLiveShiftMs]);
 
   const value = {
     // Data state
@@ -899,6 +900,8 @@ export const ChartComposerProvider = ({ children }) => {
     setCustomRefreshInterval,
     originalTimeWindow,
     setOriginalTimeWindow,
+    forecastLiveShiftMs,
+    setForecastLiveShiftMs,
     chartHeight,
     setChartHeight,
     

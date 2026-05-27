@@ -16,7 +16,7 @@ import ExtensionChartPlugin from '../components/shared/ExtensionChartPlugin.jsx'
  * Renders all chart-plugin toolbar components assigned to a given slot.
  * Slot values (from manifest toolbarSlot): 'data' | 'view' | 'zoom' | 'tools'
  */
-const ToolbarSlotPlugins = ({ slot, plugins, chartConfig, timeRange, onSeriesChange, onChartConfigChange }) => {
+const ToolbarSlotPlugins = ({ slot, plugins, chartConfig, timeRange, onSeriesChange, onChartConfigChange, onNavigateTo, isLive }) => {
   const slotPlugins = plugins.filter(p => p.toolbarComponentUrl && (p.toolbarSlot ?? 'data') === slot);
   if (slotPlugins.length === 0) return null;
   return slotPlugins.map(plugin => (
@@ -30,6 +30,8 @@ const ToolbarSlotPlugins = ({ slot, plugins, chartConfig, timeRange, onSeriesCha
         contextType: 'composer',
         onSeriesChange: (series) => onSeriesChange(plugin.id, series),
         onChartConfigChange,
+        onNavigateTo,
+        isLive,
       }}
     />
   ));
@@ -82,6 +84,8 @@ const ChartComposerContent = () => {
     lastValuesBefore, // Last values before the query range
     setTagMetadata, // Setter for tagMetadata
     setLastValuesBefore, // Setter for lastValuesBefore
+    forecastLiveShiftMs,
+    setForecastLiveShiftMs,
   } = useChartComposer();
 
   React.useEffect(() => {
@@ -316,6 +320,28 @@ const ChartComposerContent = () => {
     executeQuery();
   }, [executeQuery]);
 
+  // Navigate chart to a specific timestamp with optional right-side forecast shift.
+  // Called by ForecastToolbar when forecast result arrives (shiftMs > 0) or is cleared (null, 0).
+  const handleNavigateTo = React.useCallback((centerDate, shiftMs = 0) => {
+    if (!centerDate) {
+      setForecastLiveShiftMs(0);
+      return;
+    }
+    const duration = timeDuration || 3600000;
+    const clampedShift = shiftMs > 0 ? Math.min(shiftMs, duration / 2) : 0;
+    if (clampedShift > 0) {
+      setForecastLiveShiftMs(clampedShift);
+      const centerMs = centerDate instanceof Date ? centerDate.getTime() : new Date(centerDate).getTime();
+      const newTo = new Date(centerMs + clampedShift + 100);
+      const newFrom = new Date(newTo.getTime() - duration);
+      const newRange = { from: newFrom, to: newTo };
+      setTimeRange(newRange);
+      executeQuery(newRange);
+      chartRef.current?.getEchartsInstance()?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    }
+    // shiftMs = 0: pre-forecast navigation, no-op (forecast service fetches its own data)
+  }, [timeDuration, setForecastLiveShiftMs, setTimeRange, executeQuery]);
+
   // Scroll time window back or forward by 50% of the current window duration
   const handleScrollTime = React.useCallback((direction) => {
     const from = timeRange.from instanceof Date ? timeRange.from : new Date(timeRange.from);
@@ -395,7 +421,7 @@ const ChartComposerContent = () => {
                 </Button>
               </Tooltip>
             </Box>
-            <ToolbarSlotPlugins slot="view" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} />
+            <ToolbarSlotPlugins slot="view" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
 
           <Divider orientation="vertical" flexItem />
@@ -424,7 +450,37 @@ const ChartComposerContent = () => {
                   variant={autoRefresh ? 'contained' : 'outlined'}
                   color={autoRefresh ? 'primary' : 'inherit'}
                   startIcon={<LiveIcon />}
-                  onClick={() => setAutoRefresh(!autoRefresh)}
+                  onClick={() => {
+                    const enabling = !autoRefresh;
+                    if (enabling) {
+                      // Always snap to "now" when enabling Live (like Reset), applying any active forecast shift
+                      const originalMode = loadedChart?.time_mode;
+                      const modeToUse = (originalMode === 'rolling' || originalMode === 'shifted') ? originalMode : 'rolling';
+                      const now = Date.now();
+                      const duration = timeDuration || 3600000;
+                      if (modeToUse === 'rolling') {
+                        setTimeMode('rolling');
+                        const clampedShift = Math.min(forecastLiveShiftMs || 0, duration / 2);
+                        const newRange = {
+                          from: new Date(now - (duration - clampedShift)),
+                          to:   new Date(now + clampedShift + 100),
+                        };
+                        setTimeRange(newRange);
+                        executeQuery(newRange);
+                      } else {
+                        setTimeMode('shifted');
+                        const offset = timeOffset || 0;
+                        const newRange = {
+                          from: new Date(now - offset - duration),
+                          to:   new Date(now - offset),
+                        };
+                        setTimeRange(newRange);
+                        executeQuery(newRange);
+                      }
+                      chartRef.current?.getEchartsInstance()?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+                    }
+                    setAutoRefresh(enabling);
+                  }}
                   sx={{ minWidth: 100 }}
                 >
                   Live
@@ -466,7 +522,7 @@ const ChartComposerContent = () => {
                 )}
               </Box>
               {/* Extension chart-plugin toolbar components assigned to the 'data' slot */}
-              <ToolbarSlotPlugins slot="data" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} />
+              <ToolbarSlotPlugins slot="data" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
             </Box>
           </Box>
           
@@ -512,7 +568,7 @@ const ChartComposerContent = () => {
                 </Button>
               </Tooltip>
             </Box>
-            <ToolbarSlotPlugins slot="zoom" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} />
+            <ToolbarSlotPlugins slot="zoom" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
           
           <Divider orientation="vertical" flexItem />
@@ -537,7 +593,7 @@ const ChartComposerContent = () => {
               </Tooltip>
               <ExportChartButton />
             </Box>
-            <ToolbarSlotPlugins slot="tools" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} />
+            <ToolbarSlotPlugins slot="tools" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
         </Toolbar>
       </Paper>
