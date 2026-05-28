@@ -136,13 +136,24 @@ fi
 
 if [[ "$BUILD_MODE" == "build" ]]; then
   echo "Building and starting full stack via Docker Compose (db, nats, tsdb, core, front, connectivity, rotator, broker)..."
-  docker compose up -d --build db nats tsdb core front connectivity rotator broker
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db nats tsdb core front connectivity rotator broker
 else
   echo "Starting full stack via Docker Compose without rebuild (db, nats, tsdb, core, front, connectivity, rotator, broker)..."
-  docker compose up -d db nats tsdb core front connectivity rotator broker
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db nats tsdb core front connectivity rotator broker
 fi
 if [[ "$WITH_CADDY" == "true" ]]; then
-  docker compose --profile tls up -d caddy
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tls up -d caddy
+fi
+
+# Auto-start extension services that were previously installed
+# Reads EXTENSION_<NAME>_ENABLED=true flags from var/extensions.env (written by core on install)
+if [[ -f var/extensions.env ]]; then
+  while IFS='=' read -r key value; do
+    [[ "$key" =~ ^EXTENSION_(.+)_ENABLED$ ]] && [[ "$value" == "true" ]] || continue
+    profile="${BASH_REMATCH[1],,}" # lowercase the profile name
+    echo "Starting extension service: $profile"
+    docker compose --env-file var/extensions.env -f docker-compose.yml -f docker-compose.dev.yml --profile "$profile" up -d "$profile" || echo "⚠️  Failed to start extension service: $profile"
+  done < <(grep -E '^EXTENSION_[A-Z0-9_]+_ENABLED=true' var/extensions.env 2>/dev/null)
 fi
 
 wait_for_core "http://localhost:3000/health" || true

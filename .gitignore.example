@@ -7,6 +7,9 @@ npm-debug.log*
 .env.local
 .env.*.local
 
+# Runtime data (model cache, extension flags, license — auto-managed, never commit)
+var/
+
 # Git ignore file (use .gitignore.example as template)
 .gitignore
 

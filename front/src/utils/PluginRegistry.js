@@ -7,6 +7,7 @@
 class PluginRegistryClass {
   constructor() {
     this._extensions = [];
+    this._chartPlugins = new Map(); // id → chart plugin descriptor
     this._listeners = new Set();
   }
 
@@ -28,8 +29,46 @@ class PluginRegistryClass {
           ? ext.componentUrl 
           : `/api/extensions/${lib.libraryId}/assets/${ext.componentUrl}${lib.version ? `?v=${encodeURIComponent(lib.version)}` : ''}`
       })));
-    
+
+    // Auto-register chart plugins from uiExtensions
+    this._chartPlugins.clear();
+    for (const lib of libraries) {
+      if (lib.enabled === false || lib.loaded !== true) continue;
+      for (const ext of (lib.uiExtensions || [])) {
+        if (ext.type !== 'chart-plugin') continue;
+        // Include both version and updatedAt when available.
+        // Version changes must always change the asset URL, even if the DB
+        // updatedAt timestamp was not refreshed by a manual bundle swap.
+        const cacheParams = new URLSearchParams();
+        if (lib.version) cacheParams.set('v', lib.version);
+        if (lib.updatedAt) cacheParams.set('cb', String(new Date(lib.updatedAt).getTime()));
+        const cacheBuster = cacheParams.size ? `?${cacheParams.toString()}` : '';
+        const resolveAssetUrl = (filename) =>
+          filename ? `/api/extensions/${lib.libraryId}/assets/${filename}${cacheBuster}` : null;
+
+        this._chartPlugins.set(ext.id, {
+          id: ext.id,
+          configKey: ext.configKey || ext.id,
+          toolbarComponentUrl: resolveAssetUrl(ext.toolbarComponentUrl),
+          configTabUrl: resolveAssetUrl(ext.configTabUrl),
+          configTabLabel: ext.configTabLabel || ext.id,
+          configTabIcon: ext.configTabIcon || null,
+          toolbarSlot: ext.toolbarSlot || 'data',
+          libraryId: lib.libraryId,
+          libraryVersion: lib.version || null,
+        });
+      }
+    }
+
     this._notify();
+  }
+
+  /**
+   * Get all registered chart plugins.
+   * @returns {Array<{id, configKey, toolbarComponentUrl, configTabUrl, configTabLabel, configTabIcon, libraryId}>}
+   */
+  getChartPlugins() {
+    return [...this._chartPlugins.values()];
   }
 
   /**

@@ -269,6 +269,18 @@ export function validateChartOptions(options, { partial = false, strict = false 
   } else if (!partial) {
     value.xAxisTickCount = 5;
   }
+
+  // Extension config namespaces — pass through plain objects not owned by core.
+  // Extensions write to their own configKey (e.g. options.forecast, options.myPlugin).
+  const CORE_OPTION_KEYS = new Set([
+    'axes', 'referenceLines', 'tags', 'grid', 'background', 'display',
+    'xAxisTickCount', 'extendCurveEdges'
+  ]);
+  for (const [key, val] of Object.entries(options)) {
+    if (!CORE_OPTION_KEYS.has(key) && val !== null && typeof val === 'object' && !Array.isArray(val)) {
+      value[key] = val;
+    }
+  }
   
   return {
     valid: errors.length === 0,

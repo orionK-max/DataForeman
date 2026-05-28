@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Card,
   CardContent,
@@ -15,6 +15,9 @@ import {
   FormControlLabel,
   Slider,
   Stack,
+  Switch,
+  Divider,
+  ButtonGroup,
 } from '@mui/material';
 import {
   Add,
@@ -23,8 +26,10 @@ import {
 import { useChartComposer } from '../../contexts/ChartComposerContext';
 import ConnectionSelector from './ConnectionSelector';
 import QueryControls from './QueryControls';
+import PluginRegistry from '../../utils/PluginRegistry.js';
+import { loadExtensionComponent } from '../../utils/ExtensionLoader.js';
 
-const TABS = ['Query List', 'Series', 'Display', 'Axes & Scaling', 'References'];
+const CORE_TABS = ['Query List', 'Series', 'Display', 'Axes & Scaling', 'References'];
 
 const ChartConfigPanel = ({ 
   compact = false,
@@ -42,6 +47,7 @@ const ChartConfigPanel = ({
   onUpdateGridConfig: propUpdateGridConfig = null,
   onUpdateBackgroundConfig: propUpdateBackgroundConfig = null,
   onUpdateDisplayConfig: propUpdateDisplayConfig = null,
+  onUpdateExtensionConfig: propUpdateExtensionConfig = null,
 }) => {
   // Try to get from context, but allow props to override
   let contextValues = null;
@@ -64,6 +70,7 @@ const ChartConfigPanel = ({
   const updateGridConfig = propUpdateGridConfig || contextValues?.updateGridConfig;
   const updateBackgroundConfig = propUpdateBackgroundConfig || contextValues?.updateBackgroundConfig;
   const updateDisplayConfig = propUpdateDisplayConfig || contextValues?.updateDisplayConfig;
+  const updateExtensionConfig = propUpdateExtensionConfig || contextValues?.updateExtensionConfig;
 
   // Validate that we have the required data
   if (!chartConfig) {
@@ -76,7 +83,48 @@ const ChartConfigPanel = ({
     );
   }
 
+  // Dynamic tabs: core tabs + one tab per installed chart plugin that provides a config tab
+  // Subscribe to PluginRegistry so the tab list re-renders when extensions are installed/removed.
+  const [chartPlugins, setChartPlugins] = useState(() =>
+    PluginRegistry.getChartPlugins().filter(p => p.configTabUrl)
+  );
+  useEffect(() => {
+    return PluginRegistry.subscribe(() =>
+      setChartPlugins(PluginRegistry.getChartPlugins().filter(p => p.configTabUrl))
+    );
+  }, []);
+  const TABS = [...CORE_TABS, ...chartPlugins.map(p => p.configTabLabel)];
+
   const [activeTab, setActiveTab] = useState(0);
+  const [extensionTabComponents, setExtensionTabComponents] = useState({}); // pluginId → { url, component }
+
+  // Load extension tab components whenever chart plugins change
+  useEffect(() => {
+    for (const plugin of chartPlugins) {
+      const loadedEntry = extensionTabComponents[plugin.id];
+      if (!loadedEntry || loadedEntry.url !== plugin.configTabUrl) {
+        loadExtensionComponent(plugin.configTabUrl)
+          .then(Component => setExtensionTabComponents(prev => ({
+            ...prev,
+            [plugin.id]: {
+              url: plugin.configTabUrl,
+              component: Component,
+            },
+          })))
+          .catch(err => {
+            console.error(`[ExtensionLoader] Failed to load config tab for ${plugin.id}:`, err);
+            setExtensionTabComponents(prev => ({
+              ...prev,
+              [plugin.id]: {
+                url: plugin.configTabUrl,
+                component: 'error',
+              },
+            }));
+          });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartPlugins.map(p => `${p.id}:${p.configTabUrl || ''}`).join(',')]);
 
   const handleTabChange = (newValue) => {
     setActiveTab(newValue);
@@ -1244,8 +1292,23 @@ const ChartConfigPanel = ({
           </Box>
         );
 
-      default:
-        return null;
+      default: {
+        // Render extension tab for any index >= CORE_TABS.length
+        const extIndex = activeTab - CORE_TABS.length;
+        const plugin = chartPlugins[extIndex];
+        if (!plugin) return null;
+        const loadedEntry = extensionTabComponents[plugin.id];
+        const ExtComponent = loadedEntry?.component;
+        if (!ExtComponent) return <Box sx={{ p: 2 }}><Typography variant="caption" color="text.secondary">Loading…</Typography></Box>;
+        if (ExtComponent === 'error') return <Box sx={{ p: 2 }}><Typography variant="caption" color="error">Failed to load extension component. Check console for details.</Typography></Box>;
+        return (
+          <ExtComponent
+            config={chartConfig[plugin.configKey] || {}}
+            onChange={(key, value) => updateExtensionConfig?.(plugin.configKey, key, value)}
+            tagConfigs={chartConfig.tagConfigs || []}
+          />
+        );
+      }
     }
   };
 

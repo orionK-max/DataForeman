@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Typography, Box, Alert, Card, IconButton, Collapse, Badge, Button, Paper, Toolbar, Divider, Chip, Tooltip, Switch, FormControlLabel, TextField, MenuItem } from '@mui/material';
-import { ExpandMore, ExpandLess, ArrowBack, Settings, ZoomIn, ZoomOut, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight, ScatterPlot } from '@mui/icons-material';
+import { ExpandMore, ExpandLess, ArrowBack, Settings, RestartAlt, Visibility, Visibility as LiveIcon, DashboardCustomize, ChevronLeft, ChevronRight, ScatterPlot } from '@mui/icons-material';
 import { ChartComposerProvider, useChartComposer } from '../contexts/ChartComposerContext';
 import ChartRenderer from '../components/chartComposer/ChartRenderer';
 import PointsTable from '../components/chartComposer/PointsTable';
@@ -9,6 +9,35 @@ import SaveChartButton from '../components/chartComposer/SaveChartButton';
 import ExportChartButton from '../components/chartComposer/ExportChartButton';
 import chartComposerService from '../services/chartComposerService';
 import useSetPageTitle from '../hooks/useSetPageTitle';
+import { PluginRegistry } from '../utils/PluginRegistry';
+import ExtensionChartPlugin from '../components/shared/ExtensionChartPlugin.jsx';
+
+/**
+ * Renders all chart-plugin toolbar components assigned to a given slot.
+ * Slot values (from manifest toolbarSlot): 'data' | 'view' | 'zoom' | 'tools'
+ */
+const ToolbarSlotPlugins = ({ slot, plugins, chartConfig, timeRange, items, onSeriesChange, onChartConfigChange, onNavigateTo, isLive }) => {
+  const slotPlugins = plugins.filter(p => p.toolbarComponentUrl && (p.toolbarSlot ?? 'data') === slot);
+  if (slotPlugins.length === 0) return null;
+  return slotPlugins.map(plugin => (
+    <ExtensionChartPlugin
+      key={`${plugin.id}:${plugin.libraryVersion || plugin.toolbarComponentUrl || ''}`}
+      plugin={plugin}
+      toolbarProps={{
+        tagConfigs: chartConfig.tagConfigs,
+        timeRange,
+        items,
+        chartConfig,
+        contextType: 'composer',
+        onSeriesChange: (series) => onSeriesChange(plugin.id, series),
+        onChartConfigChange,
+        onNavigateTo,
+        isLive,
+        extensionVersion: plugin.libraryVersion,
+      }}
+    />
+  ));
+};
 
 const ChartComposerContent = () => {
   const { id } = useParams();
@@ -31,6 +60,7 @@ const ChartComposerContent = () => {
     updateGridConfig,
     updateBackgroundConfig,
     updateDisplayConfig,
+    updateExtensionConfig,
     autoRefresh, 
     setAutoRefresh,
     refreshIntervalValue,
@@ -56,6 +86,8 @@ const ChartComposerContent = () => {
     lastValuesBefore, // Last values before the query range
     setTagMetadata, // Setter for tagMetadata
     setLastValuesBefore, // Setter for lastValuesBefore
+    forecastLiveShiftMs,
+    setForecastLiveShiftMs,
   } = useChartComposer();
 
   React.useEffect(() => {
@@ -79,6 +111,13 @@ const ChartComposerContent = () => {
   const [showPreferences, setShowPreferences] = React.useState(false); // Chart preferences panel
   const [crosshairEnabled, setCrosshairEnabled] = React.useState(false); // Crosshair toggle
   const chartRef = React.useRef(null); // Reference to chart for zoom controls
+  const [extensionSeries, setExtensionSeries] = React.useState({}); // pluginId → ECharts series array
+
+  // Track chart plugins (re-render toolbar when extensions are installed/removed)
+  const [chartPlugins, setChartPlugins] = React.useState(() => PluginRegistry.getChartPlugins());
+  React.useEffect(() => {
+    return PluginRegistry.subscribe(() => setChartPlugins(PluginRegistry.getChartPlugins()));
+  }, []);
 
   // Chart resize handlers
   const handleResizeStart = React.useCallback((e) => {
@@ -283,6 +322,28 @@ const ChartComposerContent = () => {
     executeQuery();
   }, [executeQuery]);
 
+  // Navigate chart to a specific timestamp with optional right-side forecast shift.
+  // Called by ForecastToolbar when forecast result arrives (shiftMs > 0) or is cleared (null, 0).
+  const handleNavigateTo = React.useCallback((centerDate, shiftMs = 0) => {
+    if (!centerDate) {
+      setForecastLiveShiftMs(0);
+      return;
+    }
+    const duration = timeDuration || 3600000;
+    const clampedShift = shiftMs > 0 ? Math.min(shiftMs, duration / 2) : 0;
+    if (clampedShift > 0) {
+      setForecastLiveShiftMs(clampedShift);
+      const centerMs = centerDate instanceof Date ? centerDate.getTime() : new Date(centerDate).getTime();
+      const newTo = new Date(centerMs + clampedShift + 100);
+      const newFrom = new Date(newTo.getTime() - duration);
+      const newRange = { from: newFrom, to: newTo };
+      setTimeRange(newRange);
+      executeQuery(newRange);
+      chartRef.current?.getEchartsInstance()?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    }
+    // shiftMs = 0: pre-forecast navigation, no-op (forecast service fetches its own data)
+  }, [timeDuration, setForecastLiveShiftMs, setTimeRange, executeQuery]);
+
   // Scroll time window back or forward by 50% of the current window duration
   const handleScrollTime = React.useCallback((direction) => {
     const from = timeRange.from instanceof Date ? timeRange.from : new Date(timeRange.from);
@@ -362,10 +423,11 @@ const ChartComposerContent = () => {
                 </Button>
               </Tooltip>
             </Box>
+            <ToolbarSlotPlugins slot="view" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} items={items} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
-          
+
           <Divider orientation="vertical" flexItem />
-          
+
           {/* Data Group */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
             <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
@@ -390,13 +452,43 @@ const ChartComposerContent = () => {
                   variant={autoRefresh ? 'contained' : 'outlined'}
                   color={autoRefresh ? 'primary' : 'inherit'}
                   startIcon={<LiveIcon />}
-                  onClick={() => setAutoRefresh(!autoRefresh)}
+                  onClick={() => {
+                    const enabling = !autoRefresh;
+                    if (enabling) {
+                      // Always snap to "now" when enabling Live (like Reset), applying any active forecast shift
+                      const originalMode = loadedChart?.time_mode;
+                      const modeToUse = (originalMode === 'rolling' || originalMode === 'shifted') ? originalMode : 'rolling';
+                      const now = Date.now();
+                      const duration = timeDuration || 3600000;
+                      if (modeToUse === 'rolling') {
+                        setTimeMode('rolling');
+                        const clampedShift = Math.min(forecastLiveShiftMs || 0, duration / 2);
+                        const newRange = {
+                          from: new Date(now - (duration - clampedShift)),
+                          to:   new Date(now + clampedShift + 100),
+                        };
+                        setTimeRange(newRange);
+                        executeQuery(newRange);
+                      } else {
+                        setTimeMode('shifted');
+                        const offset = timeOffset || 0;
+                        const newRange = {
+                          from: new Date(now - offset - duration),
+                          to:   new Date(now - offset),
+                        };
+                        setTimeRange(newRange);
+                        executeQuery(newRange);
+                      }
+                      chartRef.current?.getEchartsInstance()?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+                    }
+                    setAutoRefresh(enabling);
+                  }}
                   sx={{ minWidth: 100 }}
                 >
                   Live
                 </Button>
               </Tooltip>
-              <Box sx={{ display: 'flex', gap: 0.5, visibility: autoRefresh ? 'visible' : 'hidden', minWidth: 84 }}>
+              <Box sx={{ display: 'flex', gap: 0.5, visibility: autoRefresh ? 'visible' : 'hidden', width: autoRefresh ? 'auto' : 0, minWidth: autoRefresh ? 84 : 0, overflow: 'hidden' }}>
                 <TextField
                   select
                   value={refreshIntervalValue}
@@ -431,6 +523,8 @@ const ChartComposerContent = () => {
                   />
                 )}
               </Box>
+              {/* Extension chart-plugin toolbar components assigned to the 'data' slot */}
+              <ToolbarSlotPlugins slot="data" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} items={items} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
             </Box>
           </Box>
           
@@ -464,29 +558,7 @@ const ChartComposerContent = () => {
                   Fwd
                 </Button>
               </Tooltip>
-              <Tooltip title="Zoom In">
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ZoomIn />}
-                  onClick={handleZoomIn}
-                  sx={{ minWidth: 90 }}
-                >
-                  In
-                </Button>
-              </Tooltip>
-              <Tooltip title="Zoom Out">
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ZoomOut />}
-                  onClick={handleZoomOut}
-                  sx={{ minWidth: 90 }}
-                >
-                  Out
-                </Button>
-              </Tooltip>
-              <Tooltip title="Reset Zoom & Re-query">
+               <Tooltip title="Reset Zoom & Re-query">
                 <Button
                   size="small"
                   variant="outlined"
@@ -498,6 +570,7 @@ const ChartComposerContent = () => {
                 </Button>
               </Tooltip>
             </Box>
+            <ToolbarSlotPlugins slot="zoom" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} items={items} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
           
           <Divider orientation="vertical" flexItem />
@@ -522,6 +595,7 @@ const ChartComposerContent = () => {
               </Tooltip>
               <ExportChartButton />
             </Box>
+            <ToolbarSlotPlugins slot="tools" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} items={items} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
         </Toolbar>
       </Paper>
@@ -556,7 +630,16 @@ const ChartComposerContent = () => {
                   loading={loading}
                   compactMode={compactMode}
                   requestedTimeRange={timeRange}
-                  options={{ xAxisTickCount: chartConfig.xAxisTickCount, extendCurveEdges: chartConfig.extendCurveEdges ?? true }}
+                  options={{
+                    xAxisTickCount: chartConfig.xAxisTickCount,
+                    extendCurveEdges: chartConfig.extendCurveEdges ?? true,
+                    ...Object.fromEntries(
+                      Object.entries(chartConfig).filter(([k, v]) =>
+                        !['tagConfigs', 'axes', 'referenceLines', 'grid', 'background', 'display', 'interpolation', 'xAxisTickCount', 'extendCurveEdges'].includes(k) &&
+                        v !== null && typeof v === 'object' && !Array.isArray(v)
+                      )
+                    ),
+                  }}
                   onZoomChange={(xDomain, yDomain) => setVisibleTimeRange(xDomain)}
                   tagMetadata={tagMetadata}
                   lastValuesBefore={lastValuesBefore}
@@ -569,6 +652,7 @@ const ChartComposerContent = () => {
                   updateGridConfig={updateGridConfig}
                   updateBackgroundConfig={updateBackgroundConfig}
                   updateDisplayConfig={updateDisplayConfig}
+                  updateExtensionConfig={updateExtensionConfig}
                   updateChartConfig={updateChartConfig}
                   onPreferencesClose={handlePreferencesClose}
                   timeModeBadge={{
@@ -584,6 +668,7 @@ const ChartComposerContent = () => {
                   externalSetCrosshairEnabled={setCrosshairEnabled}
                   hideInternalControls={true}
                   showDataPoints={showDataPoints}
+                  externalExtensionSeries={extensionSeries}
                 />
                 
                 {/* Resize handle */}

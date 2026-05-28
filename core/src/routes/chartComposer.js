@@ -1048,4 +1048,5 @@ export async function chartComposerRoutes(app) {
       return reply.code(500).send({ error: 'metadata_fetch_failed' });
     }
   });
+
 }

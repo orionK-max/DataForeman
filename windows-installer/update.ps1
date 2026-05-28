@@ -1,14 +1,14 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Updates DataForeman to a specific version from GitHub releases.
+    Updates DataForeman to the latest version.
 
 .DESCRIPTION
     This script safely updates DataForeman while preserving all user data.
-    It stops services, updates the code, and restarts with the new version.
+    It stops services, downloads the latest docker-compose.yml, pulls new images, and restarts.
 
 .PARAMETER Version
-    The version tag to update to (e.g., "v1.2.0")
+    The version tag to update to (e.g., "v1.2.0"). Use "latest" to always get the newest release.
 
 .PARAMETER SkipBackup
     Skip the data volume verification step
@@ -16,6 +16,206 @@
 .EXAMPLE
     .\update.ps1 -Version v1.2.0
 #>
+
+param(
+    [Parameter(Mandatory=$false, HelpMessage="Version tag to update to (e.g., v1.2.0) or 'latest'")]
+    [string]$Version = "latest",
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$SkipBackup = $false
+)
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+# Color functions
+function Write-ColorOutput {
+    param(
+        [string]$Message,
+        [string]$Color = "White"
+    )
+    Write-Host $Message -ForegroundColor $Color
+}
+
+function Write-Header {
+    param([string]$Text)
+    Write-Host ""
+    Write-ColorOutput "═══════════════════════════════════════════════════════════" "Cyan"
+    Write-ColorOutput "  $Text" "Cyan"
+    Write-ColorOutput "═══════════════════════════════════════════════════════════" "Cyan"
+    Write-Host ""
+}
+
+function Write-Step {
+    param([int]$Step, [int]$Total, [string]$Message)
+    Write-ColorOutput "[$Step/$Total] $Message" "Yellow"
+}
+
+function Write-Success {
+    param([string]$Message)
+    Write-ColorOutput "✓ $Message" "Green"
+}
+
+function Write-Warning {
+    param([string]$Message)
+    Write-ColorOutput "⚠ $Message" "Yellow"
+}
+
+function Write-ErrorMsg {
+    param([string]$Message)
+    Write-ColorOutput "✗ $Message" "Red"
+}
+
+# Start update process
+Write-Header "DataForeman Update Tool"
+Write-ColorOutput "Target version: $Version" "Cyan"
+Write-Host ""
+
+# Change to DataForeman directory
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$DataForemanDir = Split-Path -Parent $ScriptDir
+Set-Location $DataForemanDir
+
+Write-ColorOutput "Installation directory: $DataForemanDir" "Gray"
+Write-Host ""
+
+# Step 1: Check Docker
+Write-Step 1 5 "Checking Docker..."
+try {
+    $dockerVersion = docker --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker command failed"
+    }
+    Write-Success "Docker is available: $dockerVersion"
+    
+    # Check if Docker daemon is running
+    docker ps | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorMsg "Docker daemon is not running!"
+        Write-Host ""
+        Write-Host "Please start Docker Desktop and try again."
+        exit 1
+    }
+    Write-Success "Docker daemon is running"
+} catch {
+    Write-ErrorMsg "Docker is not installed or not running!"
+    Write-Host ""
+    Write-Host "Please install Docker Desktop from: https://www.docker.com/products/docker-desktop/"
+    exit 1
+}
+Write-Host ""
+
+# Step 2: Verify data volumes (unless skipped)
+if (-not $SkipBackup) {
+    Write-Step 2 5 "Verifying data volumes..."
+    try {
+        $volumes = docker volume ls --format "{{.Name}}" | Select-String "dataforeman"
+        if ($volumes.Count -gt 0) {
+            Write-Success "Found $($volumes.Count) data volume(s):"
+            foreach ($vol in $volumes) {
+                Write-ColorOutput "  • $vol" "Gray"
+            }
+            Write-Host ""
+            Write-ColorOutput "These volumes contain your databases and will be preserved." "Gray"
+        } else {
+            Write-Warning "No DataForeman volumes found (this might be a fresh install)"
+        }
+    } catch {
+        Write-Warning "Could not verify volumes: $_"
+    }
+    Write-Host ""
+}
+
+# Step 3: Stop DataForeman
+Write-Step 3 5 "Stopping DataForeman services..."
+try {
+    docker compose down 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Services stopped successfully"
+    } else {
+        Write-Warning "Some services may not have been running"
+    }
+} catch {
+    Write-Warning "Error stopping services: $_"
+}
+Write-Host ""
+
+# Step 4: Download latest docker-compose.yml
+Write-Step 4 5 "Downloading docker-compose.yml for $Version..."
+try {
+    if ($Version -eq "latest") {
+        $composeUrl = "https://raw.githubusercontent.com/orionK-max/DataForeman/main/docker-compose.yml"
+    } else {
+        $composeUrl = "https://raw.githubusercontent.com/orionK-max/DataForeman/$Version/docker-compose.yml"
+    }
+    
+    Write-ColorOutput "  Downloading from GitHub..." "Gray"
+    Invoke-WebRequest -Uri $composeUrl -OutFile "docker-compose.yml" -UseBasicParsing
+    Write-Success "docker-compose.yml updated"
+    
+    # Pull new images
+    Write-ColorOutput "  Pulling updated images from registry..." "Gray"
+    Write-ColorOutput "  This may take a few minutes..." "Gray"
+    docker compose pull
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to pull images"
+    }
+    Write-Success "Images updated"
+} catch {
+    Write-ErrorMsg "Failed to update: $_"
+    Write-Host ""
+    Write-Host "Check your internet connection and try again."
+    exit 1
+}
+Write-Host ""
+
+# Step 5: Start updated version
+Write-Step 5 5 "Starting DataForeman $Version..."
+try {
+    docker compose up -d 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to start services"
+    }
+    Write-Success "Services started"
+    
+    # Wait a moment for services to initialize
+    Write-ColorOutput "  Waiting for services to initialize..." "Gray"
+    Start-Sleep -Seconds 3
+    
+    # Check service status
+    $runningServices = docker compose ps --services --filter "status=running"
+    if ($runningServices) {
+        Write-Success "Running services:"
+        foreach ($service in $runningServices) {
+            Write-ColorOutput "  • $service" "Gray"
+        }
+    }
+} catch {
+    Write-ErrorMsg "Failed to start services: $_"
+    Write-Host ""
+    Write-Host "Check logs with: docker compose logs"
+    exit 1
+}
+
+# Success summary
+Write-Host ""
+Write-Header "Update Complete!"
+Write-ColorOutput "DataForeman has been updated to $Version" "Green"
+Write-Host ""
+Write-ColorOutput "Access your application:" "Cyan"
+Write-ColorOutput "  Frontend: http://localhost:8080" "White"
+Write-ColorOutput "  Core API: http://localhost:3000" "White"
+Write-Host ""
+Write-ColorOutput "Your data has been preserved:" "Cyan"
+Write-ColorOutput "  • Databases (PostgreSQL, TimescaleDB)" "White"
+Write-ColorOutput "  • Configurations and settings" "White"
+Write-ColorOutput "  • User accounts and permissions" "White"
+Write-ColorOutput "  • Dashboards and devices" "White"
+Write-Host ""
+Write-ColorOutput "To view logs: docker compose logs -f" "Gray"
+Write-ColorOutput "To check status: docker compose ps" "Gray"
+Write-Host ""
+
 
 param(
     [Parameter(Mandatory=$true, HelpMessage="Version tag to update to (e.g., v1.2.0)")]

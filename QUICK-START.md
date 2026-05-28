@@ -7,6 +7,7 @@
 ## What You Need
 
 - A Linux computer (or Linux virtual machine)
+- [Docker](https://docs.docker.com/engine/install/) installed
 - Internet connection (only needed for initial installation to download Docker images)
 - About 10 minutes
 
@@ -14,45 +15,60 @@
 
 ---
 
-## Installation (6 Simple Steps)
+## Installation (4 Simple Steps)
 
 ### Step 1: Open a Terminal
 
 Look for "Terminal" in your applications menu and open it. You should see a black or white window with a prompt (something like `username@computer:~$`).
 
-### Step 2: Download DataForeman
+### Step 2: Download the required files
 
-Copy and paste this command into the terminal, then press Enter:
-
-```bash
-cd ~ && git clone https://github.com/orionK-max/DataForeman.git && cd DataForeman
-```
-
-**What this does:** Downloads DataForeman to your home folder and opens it.
-
-**Note:** No GitHub account needed - DataForeman is public and free to download.
-
-### Step 3: Start DataForeman
-
-Copy and paste this command, then press Enter:
+Create a folder and download the configuration files:
 
 ```bash
-npm start
+mkdir ~/dataforeman && cd ~/dataforeman
+
+curl -o docker-compose.yml https://raw.githubusercontent.com/orionK-max/DataForeman/main/docker-compose.yml
+curl -o .env https://raw.githubusercontent.com/orionK-max/DataForeman/main/.env.example
+curl -o start.sh https://raw.githubusercontent.com/orionK-max/DataForeman/main/start.sh
+chmod +x start.sh
 ```
 
-**What this does:** Fixes permissions, then downloads and starts all DataForeman services. **This will take 2-5 minutes the first time** as it downloads everything needed.
+**What this does:** Creates a `dataforeman` folder with the files needed to run DataForeman. No GitHub account needed.
 
-You'll see lots of text scrolling by - this is normal! Wait until you see your terminal prompt again.
+### Step 3: Configure your credentials (optional)
 
-### Step 4: Verify Installation
+Open `.env` in a text editor and change `ADMIN_PASSWORD=password` to something secure and `ADMIN_EMAIL=admin@example.com` to your preferred email. All other defaults work out of the box.
 
-Check that all containers are running properly:
+```bash
+nano .env
+```
+
+Press `Ctrl+X`, then `Y`, then `Enter` to save.
+
+If you skip this step, the default login credentials will be:
+- **Email:** `admin@example.com`
+- **Password:** `password`
+
+### Step 4: Start DataForeman
+
+```bash
+bash start.sh
+```
+
+**This will take 2-5 minutes the first time** as it downloads the pre-built images. You'll see progress output — wait until the prompt returns.
+
+---
+
+## Verify Installation
+
+Check that all containers are running:
 
 ```bash
 docker compose ps
 ```
 
-You should see output showing several services with "Up" status:
+You should see several services with "Up" status:
 - `core` - Running (Up)
 - `front` - Running (Up)
 - `db` - Running (Up)
@@ -64,17 +80,14 @@ You should see output showing several services with "Up" status:
 
 If any service shows "Exited" or is missing, wait another minute and check again. The first startup can take a bit longer.
 
-### Step 5: Access DataForeman
+## Access DataForeman
 
 1. Open your web browser (Firefox, Chrome, etc.)
-2. Type this in the address bar: `http://localhost:8080`
-3. Press Enter
-
-You should see the DataForeman login page!
+2. Go to: `http://localhost:8080`
 
 **Login with:**
 - Email: `admin@example.com`
-- Password: `password`
+- Password: the value of `ADMIN_PASSWORD` in your `.env` file (default: `password`)
 
 ---
 
@@ -82,17 +95,17 @@ You should see the DataForeman login page!
 
 ### Starting DataForeman
 
-If DataForeman is not running, open a terminal in DataForeman folder and type:
+If DataForeman is not running, open a terminal in your `dataforeman` folder and type:
 
 ```bash
-npm start
+bash start.sh
 ```
 
 Then go to http://localhost:8080 in your browser.
 
 ### Stopping DataForeman
 
-Open a terminal in DataForeman folder and type:
+Open a terminal in your `dataforeman` folder and type:
 
 ```bash
 docker compose down
@@ -102,7 +115,7 @@ docker compose down
 
 ### Checking if DataForeman is Running
 
-Open a terminal in DataForeman folder and type:
+Open a terminal in your `dataforeman` folder and type:
 
 ```bash
 docker compose ps
@@ -114,31 +127,16 @@ If you see several items with "Up" status, DataForeman is running!
 
 ## Updating to a New Version
 
-### Step 1: Find the Latest Version
-
-Go to: https://github.com/orionK-max/DataForeman/releases
-
-Find the latest version (it looks like `v1.2.0`)
-
-### Step 2: Update
-
-Open a terminal in DataForeman folder and copy/paste these commands **one at a time**:
+Open a terminal in your `dataforeman` folder and run:
 
 ```bash
-# Stop DataForeman
-docker compose down
-
-# Download the update (replace v1.2.0 with the version you found)
-git fetch --tags
-git checkout v1.2.0
-
-# Rebuild and start
-npm run start:rebuild
+docker compose pull
+docker compose up -d
 ```
 
-Wait 2-5 minutes, then go to http://localhost:8080
+`docker compose pull` downloads the latest pre-built images. `up -d` restarts the containers with the new versions. Wait 1-2 minutes, then go to http://localhost:8080.
 
-**Your data is safe!** All your settings and history are preserved during updates.
+**Your data is safe!** All your settings and history are stored in Docker volumes and are not affected by updates.
 
 ---
 
@@ -148,7 +146,7 @@ Wait 2-5 minutes, then go to http://localhost:8080
 
 **Solution:**
 
-Open a terminal in DataForeman folder and type:
+Open a terminal in your `dataforeman` folder and type:
 
 ```bash
 docker compose up -d
@@ -160,13 +158,12 @@ Wait 30 seconds, then try again.
 
 **Solution:**
 
-Open a terminal in DataForeman folder and type:
+Open a terminal in your `dataforeman` folder and type:
 
 ```bash
-npm start
+sudo chown -R $USER:$USER ~/dataforeman
+docker compose up -d
 ```
-
-`npm start` automatically fixes permissions before starting the containers.
 
 ### "Out of memory" or things keep crashing
 
@@ -174,12 +171,10 @@ npm start
 
 ### "I forgot my password"
 
-**Solution:** You can reset the admin password by editing the `.env` file and recreating the admin user.
-
-Open a terminal in DataForeman folder and type:
+**Solution:** Edit the `.env` file in your `dataforeman` folder and change `ADMIN_PASSWORD=`:
 
 ```bash
-nano .env
+nano ~/dataforeman/.env
 ```
 
 Find the line `ADMIN_PASSWORD=` and change the password. Press Ctrl+X, then Y, then Enter to save.
@@ -260,3 +255,16 @@ Once you're logged in:
 4. **Add your first device** - Go to Connectivity → Devices
 
 Enjoy DataForeman! 🎉
+
+---
+
+## Developer / Build-from-Source
+
+If you want to modify the source code and build images locally:
+
+```bash
+git clone https://github.com/orionK-max/DataForeman.git && cd DataForeman
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+```
+
+See the [README.md](README.md) for full developer instructions.

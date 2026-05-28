@@ -664,7 +664,21 @@ export async function diagRoutes(app) {
     }
 
     const { serviceName } = req.params;
-    const allowedServices = ['ingestor', 'connectivity', 'broker'];
+    const coreServices = ['ingestor', 'connectivity', 'broker', 'core'];
+
+    // Build dynamic allowed list: core services + services from installed extensions
+    let extensionServices = [];
+    try {
+      const { rows } = await app.db.query(
+        `SELECT manifest FROM node_libraries WHERE enabled = true AND manifest->>'type' = 'extension'`
+      );
+      for (const row of rows) {
+        const services = row.manifest?.requires?.services || [];
+        extensionServices.push(...services.map(s => s.name));
+      }
+    } catch { /* DB may not be ready */ }
+
+    const allowedServices = [...coreServices, ...extensionServices];
     
     if (!allowedServices.includes(serviceName)) {
       return reply.code(400).send({ error: 'invalid_service', message: `Service must be one of: ${allowedServices.join(', ')}` });
@@ -679,7 +693,29 @@ export async function diagRoutes(app) {
       const containerName = `dataforeman-${serviceName}-1`;
       app.log.info({ serviceName, containerName, userId }, 'Restarting service');
 
-      const { stdout, stderr } = await execAsync(`docker restart ${containerName}`);
+      // When restarting core itself, send the response first — the container will
+      // be killed before execAsync resolves, causing the connection to drop.
+      const isSelf = serviceName === 'core';
+      if (isSelf) {
+        try {
+          await app.audit('diagnostic.service.restart', {
+            outcome: 'success',
+            actor_user_id: userId,
+            metadata: { service: serviceName, container: containerName }
+          });
+        } catch {}
+        reply.send({
+          success: true,
+          service: serviceName,
+          container: containerName,
+          message: `Service ${serviceName} restarted successfully`
+        });
+        // Defer the actual restart so the response can be flushed
+        setImmediate(() => execAsync(`docker restart ${containerName}`).catch(() => {}));
+        return;
+      }
+
+      await execAsync(`docker restart ${containerName}`);
       
       // Log the action for audit
       try {

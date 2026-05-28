@@ -3,7 +3,7 @@
 ; Requires Inno Setup 6.0 or later: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "DataForeman"
-#define MyAppVersion "0.4.4"
+#define MyAppVersion "0.7.0"
 #define MyAppPublisher "DataForeman Project"
 #define MyAppURL "https://github.com/orionK-max/DataForeman"
 #define MyAppExeName "start-dataforeman.bat"
@@ -42,7 +42,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Application files (exclude large directories)
-Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "node_modules,.git,logs,var,.github,.vscode,windows-installer\dist"
+Source: "..\docker-compose.yml"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\Caddyfile"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\nanomq\nanomq.conf"; DestDir: "{app}\nanomq"; Flags: ignoreversion
+Source: "..\spec\connectivity\schemas\*"; DestDir: "{app}\spec\connectivity\schemas"; Flags: ignoreversion
 ; Windows-specific .env file (copy .env.windows to .env if .env doesn't exist)
 Source: "..\.env.windows"; DestDir: "{app}"; DestName: ".env"; Flags: onlyifdoesntexist
 ; Launcher scripts

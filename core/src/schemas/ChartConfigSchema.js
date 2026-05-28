@@ -621,6 +621,14 @@ export const ChartOptionsSchema = {
       max: 20,
       default: 5,
       description: 'Number of X-axis tick marks'
+    },
+
+    // Extension config namespaces (e.g. "forecast", custom plugins)
+    // Stored as plain objects keyed by extension configKey; validated/owned by each extension.
+    extensionConfigs: {
+      type: 'object',
+      required: false,
+      description: 'Arbitrary config namespaces written by installed chart-plugin extensions'
     }
   }
 };

@@ -322,6 +322,29 @@ const LibraryManager = () => {
                     )}
                   </Box>
 
+                  {/* Service health indicators for extensions */}
+                  {library.services?.length > 0 && (
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
+                      {library.services.map(svc => (
+                        <Chip
+                          key={svc.name}
+                          label={svc.healthy ? `${svc.name}: running` : `${svc.name}: not running`}
+                          color={svc.healthy ? 'success' : 'warning'}
+                          size="small"
+                          variant="outlined"
+                        />
+                      ))}
+                    </Box>
+                  )}
+
+                  {library.type === 'extension' && !library.loaded && (
+                    <Alert severity="info" sx={{ mt: 1 }} icon={false}>
+                      <Typography variant="caption">
+                        Restart the app to activate API routes and job workers.
+                      </Typography>
+                    </Alert>
+                  )}
+
                   {library.loadErrors && (
                     <Alert severity="error" sx={{ mt: 2 }}>
                       <Typography variant="caption">

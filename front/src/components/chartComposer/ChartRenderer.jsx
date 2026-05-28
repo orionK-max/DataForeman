@@ -1,9 +1,12 @@
 import React from 'react';
 import { Card, CardContent, Box, CircularProgress, Typography, IconButton, Stack, Tooltip, Switch, FormControlLabel, TextField, MenuItem, useTheme } from '@mui/material';
 import { ZoomIn, ZoomOut, RestartAlt, Settings, DashboardCustomize, ChevronLeft, ChevronRight } from '@mui/icons-material';
+import ExtensionChartPlugin from '../shared/ExtensionChartPlugin.jsx';
+import PluginRegistry from '../../utils/PluginRegistry.js';
 import ReactECharts from 'echarts-for-react';
 import ChartConfigPanel from './ChartConfigPanel';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
+import chartComposerService from '../../services/chartComposerService';
 
 const ChartRenderer = React.forwardRef(({ 
   data = [], 
@@ -44,6 +47,7 @@ const ChartRenderer = React.forwardRef(({
   updateGridConfig = null,
   updateBackgroundConfig = null,
   updateDisplayConfig = null,
+  updateExtensionConfig = null,
   updateChartConfig = null,
   onPreferencesClose = null,
   onResetZoom = null,
@@ -56,6 +60,7 @@ const ChartRenderer = React.forwardRef(({
   externalSetCrosshairEnabled = null,
   hideInternalControls = false,
   showDataPoints = false,
+  externalExtensionSeries = null, // { [pluginId]: series[] } — from ChartComposer's toolbar plugins
 }, ref) => {
   // Get MUI theme for background color
   const theme = useTheme();
@@ -87,6 +92,15 @@ const ChartRenderer = React.forwardRef(({
   const [crosshairPosition, setCrosshairPosition] = React.useState(null); // { x, y, time, values }
   
   // ECharts instance reference
+  const getLegendGrouping = React.useCallback((seriesName) => {
+    const rawName = typeof seriesName === 'string' ? seriesName : '';
+    const forecastMatch = rawName.match(/^(.*) \(F\)$/);
+    if (forecastMatch) {
+      return { baseName: forecastMatch[1], isForecast: true };
+    }
+    return { baseName: rawName, isForecast: false };
+  }, []);
+
   const chartRef = React.useRef(null);
   
   // Expose methods via ref for parent
@@ -97,7 +111,84 @@ const ChartRenderer = React.forwardRef(({
   // Persistent storage for last heartbeat values for write-on-change tags
   // Structure: { tagId: { value, originalTime, heartbeatInterval } }
   const persistedHeartbeats = React.useRef({});
+
+  // Extension series map: pluginId → ECharts series array pushed by toolbar slot components
+  const [extensionSeriesMap, setExtensionSeriesMap] = React.useState({});
+  const handleExtensionSeriesChange = React.useCallback((pluginId, series) => {
+    setExtensionSeriesMap(prev => {
+      if (series == null) {
+        const { [pluginId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [pluginId]: series };
+    });
+  }, []);
   
+  // When extension series are cleared, ECharts' default merge mode (notMerge=false) keeps stale
+  // series by index. Use replaceMerge to force-remove them when the count drops to zero.
+  const hadExtensionSeriesRef = React.useRef(false);
+  React.useEffect(() => {
+    const merged = { ...extensionSeriesMap, ...(externalExtensionSeries || {}) };
+    const hasAny = Object.values(merged).some(arr => Array.isArray(arr) && arr.length > 0);
+    if (hadExtensionSeriesRef.current && !hasAny) {
+      const instance = chartRef.current?.getEchartsInstance?.();
+      if (instance) {
+        instance.setOption(option, { replaceMerge: ['series'] });
+      }
+    }
+    hadExtensionSeriesRef.current = hasAny;
+  }, [extensionSeriesMap, externalExtensionSeries]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // extensionZoom: when forecast data arrives, store the desired zoom window here.
+  // This flows into the dataZoom options so ECharts applies it on the next render
+  // (dispatchAction gets overridden by the simultaneous options re-render, so we use state instead).
+  // Skip zoom lock in rolling/shifted (live) modes to allow chart to scroll naturally with live updates.
+  const [extensionZoom, setExtensionZoom] = React.useState(null); // { startValue, endValue } | null
+  React.useEffect(() => {
+    if (!externalExtensionSeries) return;
+    
+    // In live modes (rolling/shifted), don't lock the zoom to forecast data
+    // because the chart should naturally scroll with time updates.
+    const isLiveMode = timeModeBadge?.mode === 'rolling' || timeModeBadge?.mode === 'shifted';
+    if (isLiveMode) {
+      setExtensionZoom(null);
+      return;
+    }
+    
+    let minTs = null, maxTs = null;
+    for (const seriesArr of Object.values(externalExtensionSeries)) {
+      if (!Array.isArray(seriesArr)) continue;
+      for (const s of seriesArr) {
+        if (!Array.isArray(s?.data)) continue;
+        for (const pt of s.data) {
+          const ts = Array.isArray(pt) ? pt[0] : pt?.value?.[0];
+          if (typeof ts === 'number') {
+            if (minTs === null || ts < minTs) minTs = ts;
+            if (maxTs === null || ts > maxTs) maxTs = ts;
+          }
+        }
+      }
+    }
+    if (minTs !== null && maxTs !== null) {
+      const duration = maxTs - minTs;
+      const padding = Math.max(duration * 0.3, 5 * 60 * 1000);
+
+      setExtensionZoom({ startValue: minTs - padding, endValue: maxTs + padding });
+    } else {
+      setExtensionZoom(null);
+    }
+  }, [externalExtensionSeries, timeModeBadge]);
+
+  // When the user navigates (requestedTimeRange changes) while extensionZoom is active,
+  // release the zoom lock so the chart responds normally to back/forward navigation.
+  const prevRequestedTimeRangeRef = React.useRef(requestedTimeRange);
+  React.useEffect(() => {
+    if (prevRequestedTimeRangeRef.current !== requestedTimeRange) {
+      prevRequestedTimeRangeRef.current = requestedTimeRange;
+      setExtensionZoom(null);
+    }
+  }, [requestedTimeRange]);
+
   // Watch for shouldOpenPreferences flag and open preferences panel
   React.useEffect(() => {
     if (shouldOpenPreferences && setShouldOpenPreferences) {
@@ -105,7 +196,7 @@ const ChartRenderer = React.forwardRef(({
       setShouldOpenPreferences(false); // Reset the flag
     }
   }, [shouldOpenPreferences, setShouldOpenPreferences]);
-  
+
   // Trigger callback when preferences close
   React.useEffect(() => {
     if (previousShowPreferences.current === true && showPreferences === false) {
@@ -295,8 +386,13 @@ const ChartRenderer = React.forwardRef(({
       tagDataMap.get(tagId).set(time, value);
     });
     
-    // Whether to extend anchor ghost points beyond the chart edges to preserve smooth curve shape
+    // Whether to extend anchor ghost points beyond the chart edges to preserve smooth curve shape.
+    // Suppress the right anchor when extension series (e.g. forecast) are present — the forecast
+    // line itself continues the series, so the trailing horizontal stub would be misleading.
+    const hasExtensionData = Object.values({ ...extensionSeriesMap, ...(externalExtensionSeries || {}) })
+      .some(arr => Array.isArray(arr) && arr.some(s => Array.isArray(s?.data) && s.data.length > 0));
     const extendCurveEdges = options?.extendCurveEdges ?? true;
+    const extendRightEdge = extendCurveEdges && !hasExtensionData;
 
     // Returns the amount (ms) to push anchor points outside the chart boundary.
     // Uses average inter-sample interval when possible, otherwise 10% of the query range.
@@ -342,8 +438,8 @@ const ChartRenderer = React.forwardRef(({
           }
           // No lvb: tag has no data before the window — skip left anchor to avoid extrapolation artifacts
         }
-        // Right anchor: only when extendCurveEdges is enabled
-        if (extendCurveEdges) {
+        // Right anchor: only when extendCurveEdges is enabled and no extension data overrides
+        if (extendRightEdge) {
           const lastValue = result[result.length - 1][1];
           result.push([queryEndTime + edgeExt, lastValue]);
         }
@@ -360,7 +456,6 @@ const ChartRenderer = React.forwardRef(({
       // Get all timestamps from this tag's data within query window, sorted
       const timestamps = Array.from(tagData.keys()).sort((a, b) => a - b);
       
-      const result = [];
       let persistedHeartbeat = persistedHeartbeats.current[tagId];
       
       // Update persisted heartbeat with new data from query
@@ -402,6 +497,7 @@ const ChartRenderer = React.forwardRef(({
       // Strategy: Always show horizontal line for persisted heartbeat (sliding window)
       // This ensures the line appears at the left edge and slides with the window in Live mode
       const edgeExt = computeEdgeExtension(timestamps, queryStartTime, queryEndTime);
+      const result = [];
 
       if (persistedHeartbeat) {
         // We have a valid persisted heartbeat - create horizontal line across the visible range.
@@ -429,8 +525,8 @@ const ChartRenderer = React.forwardRef(({
           result.push([time, value]);
         }
         
-        // Right anchor: only when extendCurveEdges is enabled
-        if (extendCurveEdges) {
+        // Right anchor: only when extendCurveEdges is enabled and no extension data overrides
+        if (extendRightEdge) {
           result.push([queryEndTime + edgeExt, persistedHeartbeat.value]);
         }
       } else if (timestamps.length > 0) {
@@ -441,8 +537,8 @@ const ChartRenderer = React.forwardRef(({
           result.push([time, value]);
         }
         
-        // Right anchor: only when extendCurveEdges is enabled
-        if (extendCurveEdges) {
+        // Right anchor: only when extendCurveEdges is enabled and no extension data overrides
+        if (extendRightEdge) {
           const lastValue = result[result.length - 1][1];
           result.push([queryEndTime + edgeExt, lastValue]);
         }
@@ -732,6 +828,72 @@ const ChartRenderer = React.forwardRef(({
       });
     }
     
+    // Merge series from chart plugin extensions (toolbar slot components push series via onSeriesChange)
+    const mergedExtensionSeries = { ...extensionSeriesMap, ...(externalExtensionSeries || {}) };
+
+    let extensionDataMaxTs = null;
+    for (const extSeries of Object.values(mergedExtensionSeries)) {
+      if (Array.isArray(extSeries)) {
+        // Resolve _axisId → yAxisIndex so extension series bind to the correct y-axis
+        const resolved = extSeries.map(s => {
+          if (s._axisId == null) return s;
+          const yIdx = echartsData.axisIndexMap.get(s._axisId) ?? 0;
+          return { ...s, yAxisIndex: yIdx };
+        });
+
+        const resolvedWithPoints = resolved.map(s => {
+          if (!showDataPoints) return s;
+          if (s.type !== 'line') return s;
+          if (!Array.isArray(s.data) || s.data.length === 0) return s;
+          if (s._noPointToggle === true) return s;
+          return {
+            ...s,
+            showSymbol: true,
+            symbolSize: s.symbolSize ?? 6,
+          };
+        });
+
+        processedSeries.push(...resolvedWithPoints);
+        // Track the max timestamp across all extension series data
+        for (const s of extSeries) {
+          if (Array.isArray(s.data)) {
+            for (const pt of s.data) {
+              const ts = Array.isArray(pt) ? pt[0] : pt?.value?.[0];
+              if (typeof ts === 'number' && (extensionDataMaxTs === null || ts > extensionDataMaxTs)) {
+                extensionDataMaxTs = ts;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const reorderedSeries = (() => {
+      if (!processedSeries.length) return processedSeries;
+
+      const groups = new Map();
+      processedSeries.forEach((series, index) => {
+        const { baseName, isForecast } = getLegendGrouping(series?.name);
+        const key = baseName || `__series_${index}`;
+        if (!groups.has(key)) groups.set(key, { base: [], forecast: [] });
+        const bucket = isForecast ? groups.get(key).forecast : groups.get(key).base;
+        bucket.push(series);
+      });
+
+      const ordered = [];
+      const emitted = new Set();
+      processedSeries.forEach((series, index) => {
+        const { baseName } = getLegendGrouping(series?.name);
+        const key = baseName || `__series_${index}`;
+        if (emitted.has(key)) return;
+        emitted.add(key);
+        const group = groups.get(key);
+        if (!group) return;
+        ordered.push(...group.base, ...group.forecast);
+      });
+      return ordered;
+    })();
+
     // Calculate grid margins based on axes with offsets
     const leftAxes = yAxisConfig.filter(axis => axis.position === 'left');
     const rightAxes = yAxisConfig.filter(axis => axis.position === 'right');
@@ -770,10 +932,17 @@ const ChartRenderer = React.forwardRef(({
         },
         formatter: (params) => {
           if (!params || params.length === 0) return '';
-          
-          // Get time from first param
-          const time = params[0].value[0];
+
+          // Get time from ECharts payload safely (can be undefined while tooltip is kept alive).
+          const firstParam = params[0] || {};
+          const rawValue = firstParam.value;
+          const time = Array.isArray(rawValue)
+            ? rawValue[0]
+            : (firstParam.axisValue ?? firstParam.axisValueLabel ?? null);
+          if (time == null) return '';
+
           const date = new Date(time);
+          if (Number.isNaN(date.getTime())) return '';
           const timeStr = date.toLocaleTimeString();
           const ms = date.getMilliseconds().toString().padStart(3, '0');
           
@@ -822,8 +991,13 @@ const ChartRenderer = React.forwardRef(({
               ) {
                 const t0 = data[prevIdx][0], v0 = data[prevIdx][1];
                 const t1 = data[nextIdx][0], v1 = data[nextIdx][1];
-                const frac = (time - t0) / (t1 - t0);
-                allValues.set(s.name, { color, value: v0 + frac * (v1 - v0) });
+                if (t1 !== t0) {
+                  const frac = (time - t0) / (t1 - t0);
+                  const interpolatedValue = v0 + frac * (v1 - v0);
+                  if (Number.isFinite(interpolatedValue)) {
+                    allValues.set(s.name, { color, value: interpolatedValue });
+                  }
+                }
               } else if (prevIdx >= 0 && data[prevIdx][1] !== null && data[prevIdx][1] !== undefined) {
                 // Past the last data point — show last value
                 allValues.set(s.name, { color, value: data[prevIdx][1] });
@@ -836,6 +1010,7 @@ const ChartRenderer = React.forwardRef(({
             if (s.name.startsWith('_refline_dummy_')) return;
             const entry = allValues.get(s.name);
             if (!entry) return;
+            if (!Number.isFinite(entry.value)) return;
             html += `
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${entry.color};"></span>
@@ -851,12 +1026,14 @@ const ChartRenderer = React.forwardRef(({
         show: display.showLegend !== false && !compactMode,
         bottom: 0,
         type: 'scroll',
+        formatter: (name) => name,
         textStyle: {
-          color: '#fff',
+          color: theme.palette.text.primary,
         },
         pageTextStyle: {
-          color: '#fff',
+          color: theme.palette.text.primary,
         },
+        selector: false,
       },
       xAxis: (() => {
         // Calculate minInterval dynamically based on time range and tick count
@@ -864,15 +1041,24 @@ const ChartRenderer = React.forwardRef(({
         if (requestedTimeRange) {
           const timeRangeMs = new Date(requestedTimeRange.to).getTime() - new Date(requestedTimeRange.from).getTime();
           const tickCount = options?.xAxisTickCount ?? 5;
-          // Calculate the interval per tick, then set minInterval to 1/10th of that to allow flexibility
           const intervalPerTick = timeRangeMs / tickCount;
-          minInterval = Math.max(1000, intervalPerTick / 10); // At least 1 second
+          minInterval = Math.max(1000, intervalPerTick / 10);
         }
-        
+
+        // Calculate x-axis max — extend to cover extension series data (e.g. forecast horizon),
+        // but only while the extensionZoom is active. Once the user navigates away, the zoom
+        // lock is released and the x-axis should follow requestedTimeRange normally.
+        const xMax = requestedTimeRange
+          ? (extensionZoom
+            ? Math.max(new Date(requestedTimeRange.to).getTime(), extensionDataMaxTs ?? 0)
+            : new Date(requestedTimeRange.to).getTime())
+          : 'dataMax';
+
+
         return {
           type: 'time',
           min: requestedTimeRange ? new Date(requestedTimeRange.from).getTime() : 'dataMin',
-          max: requestedTimeRange ? new Date(requestedTimeRange.to).getTime() : 'dataMax',
+          max: xMax,
           boundaryGap: false,
           axisPointer: {
             show: true,
@@ -909,12 +1095,13 @@ const ChartRenderer = React.forwardRef(({
         };
       })(),
       yAxis: yAxisConfig,
-      series: processedSeries,
+      series: reorderedSeries,
       dataZoom: [
         {
           type: 'inside',
-          start: requestedTimeRange ? 0 : undefined,
-          end: requestedTimeRange ? 100 : undefined,
+          ...(extensionZoom
+            ? { startValue: extensionZoom.startValue, endValue: extensionZoom.endValue }
+            : { start: requestedTimeRange ? 0 : undefined, end: requestedTimeRange ? 100 : undefined }),
           filterMode: 'none',
           zoomOnMouseWheel: true,
           moveOnMouseMove: true,
@@ -922,8 +1109,9 @@ const ChartRenderer = React.forwardRef(({
         {
           type: 'slider',
           show: !compactMode,
-          start: requestedTimeRange ? 0 : undefined,
-          end: requestedTimeRange ? 100 : undefined,
+          ...(extensionZoom
+            ? { startValue: extensionZoom.startValue, endValue: extensionZoom.endValue }
+            : { start: requestedTimeRange ? 0 : undefined, end: requestedTimeRange ? 100 : undefined }),
           filterMode: 'none',
           height: 20,
           bottom: compactMode ? 5 : 45,
@@ -943,7 +1131,7 @@ const ChartRenderer = React.forwardRef(({
         },
       ],
     };
-  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme, showDataPoints]);
+  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme, showDataPoints, extensionSeriesMap, externalExtensionSeries, options, extensionZoom, getLegendGrouping]);
 
   // Loading state
   if (loading) {
@@ -968,6 +1156,7 @@ const ChartRenderer = React.forwardRef(({
   const hasNoData = !data || data.length === 0;
 
   return (
+    <>
     <Card sx={{ 
       height, 
       display: 'flex', 
@@ -1097,6 +1286,21 @@ const ChartRenderer = React.forwardRef(({
 
           {/* Right side controls */}
           <Stack direction="row" spacing={0.5} alignItems="center">
+            {/* Chart plugin toolbar slots — one per installed extension chart plugin */}
+            {!showPreferences && PluginRegistry.getChartPlugins().map(plugin => (
+              <ExtensionChartPlugin
+                key={plugin.id}
+                plugin={plugin}
+                toolbarProps={{
+                  tagConfigs,
+                  timeRange: requestedTimeRange,
+                  chartConfig: options,
+                  contextType,
+                  onSeriesChange: (series) => handleExtensionSeriesChange(plugin.id, series),
+                }}
+              />
+            ))}
+
             {/* Unsaved changes indicator */}
             {hasUnsavedChanges && !showPreferences && (
               <Typography variant="caption" color="warning.main" sx={{ mr: 1 }}>
@@ -1162,6 +1366,12 @@ const ChartRenderer = React.forwardRef(({
                   display,
                   xAxisTickCount: options?.xAxisTickCount ?? 5,
                   extendCurveEdges: options?.extendCurveEdges ?? true,
+                  // Pass through any extension-namespaced options (e.g. options.forecast from saved charts)
+                  ...Object.fromEntries(
+                    Object.entries(options ?? {}).filter(([k]) =>
+                      !['axes', 'referenceLines', 'tags', 'grid', 'background', 'display', 'xAxisTickCount', 'extendCurveEdges'].includes(k)
+                    )
+                  ),
                 }}
                 onUpdateTagConfig={updateTagConfig}
                 onUpdateAxis={updateAxis}
@@ -1173,6 +1383,7 @@ const ChartRenderer = React.forwardRef(({
                 onUpdateGridConfig={updateGridConfig}
                 onUpdateBackgroundConfig={updateBackgroundConfig}
                 onUpdateDisplayConfig={updateDisplayConfig}
+                onUpdateExtensionConfig={updateExtensionConfig}
                 onUpdateChartConfig={updateChartConfig}
               />
             </Box>
@@ -1313,6 +1524,7 @@ const ChartRenderer = React.forwardRef(({
         </Box>
       </CardContent>
     </Card>
+  </>
   );
 });
 

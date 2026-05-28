@@ -22,7 +22,12 @@ import {
   Grid,
   Alert,
   AlertTitle,
-  Tooltip
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions
 } from '@mui/material';
 import { apiClient } from '../../services/api';
 import diagnosticService from '../../services/diagnosticService';
@@ -52,7 +57,9 @@ function buildHealthRows(summary, servicesStatus) {
     ok: summary?.core?.health?.status === 'ok' && !!summary?.core?.ready?.ready,
     text: summary?.core?.health?.status === 'ok' ? 'OK' : 'DOWN',
     desc: 'Backend and API logic.',
-    restartable: false,
+    restartable: true,
+    serviceName: 'core',
+    containerRunning: summary?.core?.health?.status === 'ok',
   });
 
   // Main system DB
@@ -162,6 +169,7 @@ export default function OverviewTab() {
   const [servicesLoading, setServicesLoading] = useState(false);
   const [restartingService, setRestartingService] = useState(null);
   const [restartMessage, setRestartMessage] = useState(null);
+  const [confirmRestart, setConfirmRestart] = useState(null); // { serviceName, label }
 
   // Logs state
   const [logs, setLogs] = useState([]);
@@ -214,14 +222,27 @@ export default function OverviewTab() {
     }
   };
 
+  const handleRestartClick = (serviceName, label) => {
+    setConfirmRestart({ serviceName, label });
+  };
+
+  const handleRestartConfirm = async () => {
+    const { serviceName } = confirmRestart;
+    setConfirmRestart(null);
+    handleRestartService(serviceName);
+  };
+
   const handleRestartService = async (serviceName) => {
     setRestartingService(serviceName);
     setRestartMessage(null);
     try {
       const result = await diagnosticService.restartService(serviceName);
+      const successText = serviceName === 'core'
+        ? 'Core reboot command was issued. Expect temporary errors until core is fully booted.'
+        : (result.message || `${serviceName} restart initiated successfully`);
       setRestartMessage({ 
         type: 'success', 
-        text: result.message || `${serviceName} restart initiated successfully` 
+        text: successText
       });
       // Refresh both statuses after a delay
       setTimeout(() => {
@@ -395,7 +416,7 @@ export default function OverviewTab() {
                           <Button
                             size="small"
                             startIcon={<RestartAltIcon />}
-                            onClick={() => handleRestartService(row.serviceName)}
+                            onClick={() => handleRestartClick(row.serviceName, row.label)}
                             disabled={restartingService === row.serviceName}
                             variant={!row.containerRunning ? "contained" : "outlined"}
                             color={!row.containerRunning ? "primary" : "inherit"}
@@ -437,6 +458,25 @@ export default function OverviewTab() {
           </Alert>
         )}
       </Paper>
+
+      {/* Restart Confirmation Dialog */}
+      <Dialog open={!!confirmRestart} onClose={() => setConfirmRestart(null)}>
+        <DialogTitle>Restart {confirmRestart?.label}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will restart the <strong>{confirmRestart?.label}</strong> service container. It will be briefly unavailable during the restart.
+            {confirmRestart?.serviceName === 'core' && (
+              <> Your session will disconnect and reconnect automatically once the service is back up.</>
+            )}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmRestart(null)}>Cancel</Button>
+          <Button onClick={handleRestartConfirm} color="error" variant="contained" startIcon={<RestartAltIcon />}>
+            Restart
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Logs Section */}
       <Paper sx={{ p: 2 }}>

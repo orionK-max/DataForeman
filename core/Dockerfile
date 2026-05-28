@@ -4,11 +4,14 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install Docker CLI for service restart functionality
-RUN apk add --no-cache docker-cli
+# Install Docker CLI + Compose plugin for extension service management
+RUN apk add --no-cache docker-cli docker-cli-compose
 
 # Install PostgreSQL client for database initialization
 RUN apk add --no-cache postgresql-client
+
+# Install OpenSSH client and sshpass for server-monitor extension
+RUN apk add --no-cache openssh-client sshpass
 
 COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi

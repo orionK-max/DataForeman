@@ -187,6 +187,63 @@ export const chartComposerService = {
    */
   executeImport: (importData, validation, newName = null) =>
     apiClient.post('/charts/import/execute', { importData, validation, newName }),
+
+  // ===== Forecast =====
+
+  /**
+   * Enqueue a forecast generation job for the given tags + time range.
+   * Returns a job object immediately; poll getForecastJob(id) for status/result.
+   * @param {Object} params
+   * @param {number[]} params.tag_ids
+   * @param {string} params.from - ISO timestamp (chart range start)
+   * @param {string} params.to - ISO timestamp (chart range end)
+   * @param {string} [params.context_from] - ISO timestamp — start of data fed to model (defaults to from)
+   * @param {string} [params.context_to] - ISO timestamp — end of data fed to model (defaults to to)
+   * @param {number} params.horizon - Number of steps to predict (1-256)
+   * @param {boolean} params.quantiles - Include lower/upper bands
+   * @param {string|null} params.conn_id
+   * @returns {Promise<Object>} Job object { id, status, ... }
+   */
+  enqueueForecast: ({ tag_ids, from, to, context_from, context_to, horizon = 24, quantiles = false, conn_id = null, model = 'timesfm-2.5-200m' }) =>
+    apiClient.post('/extensions/forecast', { tag_ids, from, to, context_from, context_to, horizon, quantiles, conn_id, model }),
+
+  /**
+   * Poll a forecast job by ID. Check job.status ('queued'|'running'|'done'|'failed').
+   * Result is in job.result.tags when status === 'done'.
+   * @param {string} jobId
+   * @returns {Promise<Object>} Job object
+   */
+  getForecastJob: (jobId) =>
+    apiClient.get(`/jobs/${jobId}`),
+
+  /**
+   * Get point count per tag for a given time range.
+   * Used by Settings/Forecast to preview how many data points will feed the model.
+   * @param {number[]} tag_ids
+   * @param {string} from - ISO timestamp
+   * @param {string} to - ISO timestamp
+   * @returns {Promise<Object>} Map of { [tag_id]: count }
+   */
+  forecastPointCount: ({ tag_ids, from, to }) =>
+    apiClient.get(`/extensions/forecast/point-count?tag_ids=${encodeURIComponent(tag_ids.join(','))}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+
+  /**
+   * Enqueue a simulation_generation job (Chronos-2 multivariate what-if).
+   * Returns a job object immediately; poll getForecastJob(id) for status/result.
+   * @param {Object} params
+   * @param {number[]} params.tag_ids
+   * @param {Object} params.tagRoles - { [tag_id]: "target"|"past_covariate"|"future_covariate" }
+   * @param {Object} params.futureOverrides - { [tag_id]: { [ts_iso]: value } }
+   * @param {string} params.anchor - ISO timestamp — simulation split point
+   * @param {number} params.contextMs - Context window duration in ms
+   * @param {number} [params.stepMs] - Bucket interval in ms (from Resolution Info Bar)
+   * @param {number} params.horizon - Horizon steps (1-1024)
+   * @param {boolean} params.quantiles - Include lower/upper bands
+   * @param {string} params.model - Model key (default 'chronos-2')
+   * @returns {Promise<Object>} Job object { id, status, ... }
+   */
+  enqueueSimulation: ({ tag_ids, tagRoles, futureOverrides, anchor, contextMs, stepMs, horizon = 24, quantiles = false, model = 'chronos-2' }) =>
+    apiClient.post('/extensions/forecast/simulate', { tag_ids, tagRoles, futureOverrides, anchor, contextMs, stepMs, horizon, quantiles, model }),
 };
 
 export default chartComposerService;

@@ -42,7 +42,7 @@ services:
       - ./logs/nats:/var/log/nats
 
   broker:
-    build: ./nanomq
+    image: emqx/nanomq:0.22.4-full
     restart: always
     environment:
       NANOMQ_ALLOW_ANONYMOUS: "false"
@@ -90,7 +90,7 @@ services:
     ]
 
   core:
-    build: ./core
+    image: ghcr.io/orionk-max/dataforeman-core:latest
     logging:
       driver: "json-file"
       options:
@@ -128,6 +128,18 @@ services:
       # NanoMQ HTTP API credentials
       MQTT_BROKER_HTTP_USER: ${MQTT_BROKER_HTTP_USER:-nmqadmin}
       MQTT_BROKER_HTTP_PASSWORD: ${MQTT_BROKER_HTTP_PASSWORD:-nMQ_Adm1n_Ch4ng3_M3_N0w_3f7a9b2c}
+      # Forecast service
+      FORECAST_SERVICE_URL: ${FORECAST_SERVICE_URL:-http://forecast:8100}
+      APP_VERSION: ${APP_VERSION:-0.7.0}
+      # Compose project file path — used by the library manager to start/stop extension services
+      COMPOSE_PROJECT_FILE: ${COMPOSE_PROJECT_FILE:-/app/docker-compose.yml}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-dataforeman}
+      # Server Monitor extension
+      SERVER_MONITOR_HOST: ${SERVER_MONITOR_HOST:-}
+      SERVER_MONITOR_USER: ${SERVER_MONITOR_USER:-root}
+      SERVER_MONITOR_PASSWORD: ${SERVER_MONITOR_PASSWORD:-}
+      SERVER_MONITOR_SSH_PORT: ${SERVER_MONITOR_SSH_PORT:-22}
+      SERVER_MONITOR_POLL_INTERVAL: ${SERVER_MONITOR_POLL_INTERVAL:-60}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
       interval: 5s
@@ -155,9 +167,10 @@ services:
       - ./logs:/app/logs:ro
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
 
   connectivity:
-    build: ./connectivity
+    image: ghcr.io/orionk-max/dataforeman-connectivity:latest
     logging:
       driver: "json-file"
       options:
@@ -203,7 +216,7 @@ services:
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
 
   front:
-    build: ./front
+    image: ghcr.io/orionk-max/dataforeman-front:latest
     logging:
       driver: "json-file"
       options:
@@ -217,13 +230,10 @@ services:
       - ./logs/front:/var/log/front
 
   rotator:
-    image: node:22-alpine
-    working_dir: /app
+    image: ghcr.io/orionk-max/dataforeman-ops:latest
     volumes:
-      - ./:/app
       - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
-    entrypoint: ["node","/app/ops/rotator-daemon.js"]
     environment:
       LOG_ROTATE_PERIOD_MINUTES: ${LOG_ROTATE_PERIOD_MINUTES:-1440}
     depends_on:
@@ -242,6 +252,23 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - front
+
+  forecast:
+    image: ghcr.io/orionk-max/dataforeman-forecast:${FORECAST_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    profiles: ["forecast"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    environment:
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - ./var/hf-model-cache:/root/.cache/huggingface
+    # Internal only — only core needs to reach it.
+    expose:
+      - "8100"
 
 volumes:
   db-data:

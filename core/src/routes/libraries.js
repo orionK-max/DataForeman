@@ -11,6 +11,146 @@ import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Inside Docker, src/ is copied to /app/src/ so this file is at /app/src/routes/libraries.js.
+// Two levels up from /app/src/routes/ reaches /app/ (the container working directory).
+// var/ is mounted from host (./var:/app/var), so var/extensions.env persists across restarts.
+// Inside Docker, COMPOSE_PROJECT_FILE env var points to the mounted docker-compose.yml.
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const COMPOSE_FILE = process.env.COMPOSE_PROJECT_FILE || path.join(PROJECT_ROOT, 'docker-compose.yml');
+const COMPOSE_PROJECT_NAME = process.env.COMPOSE_PROJECT_NAME || 'dataforeman';
+const EXTENSIONS_ENV_FILE = path.join(PROJECT_ROOT, 'var', 'extensions.env');
+
+async function readExtensionsEnv() {
+  try {
+    return await fs.readFile(EXTENSIONS_ENV_FILE, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function setExtensionsEnvValue(key, value) {
+  let content = await readExtensionsEnv();
+  const line = `${key}=${value}`;
+
+  if (content.includes(`${key}=`)) {
+    content = content.replace(new RegExp(`^${key}=.*$`, 'm'), line);
+  } else {
+    content += `${line}\n`;
+  }
+
+  await fs.writeFile(EXTENSIONS_ENV_FILE, content, 'utf8');
+}
+
+/**
+ * Write or remove an extension enable flag in var/extensions.env
+ * This file is mounted from the host via ./var:/app/var and survives container restarts.
+ */
+async function setEnvExtensionFlag(extensionName, enabled) {
+  const flagKey = `EXTENSION_${extensionName.toUpperCase()}_ENABLED`;
+  await setExtensionsEnvValue(flagKey, enabled ? 'true' : 'false');
+}
+
+function getServiceImageTagKey(serviceName) {
+  return `${serviceName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_IMAGE_TAG`;
+}
+
+async function resolveServiceImageTag(serviceName, preferredTag) {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+  const imageRef = `ghcr.io/orionk-max/dataforeman-${serviceName}:${preferredTag}`;
+
+  try {
+    await execAsync(`docker manifest inspect ${imageRef}`);
+    return preferredTag;
+  } catch {
+    return 'latest';
+  }
+}
+
+async function configureExtensionServiceImageTag(serviceName, preferredTag) {
+  const resolvedTag = await resolveServiceImageTag(serviceName, preferredTag);
+  await setExtensionsEnvValue(getServiceImageTagKey(serviceName), resolvedTag);
+  return resolvedTag;
+}
+
+/**
+ * Minimal semver range check supporting >=, >, <=, <, = prefixes.
+ * Compares dot-separated numeric version strings only (no pre-release).
+ */
+function satisfiesVersion(version, range) {
+  const match = range.trim().match(/^(>=|>|<=|<|=?)(.+)$/);
+  if (!match) return true; // unrecognised range format — allow
+  const [, op, reqStr] = match;
+  const parse = (v) => v.trim().split('.').map(n => parseInt(n, 10) || 0);
+  const [av, bv] = [parse(version), parse(reqStr)];
+  let cmp = 0;
+  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+    const d = (av[i] || 0) - (bv[i] || 0);
+    if (d !== 0) { cmp = d; break; }
+  }
+  switch (op) {
+    case '>=': return cmp >= 0;
+    case '>':  return cmp > 0;
+    case '<=': return cmp <= 0;
+    case '<':  return cmp < 0;
+    default:   return cmp === 0;
+  }
+}
+
+/**
+ * Start or stop a Docker Compose profile for an extension service.
+ * Uses shell-out (same as Diagnostics page service restart).
+ */
+async function manageExtensionService(profile, serviceName, action = 'up') {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+  // Use docker compose plugin if available, fall back to docker-compose v1
+  const composeCmd = await (async () => {
+    try { await execAsync('docker compose version'); return 'docker compose'; } catch {}
+    try { await execAsync('docker-compose version'); return 'docker-compose'; } catch {}
+    return null;
+  })();
+
+  if (!composeCmd) {
+    throw new Error('Neither "docker compose" nor "docker-compose" is available');
+  }
+
+  const envFileArg = `--env-file ${EXTENSIONS_ENV_FILE}`;
+
+  let cmd;
+  if (action === 'up') {
+    const pullCmd = `${composeCmd} --env-file ${EXTENSIONS_ENV_FILE} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} pull ${serviceName}`;
+    const upCmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --force-recreate ${serviceName}`;
+    const pullResult = await execAsync(pullCmd);
+    const upResult = await execAsync(upCmd);
+    return {
+      stdout: [pullResult.stdout, upResult.stdout].filter(Boolean).join('\n'),
+      stderr: [pullResult.stderr, upResult.stderr].filter(Boolean).join('\n')
+    };
+  } else if (action === 'remove') {
+    // Stop and remove the container directly — avoids compose dependency resolution errors
+    const containerName = `${COMPOSE_PROJECT_NAME}-${serviceName}-1`;
+    cmd = `docker stop ${containerName} && docker rm ${containerName}`;
+  } else {
+    cmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} stop ${serviceName}`;
+  }
+  const { stdout, stderr } = await execAsync(cmd);
+  return { stdout, stderr };
+}
+
+/**
+ * Check health of a service URL with a short timeout
+ */
+async function checkServiceHealth(healthUrl) {
+  try {
+    const res = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) });
+    return { healthy: res.ok, status: res.status };
+  } catch {
+    return { healthy: false, status: null };
+  }
+}
 
 export default async function libraryRoutes(app) {
   const db = app.db;
@@ -50,22 +190,34 @@ export default async function libraryRoutes(app) {
 
       // Get library metadata from database for install info
       const dbLibraries = await db.query(
-        `SELECT library_id, name, version, manifest, installed_at, installed_by, enabled, load_errors, last_loaded_at
+        `SELECT library_id, name, version, manifest, installed_at, installed_by, enabled, load_errors, last_loaded_at, updated_at
          FROM node_libraries
          ORDER BY installed_at DESC`
       );
 
       // Merge runtime and database info
-      const enrichedLibraries = libraries.map(lib => {
+      const enrichedLibraries = await Promise.all(libraries.map(async lib => {
         const dbInfo = dbLibraries.rows.find(r => r.library_id === lib.libraryId);
+        const manifest = dbInfo?.manifest || {};
+        const services = manifest.requires?.services || [];
+        const serviceHealth = await Promise.all(
+          services.map(async svc => ({
+            name: svc.name,
+            profile: svc.profile,
+            healthUrl: svc.healthUrl,
+            ...(await checkServiceHealth(svc.healthUrl))
+          }))
+        );
         return {
           ...lib,
           installedAt: dbInfo?.installed_at,
           installedBy: dbInfo?.installed_by,
           enabled: dbInfo?.enabled ?? true,
-          loadErrors: dbInfo?.load_errors
+          loadErrors: dbInfo?.load_errors,
+          updatedAt: dbInfo?.updated_at,
+          services: serviceHealth
         };
-      });
+      }));
 
       // Include DB-installed libraries that are not currently loaded
       // (e.g., extensions that require restart to activate)
@@ -74,6 +226,16 @@ export default async function libraryRoutes(app) {
         if (alreadyIncluded) continue;
 
         const manifest = row.manifest || {};
+        const services = manifest.requires?.services || [];
+        const serviceHealth = await Promise.all(
+          services.map(async svc => ({
+            name: svc.name,
+            profile: svc.profile,
+            healthUrl: svc.healthUrl,
+            ...(await checkServiceHealth(svc.healthUrl))
+          }))
+        );
+
         enrichedLibraries.push({
           libraryId: row.library_id,
           name: row.name || manifest.name,
@@ -89,7 +251,8 @@ export default async function libraryRoutes(app) {
           installedAt: row.installed_at,
           installedBy: row.installed_by,
           enabled: row.enabled ?? true,
-          loadErrors: row.load_errors
+          loadErrors: row.load_errors,
+          services: serviceHealth
         });
       }
 
@@ -201,6 +364,17 @@ export default async function libraryRoutes(app) {
           });
         }
 
+        // Check dataforemanVersion requirement (semver range like ">=0.5.0")
+        const requiredRange = manifest.requires?.dataforemanVersion;
+        if (requiredRange) {
+          const appVersion = process.env.APP_VERSION || '0.0.0';
+          if (!satisfiesVersion(appVersion, requiredRange)) {
+            return reply.code(422).send({
+              error: `This extension requires DataForeman ${requiredRange} (current: v${appVersion})`
+            });
+          }
+        }
+
         const { libraryId } = manifest;
 
         // Check if library already exists
@@ -266,28 +440,43 @@ export default async function libraryRoutes(app) {
           [libraryId, manifest.name, manifest.version, manifest, userId]
         );
 
-        // Extensions are installed immediately, but activated on restart.
-        // Reason: Fastify route registration is safest during startup registration.
+        // Extensions: register routes (requires restart), but start any required Docker services now
         if (manifest.type === 'extension') {
-          req.log.info({ libraryId, version: manifest.version }, 'Extension installed; restart required to activate');
+          const services = manifest.requires?.services || [];
+          const serviceResults = [];
+
+          for (const svc of services) {
+            try {
+              const resolvedTag = await configureExtensionServiceImageTag(svc.name, manifest.version);
+              await setEnvExtensionFlag(svc.name, true);
+              await manageExtensionService(svc.profile, svc.name, 'up');
+              serviceResults.push({ name: svc.name, started: true, imageTag: resolvedTag });
+              req.log.info({ libraryId, service: svc.name, imageTag: resolvedTag }, 'Extension service started');
+            } catch (err) {
+              serviceResults.push({ name: svc.name, started: false, error: err.message });
+              req.log.warn({ libraryId, service: svc.name, err }, 'Failed to start extension service');
+            }
+          }
+
+          req.log.info({ libraryId, version: manifest.version }, 'Extension installed; restart required to activate routes');
           return reply.code(201).send({
-            message: 'Extension installed. Restart core to activate it.',
+            message: 'Extension installed. Restart the app to activate API routes and job workers.',
             libraryId,
             name: manifest.name,
             version: manifest.version,
             hotReload: false,
-            requiresRestart: true
+            requiresRestart: true,
+            services: serviceResults
           });
         }
 
         // Node libraries: load immediately
         try {
-          const loadResult = await LibraryManager.loadLibrary(libraryDir, NodeRegistry, { db });
-
+          const loadResult = await LibraryManager.loadLibrary(libraryDir, NodeRegistry, { db, appVersion: app.appVersion });
           if (!loadResult.success) {
             throw new Error(loadResult.reason || 'Library failed to load (unknown reason)');
           }
-          
+
           await db.query(
             `UPDATE node_libraries 
              SET last_loaded_at = NOW(), load_errors = NULL
@@ -338,6 +527,42 @@ export default async function libraryRoutes(app) {
   });
 
   /**
+   * GET /api/flows/libraries/:libraryId/service-health
+   * Check health of all Docker services declared by an extension.
+   * Used by frontend to poll after install until services are ready.
+   * Requires 'flows:read' permission
+   */
+  app.get('/api/flows/libraries/:libraryId/service-health', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'read', reply))) return;
+
+    try {
+      const { libraryId } = req.params;
+      const dbResult = await db.query(
+        'SELECT manifest FROM node_libraries WHERE library_id = $1',
+        [libraryId]
+      );
+      if (dbResult.rows.length === 0) return reply.code(404).send({ error: 'Library not found' });
+
+      const manifest = dbResult.rows[0].manifest || {};
+      const services = manifest.requires?.services || [];
+      const health = await Promise.all(
+        services.map(async svc => ({
+          name: svc.name,
+          profile: svc.profile,
+          healthUrl: svc.healthUrl,
+          ...(await checkServiceHealth(svc.healthUrl))
+        }))
+      );
+
+      reply.send({ libraryId, services: health, allHealthy: health.every(s => s.healthy) });
+    } catch (error) {
+      req.log.error({ err: error }, 'Failed to check service health');
+      reply.code(500).send({ error: 'Failed to check service health' });
+    }
+  });
+
+  /**
    * POST /api/flows/libraries/:libraryId/enable
    * Enable a disabled library
    * Requires 'flows:update' permission
@@ -367,20 +592,10 @@ export default async function libraryRoutes(app) {
           'SELECT manifest FROM node_libraries WHERE library_id = $1',
           [libraryId]
         );
-        const manifest = metaRows?.[0]?.manifest;
-        if (manifest?.type === 'extension') {
-          return reply.send({
-            message: 'Extension enabled. Restart core to activate it.',
-            libraryId,
-            hotReload: false,
-            requiresRestart: true
-          });
-        }
-
         const { NodeRegistry } = await import('../nodes/base/NodeRegistry.js');
         const { LibraryManager } = await import('../nodes/base/LibraryManager.js');
         const libraryPath = path.join(__dirname, '../nodes/libraries', libraryId);
-        await LibraryManager.loadLibrary(libraryPath, NodeRegistry, { db: app.db });
+        await LibraryManager.loadLibrary(libraryPath, NodeRegistry, { db: app.db, appVersion: app.appVersion, app });
         req.log.info({ libraryId }, 'Library hot-loaded into NodeRegistry');
         
         // Update last_loaded_at timestamp
@@ -572,21 +787,39 @@ export default async function libraryRoutes(app) {
           [manifest.name, manifest.version, manifest, libraryId]
         );
 
-        // Hot-load the new version
+        // Extensions require a restart to re-register Fastify routes — skip hot-reload
         if (manifest.type === 'extension') {
-          req.log.info({ libraryId, version: manifest.version }, 'Extension updated; restart required to activate');
+          const services = manifest.requires?.services || [];
+          const serviceResults = [];
+
+          for (const svc of services) {
+            try {
+              const resolvedTag = await configureExtensionServiceImageTag(svc.name, manifest.version);
+              await setEnvExtensionFlag(svc.name, true);
+              await manageExtensionService(svc.profile, svc.name, 'up');
+              serviceResults.push({ name: svc.name, started: true, imageTag: resolvedTag });
+              req.log.info({ libraryId, service: svc.name, imageTag: resolvedTag }, 'Extension service updated');
+            } catch (err) {
+              serviceResults.push({ name: svc.name, started: false, error: err.message });
+              req.log.warn({ libraryId, service: svc.name, err }, 'Failed to update extension service');
+            }
+          }
+
+          req.log.info({ libraryId, previousVersion, newVersion: manifest.version }, 'Extension updated on disk; restart required to activate');
           return reply.send({
-            message: 'Extension updated. Restart core to activate the new version.',
+            message: 'Extension updated. Restart the app to activate the new version.',
             libraryId,
             previousVersion,
             newVersion: manifest.version,
             hotReload: false,
-            requiresRestart: true
+            requiresRestart: true,
+            services: serviceResults,
           });
         }
 
+        // Hot-load the new version (node libraries only)
         try {
-          const loadResult = await LibraryManager.loadLibrary(libraryDir, NodeRegistry, { db });
+          const loadResult = await LibraryManager.loadLibrary(libraryDir, NodeRegistry, { db, appVersion: app.appVersion, app });
           if (!loadResult.success) {
             throw new Error(loadResult.reason || 'Library failed to load after update');
           }
@@ -641,7 +874,7 @@ export default async function libraryRoutes(app) {
 
       // Check if library exists
       const existing = await db.query(
-        'SELECT id, name FROM node_libraries WHERE library_id = $1',
+        'SELECT id, name, manifest FROM node_libraries WHERE library_id = $1',
         [libraryId]
       );
 
@@ -650,6 +883,7 @@ export default async function libraryRoutes(app) {
       }
 
       const library = existing.rows[0];
+      const manifest = library.manifest || {};
 
       // Check if library is in use by any flows
       const usageResult = await db.query(`
@@ -706,6 +940,25 @@ export default async function libraryRoutes(app) {
         await fs.rm(libraryDir, { recursive: true, force: true });
       } catch (err) {
         req.log.warn({ err, libraryId }, 'Failed to delete library directory');
+      }
+
+      // Stop Docker services declared by extension and remove .env flags
+      if (manifest.type === 'extension') {
+        const services = manifest.requires?.services || [];
+        for (const svc of services) {
+          try {
+            await manageExtensionService(svc.profile, svc.name, 'remove');
+            req.log.info({ libraryId, service: svc.name }, 'Extension service stopped');
+          } catch (err) {
+            req.log.warn({ libraryId, service: svc.name, err }, 'Failed to stop extension service');
+          }
+
+          try {
+            await setEnvExtensionFlag(svc.name, false);
+          } catch (err) {
+            req.log.warn({ libraryId, service: svc.name, err }, 'Failed to clear extension enable flag');
+          }
+        }
       }
 
       req.log.info({ 
@@ -819,11 +1072,12 @@ export default async function libraryRoutes(app) {
     }
 
     const library = LibraryManager.getLibrary(libraryId);
-    const fullPath = path.join(library.path, 'dist', normalizedAssetPath);
+    // Serve from the library root. Strip leading "dist/" prefix for backward
+    // compatibility with extensions that reference built assets as "dist/file.js".
+    const fullPath = path.join(library.path, normalizedAssetPath);
 
-    // Security check: ensure the path is within the library's dist folder
-    const distDir = path.join(library.path, 'dist');
-    const relative = path.relative(distDir, fullPath);
+    // Security check: ensure the path stays within the library folder
+    const relative = path.relative(library.path, fullPath);
     const isSafe = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
     
     if (!isSafe) {
@@ -835,9 +1089,10 @@ export default async function libraryRoutes(app) {
       const ext = path.extname(fullPath).toLowerCase();
 
       // Cache behavior:
-      // - If caller provides a version query param (e.g. ?v=1.2.3), treat as immutable.
+      // - If caller provides ?v= (version) or ?cb= (content/update buster), treat as immutable.
       // - Otherwise, disable caching to avoid stale extension bundles in browsers.
-      const hasVersionParam = typeof req.query?.v === 'string' && req.query.v.length > 0;
+      const hasVersionParam = (typeof req.query?.v === 'string' && req.query.v.length > 0)
+        || (typeof req.query?.cb === 'string' && req.query.cb.length > 0);
       if (hasVersionParam) {
         reply.header('Cache-Control', 'public, max-age=31536000, immutable');
       } else {

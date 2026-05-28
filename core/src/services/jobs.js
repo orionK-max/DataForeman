@@ -751,7 +751,6 @@ export const jobsPlugin = fp(async (app) => {
 		await executeFlow(ctx);
 	}, { maxAttempts: 1, description: 'Execute a flow with all its nodes' });
 
-
 	// Graceful shutdown hook
 	app.addHook('onClose', async () => {
 		try {
