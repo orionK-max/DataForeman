@@ -5,11 +5,18 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-# Download nanomq.conf if missing (required by broker container)
+# Ensure nanomq.conf is a FILE (Docker creates a directory when it's missing on first run)
+_RECREATE_BROKER=0
+if [[ -d nanomq/nanomq.conf ]]; then
+  echo "Removing invalid nanomq/nanomq.conf directory (Docker artifact)..."
+  sudo rm -rf nanomq/nanomq.conf
+  _RECREATE_BROKER=1
+fi
 if [[ ! -f nanomq/nanomq.conf ]]; then
   echo "Downloading nanomq/nanomq.conf..."
   mkdir -p nanomq
   curl -fsSL -o nanomq/nanomq.conf https://raw.githubusercontent.com/orionK-max/DataForeman/main/nanomq/nanomq.conf
+  _RECREATE_BROKER=1
 fi
 
 # Fix directory permissions so containers can write logs
@@ -36,6 +43,13 @@ fi
 
 echo "Starting DataForeman..."
 docker compose up -d
+
+# If nanomq.conf bind mount was fixed, the existing broker container still has
+# the old (directory) mount inside — force-recreate it to pick up the file.
+if [[ "$_RECREATE_BROKER" == "1" ]]; then
+  echo "Recreating broker container to apply fixed nanomq.conf bind mount..."
+  docker compose up -d --force-recreate broker
+fi
 
 # Auto-start any previously installed extension services
 if [[ -f var/extensions.env ]]; then
