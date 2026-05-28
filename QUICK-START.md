@@ -53,7 +53,7 @@ If you skip this step, the default login credentials will be:
 ### Step 4: Start DataForeman
 
 ```bash
-bash start.sh
+sudo bash start.sh
 ```
 
 **This will take 2-5 minutes the first time** as it downloads the pre-built images. You'll see progress output — wait until the prompt returns.
