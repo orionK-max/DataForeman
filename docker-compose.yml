@@ -53,7 +53,7 @@ services:
       - "127.0.0.1:${NANOMQ_HTTP_PORT:-8001}:8001"  # HTTP API — localhost only
     volumes:
       - ./logs/broker:/var/log/broker
-      - ./nanomq/nanomq.conf:/etc/nanomq/nanomq.conf:ro
+      - ./nanomq:/etc/nanomq:ro
     ulimits:
       nofile:
         soft: 65536
