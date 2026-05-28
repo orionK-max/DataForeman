@@ -167,7 +167,7 @@ npm start
 # docker compose up -d
 ```
 
-Wait for the command to complete. The first time will take longer as it downloads Docker images and builds containers.
+Wait for the command to complete. The first time will take longer as it downloads Docker images and creates the containers.
 
 **Step 5: Verify Installation**
 
@@ -238,8 +238,9 @@ docker compose down
 git fetch --tags
 git checkout vX.X.X
 
-# Rebuild and restart (database migrations run automatically on startup)
-npm run start:rebuild
+# Pull updated images and restart (database migrations run automatically on startup)
+docker compose pull
+docker compose up -d
 ```
 
 **Step 3: Wait and Access**
@@ -250,7 +251,7 @@ Wait about 1-2 minutes for the update to complete, then access DataForeman at ht
 - ✅ Your databases and configurations are safely preserved during the update
 - ✅ All your dashboards, devices, and historical data remain intact
 - ✅ Database migrations run automatically when core starts — no manual step needed
-- ⏱️ The update process may take a few minutes (downloading and building)
+- ⏱️ The update process may take a few minutes (downloading updated images and restarting services)
 - 📖 Always check the [release notes on GitHub](https://github.com/orionK-max/DataForeman/releases) for important information
 
 **If Something Goes Wrong:**
@@ -261,7 +262,8 @@ Open a terminal in DataForeman folder and type:
 
 ```bash
 git checkout vX.X.X  # Replace with your previous version
-npm run start:rebuild
+docker compose pull
+docker compose up -d
 ```
 
 ### Starting and Stopping DataForeman

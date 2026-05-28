@@ -16,22 +16,24 @@ import ExtensionChartPlugin from '../components/shared/ExtensionChartPlugin.jsx'
  * Renders all chart-plugin toolbar components assigned to a given slot.
  * Slot values (from manifest toolbarSlot): 'data' | 'view' | 'zoom' | 'tools'
  */
-const ToolbarSlotPlugins = ({ slot, plugins, chartConfig, timeRange, onSeriesChange, onChartConfigChange, onNavigateTo, isLive }) => {
+const ToolbarSlotPlugins = ({ slot, plugins, chartConfig, timeRange, items, onSeriesChange, onChartConfigChange, onNavigateTo, isLive }) => {
   const slotPlugins = plugins.filter(p => p.toolbarComponentUrl && (p.toolbarSlot ?? 'data') === slot);
   if (slotPlugins.length === 0) return null;
   return slotPlugins.map(plugin => (
     <ExtensionChartPlugin
-      key={plugin.id}
+      key={`${plugin.id}:${plugin.libraryVersion || plugin.toolbarComponentUrl || ''}`}
       plugin={plugin}
       toolbarProps={{
         tagConfigs: chartConfig.tagConfigs,
         timeRange,
+        items,
         chartConfig,
         contextType: 'composer',
         onSeriesChange: (series) => onSeriesChange(plugin.id, series),
         onChartConfigChange,
         onNavigateTo,
         isLive,
+        extensionVersion: plugin.libraryVersion,
       }}
     />
   ));
@@ -421,7 +423,7 @@ const ChartComposerContent = () => {
                 </Button>
               </Tooltip>
             </Box>
-            <ToolbarSlotPlugins slot="view" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
+            <ToolbarSlotPlugins slot="view" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} items={items} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
 
           <Divider orientation="vertical" flexItem />
@@ -522,7 +524,7 @@ const ChartComposerContent = () => {
                 )}
               </Box>
               {/* Extension chart-plugin toolbar components assigned to the 'data' slot */}
-              <ToolbarSlotPlugins slot="data" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
+              <ToolbarSlotPlugins slot="data" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} items={items} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
             </Box>
           </Box>
           
@@ -568,7 +570,7 @@ const ChartComposerContent = () => {
                 </Button>
               </Tooltip>
             </Box>
-            <ToolbarSlotPlugins slot="zoom" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
+            <ToolbarSlotPlugins slot="zoom" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} items={items} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
           
           <Divider orientation="vertical" flexItem />
@@ -593,7 +595,7 @@ const ChartComposerContent = () => {
               </Tooltip>
               <ExportChartButton />
             </Box>
-            <ToolbarSlotPlugins slot="tools" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
+            <ToolbarSlotPlugins slot="tools" plugins={chartPlugins} chartConfig={chartConfig} timeRange={timeRange} items={items} onSeriesChange={(id, s) => setExtensionSeries(prev => ({ ...prev, [id]: s }))} onChartConfigChange={updateChartConfig} onNavigateTo={handleNavigateTo} isLive={autoRefresh} />
           </Box>
         </Toolbar>
       </Paper>

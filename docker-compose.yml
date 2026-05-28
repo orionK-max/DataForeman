@@ -42,7 +42,7 @@ services:
       - ./logs/nats:/var/log/nats
 
   broker:
-    build: ./nanomq
+    image: emqx/nanomq:0.22.4-full
     restart: always
     environment:
       NANOMQ_ALLOW_ANONYMOUS: "false"
@@ -90,7 +90,7 @@ services:
     ]
 
   core:
-    build: ./core
+    image: ghcr.io/orionk-max/dataforeman-core:latest
     logging:
       driver: "json-file"
       options:
@@ -170,7 +170,7 @@ services:
       - ./docker-compose.yml:/app/docker-compose.yml:ro
 
   connectivity:
-    build: ./connectivity
+    image: ghcr.io/orionk-max/dataforeman-connectivity:latest
     logging:
       driver: "json-file"
       options:
@@ -216,7 +216,7 @@ services:
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
 
   front:
-    build: ./front
+    image: ghcr.io/orionk-max/dataforeman-front:latest
     logging:
       driver: "json-file"
       options:
@@ -230,13 +230,10 @@ services:
       - ./logs/front:/var/log/front
 
   rotator:
-    image: node:22-alpine
-    working_dir: /app
+    image: ghcr.io/orionk-max/dataforeman-ops:latest
     volumes:
-      - ./:/app
       - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
-    entrypoint: ["node","/app/ops/rotator-daemon.js"]
     environment:
       LOG_ROTATE_PERIOD_MINUTES: ${LOG_ROTATE_PERIOD_MINUTES:-1440}
     depends_on:
@@ -257,8 +254,7 @@ services:
       - front
 
   forecast:
-    build:
-      context: ${FORECAST_SERVICE_CONTEXT:-./extensions/forecast/service}
+    image: ghcr.io/orionk-max/dataforeman-forecast:${FORECAST_IMAGE_TAG:-latest}
     restart: unless-stopped
     profiles: ["forecast"]
     logging:
@@ -271,7 +267,6 @@ services:
     volumes:
       - ./var/hf-model-cache:/root/.cache/huggingface
     # Internal only — only core needs to reach it.
-    # The service source must exist on disk at FORECAST_SERVICE_CONTEXT.
     expose:
       - "8100"
 

@@ -152,7 +152,7 @@ if [[ -f var/extensions.env ]]; then
     [[ "$key" =~ ^EXTENSION_(.+)_ENABLED$ ]] && [[ "$value" == "true" ]] || continue
     profile="${BASH_REMATCH[1],,}" # lowercase the profile name
     echo "Starting extension service: $profile"
-    docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile "$profile" up -d "$profile" || echo "⚠️  Failed to start extension service: $profile"
+    docker compose --env-file var/extensions.env -f docker-compose.yml -f docker-compose.dev.yml --profile "$profile" up -d "$profile" || echo "⚠️  Failed to start extension service: $profile"
   done < <(grep -E '^EXTENSION_[A-Z0-9_]+_ENABLED=true' var/extensions.env 2>/dev/null)
 fi
 

@@ -14,6 +14,8 @@ export default function ExtensionChartPlugin({ plugin, toolbarProps }) {
 
   React.useEffect(() => {
     if (!plugin.toolbarComponentUrl) return;
+    setComponent(null);
+    setError(null);
     loadExtensionComponent(plugin.toolbarComponentUrl)
       .then(Component => setComponent(() => Component))
       .catch((err) => {

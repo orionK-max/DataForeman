@@ -36,11 +36,13 @@ class PluginRegistryClass {
       if (lib.enabled === false || lib.loaded !== true) continue;
       for (const ext of (lib.uiExtensions || [])) {
         if (ext.type !== 'chart-plugin') continue;
-        // Use updatedAt as cache buster so any update (even same version) refreshes assets.
-        // Falls back to version, then no param (no-store headers will apply).
-        const cacheBuster = lib.updatedAt
-          ? `?cb=${new Date(lib.updatedAt).getTime()}`
-          : lib.version ? `?v=${encodeURIComponent(lib.version)}` : '';
+        // Include both version and updatedAt when available.
+        // Version changes must always change the asset URL, even if the DB
+        // updatedAt timestamp was not refreshed by a manual bundle swap.
+        const cacheParams = new URLSearchParams();
+        if (lib.version) cacheParams.set('v', lib.version);
+        if (lib.updatedAt) cacheParams.set('cb', String(new Date(lib.updatedAt).getTime()));
+        const cacheBuster = cacheParams.size ? `?${cacheParams.toString()}` : '';
         const resolveAssetUrl = (filename) =>
           filename ? `/api/extensions/${lib.libraryId}/assets/${filename}${cacheBuster}` : null;
 
@@ -53,6 +55,7 @@ class PluginRegistryClass {
           configTabIcon: ext.configTabIcon || null,
           toolbarSlot: ext.toolbarSlot || 'data',
           libraryId: lib.libraryId,
+          libraryVersion: lib.version || null,
         });
       }
     }

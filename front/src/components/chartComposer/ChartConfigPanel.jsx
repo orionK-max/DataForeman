@@ -96,22 +96,35 @@ const ChartConfigPanel = ({
   const TABS = [...CORE_TABS, ...chartPlugins.map(p => p.configTabLabel)];
 
   const [activeTab, setActiveTab] = useState(0);
-  const [extensionTabComponents, setExtensionTabComponents] = useState({}); // pluginId → Component
+  const [extensionTabComponents, setExtensionTabComponents] = useState({}); // pluginId → { url, component }
 
   // Load extension tab components whenever chart plugins change
   useEffect(() => {
     for (const plugin of chartPlugins) {
-      if (!extensionTabComponents[plugin.id]) {
+      const loadedEntry = extensionTabComponents[plugin.id];
+      if (!loadedEntry || loadedEntry.url !== plugin.configTabUrl) {
         loadExtensionComponent(plugin.configTabUrl)
-          .then(Component => setExtensionTabComponents(prev => ({ ...prev, [plugin.id]: Component })))
+          .then(Component => setExtensionTabComponents(prev => ({
+            ...prev,
+            [plugin.id]: {
+              url: plugin.configTabUrl,
+              component: Component,
+            },
+          })))
           .catch(err => {
             console.error(`[ExtensionLoader] Failed to load config tab for ${plugin.id}:`, err);
-            setExtensionTabComponents(prev => ({ ...prev, [plugin.id]: 'error' }));
+            setExtensionTabComponents(prev => ({
+              ...prev,
+              [plugin.id]: {
+                url: plugin.configTabUrl,
+                component: 'error',
+              },
+            }));
           });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartPlugins.map(p => p.id).join(',')]);
+  }, [chartPlugins.map(p => `${p.id}:${p.configTabUrl || ''}`).join(',')]);
 
   const handleTabChange = (newValue) => {
     setActiveTab(newValue);
@@ -1284,7 +1297,8 @@ const ChartConfigPanel = ({
         const extIndex = activeTab - CORE_TABS.length;
         const plugin = chartPlugins[extIndex];
         if (!plugin) return null;
-        const ExtComponent = extensionTabComponents[plugin.id];
+        const loadedEntry = extensionTabComponents[plugin.id];
+        const ExtComponent = loadedEntry?.component;
         if (!ExtComponent) return <Box sx={{ p: 2 }}><Typography variant="caption" color="text.secondary">Loading…</Typography></Box>;
         if (ExtComponent === 'error') return <Box sx={{ p: 2 }}><Typography variant="caption" color="error">Failed to load extension component. Check console for details.</Typography></Box>;
         return (

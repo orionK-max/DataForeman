@@ -36,4 +36,8 @@ services:
       context: nanomq
       dockerfile: Dockerfile
 
-  # forecast intentionally omitted — always uses pre-built image from GHCR
+  forecast:
+    image: ""
+    build:
+      context: ${FORECAST_SERVICE_CONTEXT:-./extensions/forecast/service}
+      dockerfile: Dockerfile

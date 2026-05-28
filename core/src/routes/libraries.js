@@ -18,25 +18,60 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const COMPOSE_FILE = process.env.COMPOSE_PROJECT_FILE || path.join(PROJECT_ROOT, 'docker-compose.yml');
 const COMPOSE_PROJECT_NAME = process.env.COMPOSE_PROJECT_NAME || 'dataforeman';
+const EXTENSIONS_ENV_FILE = path.join(PROJECT_ROOT, 'var', 'extensions.env');
+
+async function readExtensionsEnv() {
+  try {
+    return await fs.readFile(EXTENSIONS_ENV_FILE, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function setExtensionsEnvValue(key, value) {
+  let content = await readExtensionsEnv();
+  const line = `${key}=${value}`;
+
+  if (content.includes(`${key}=`)) {
+    content = content.replace(new RegExp(`^${key}=.*$`, 'm'), line);
+  } else {
+    content += `${line}\n`;
+  }
+
+  await fs.writeFile(EXTENSIONS_ENV_FILE, content, 'utf8');
+}
 
 /**
  * Write or remove an extension enable flag in var/extensions.env
  * This file is mounted from the host via ./var:/app/var and survives container restarts.
  */
 async function setEnvExtensionFlag(extensionName, enabled) {
-  const envPath = path.join(PROJECT_ROOT, 'var', 'extensions.env');
-  let content = '';
-  try { content = await fs.readFile(envPath, 'utf8'); } catch { /* file may not exist yet */ }
-
   const flagKey = `EXTENSION_${extensionName.toUpperCase()}_ENABLED`;
-  const flagLine = `${flagKey}=${enabled ? 'true' : 'false'}`;
+  await setExtensionsEnvValue(flagKey, enabled ? 'true' : 'false');
+}
 
-  if (content.includes(flagKey)) {
-    content = content.replace(new RegExp(`^${flagKey}=.*$`, 'm'), flagLine);
-  } else {
-    content += `${flagLine}\n`;
+function getServiceImageTagKey(serviceName) {
+  return `${serviceName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_IMAGE_TAG`;
+}
+
+async function resolveServiceImageTag(serviceName, preferredTag) {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+  const imageRef = `ghcr.io/orionk-max/dataforeman-${serviceName}:${preferredTag}`;
+
+  try {
+    await execAsync(`docker manifest inspect ${imageRef}`);
+    return preferredTag;
+  } catch {
+    return 'latest';
   }
-  await fs.writeFile(envPath, content, 'utf8');
+}
+
+async function configureExtensionServiceImageTag(serviceName, preferredTag) {
+  const resolvedTag = await resolveServiceImageTag(serviceName, preferredTag);
+  await setExtensionsEnvValue(getServiceImageTagKey(serviceName), resolvedTag);
+  return resolvedTag;
 }
 
 /**
@@ -82,15 +117,24 @@ async function manageExtensionService(profile, serviceName, action = 'up') {
     throw new Error('Neither "docker compose" nor "docker-compose" is available');
   }
 
+  const envFileArg = `--env-file ${EXTENSIONS_ENV_FILE}`;
+
   let cmd;
   if (action === 'up') {
-    cmd = `${composeCmd} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --no-recreate ${serviceName}`;
+    const pullCmd = `${composeCmd} --env-file ${EXTENSIONS_ENV_FILE} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} pull ${serviceName}`;
+    const upCmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --force-recreate ${serviceName}`;
+    const pullResult = await execAsync(pullCmd);
+    const upResult = await execAsync(upCmd);
+    return {
+      stdout: [pullResult.stdout, upResult.stdout].filter(Boolean).join('\n'),
+      stderr: [pullResult.stderr, upResult.stderr].filter(Boolean).join('\n')
+    };
   } else if (action === 'remove') {
     // Stop and remove the container directly — avoids compose dependency resolution errors
     const containerName = `${COMPOSE_PROJECT_NAME}-${serviceName}-1`;
     cmd = `docker stop ${containerName} && docker rm ${containerName}`;
   } else {
-    cmd = `${composeCmd} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} stop ${serviceName}`;
+    cmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} stop ${serviceName}`;
   }
   const { stdout, stderr } = await execAsync(cmd);
   return { stdout, stderr };
@@ -403,10 +447,11 @@ export default async function libraryRoutes(app) {
 
           for (const svc of services) {
             try {
+              const resolvedTag = await configureExtensionServiceImageTag(svc.name, manifest.version);
               await setEnvExtensionFlag(svc.name, true);
               await manageExtensionService(svc.profile, svc.name, 'up');
-              serviceResults.push({ name: svc.name, started: true });
-              req.log.info({ libraryId, service: svc.name }, 'Extension service started');
+              serviceResults.push({ name: svc.name, started: true, imageTag: resolvedTag });
+              req.log.info({ libraryId, service: svc.name, imageTag: resolvedTag }, 'Extension service started');
             } catch (err) {
               serviceResults.push({ name: svc.name, started: false, error: err.message });
               req.log.warn({ libraryId, service: svc.name, err }, 'Failed to start extension service');
@@ -744,6 +789,22 @@ export default async function libraryRoutes(app) {
 
         // Extensions require a restart to re-register Fastify routes — skip hot-reload
         if (manifest.type === 'extension') {
+          const services = manifest.requires?.services || [];
+          const serviceResults = [];
+
+          for (const svc of services) {
+            try {
+              const resolvedTag = await configureExtensionServiceImageTag(svc.name, manifest.version);
+              await setEnvExtensionFlag(svc.name, true);
+              await manageExtensionService(svc.profile, svc.name, 'up');
+              serviceResults.push({ name: svc.name, started: true, imageTag: resolvedTag });
+              req.log.info({ libraryId, service: svc.name, imageTag: resolvedTag }, 'Extension service updated');
+            } catch (err) {
+              serviceResults.push({ name: svc.name, started: false, error: err.message });
+              req.log.warn({ libraryId, service: svc.name, err }, 'Failed to update extension service');
+            }
+          }
+
           req.log.info({ libraryId, previousVersion, newVersion: manifest.version }, 'Extension updated on disk; restart required to activate');
           return reply.send({
             message: 'Extension updated. Restart the app to activate the new version.',
@@ -752,6 +813,7 @@ export default async function libraryRoutes(app) {
             newVersion: manifest.version,
             hotReload: false,
             requiresRestart: true,
+            services: serviceResults,
           });
         }
 
