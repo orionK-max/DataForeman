@@ -11,14 +11,14 @@ if [[ -f fix-permissions.sh ]]; then
 else
   # Minimal fallback when fix-permissions.sh is not present (pre-built image installs)
   mkdir -p logs var
-  # Create all log subdirectories
+  # Create all log subdirectories (chmod is best-effort; dirs may be owned by root from prior run)
   for dir in core connectivity front nats ops ingestor broker tsdb; do
     mkdir -p "logs/$dir"
-    chmod 0755 "logs/$dir"
+    chmod 0755 "logs/$dir" 2>/dev/null || true
   done
-  # Postgres runs as UID 70 — must be world-writable
+  # Postgres runs as UID 70 — must be world-writable (use sudo if needed)
   mkdir -p logs/postgres
-  chmod 0777 logs/postgres
+  chmod 0777 logs/postgres 2>/dev/null || sudo chmod 0777 logs/postgres
 fi
 
 # Apply Linux host-networking override for EIP autodiscovery (first run only)
