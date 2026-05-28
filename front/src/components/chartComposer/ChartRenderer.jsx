@@ -92,6 +92,15 @@ const ChartRenderer = React.forwardRef(({
   const [crosshairPosition, setCrosshairPosition] = React.useState(null); // { x, y, time, values }
   
   // ECharts instance reference
+  const getLegendGrouping = React.useCallback((seriesName) => {
+    const rawName = typeof seriesName === 'string' ? seriesName : '';
+    const forecastMatch = rawName.match(/^(.*) \(F\)$/);
+    if (forecastMatch) {
+      return { baseName: forecastMatch[1], isForecast: true };
+    }
+    return { baseName: rawName, isForecast: false };
+  }, []);
+
   const chartRef = React.useRef(null);
   
   // Expose methods via ref for parent
@@ -859,6 +868,32 @@ const ChartRenderer = React.forwardRef(({
       }
     }
 
+    const reorderedSeries = (() => {
+      if (!processedSeries.length) return processedSeries;
+
+      const groups = new Map();
+      processedSeries.forEach((series, index) => {
+        const { baseName, isForecast } = getLegendGrouping(series?.name);
+        const key = baseName || `__series_${index}`;
+        if (!groups.has(key)) groups.set(key, { base: [], forecast: [] });
+        const bucket = isForecast ? groups.get(key).forecast : groups.get(key).base;
+        bucket.push(series);
+      });
+
+      const ordered = [];
+      const emitted = new Set();
+      processedSeries.forEach((series, index) => {
+        const { baseName } = getLegendGrouping(series?.name);
+        const key = baseName || `__series_${index}`;
+        if (emitted.has(key)) return;
+        emitted.add(key);
+        const group = groups.get(key);
+        if (!group) return;
+        ordered.push(...group.base, ...group.forecast);
+      });
+      return ordered;
+    })();
+
     // Calculate grid margins based on axes with offsets
     const leftAxes = yAxisConfig.filter(axis => axis.position === 'left');
     const rightAxes = yAxisConfig.filter(axis => axis.position === 'right');
@@ -993,10 +1028,10 @@ const ChartRenderer = React.forwardRef(({
         type: 'scroll',
         formatter: (name) => name,
         textStyle: {
-          color: '#fff',
+          color: theme.palette.text.primary,
         },
         pageTextStyle: {
-          color: '#fff',
+          color: theme.palette.text.primary,
         },
         selector: false,
       },
@@ -1060,7 +1095,7 @@ const ChartRenderer = React.forwardRef(({
         };
       })(),
       yAxis: yAxisConfig,
-      series: processedSeries,
+      series: reorderedSeries,
       dataZoom: [
         {
           type: 'inside',
@@ -1096,7 +1131,7 @@ const ChartRenderer = React.forwardRef(({
         },
       ],
     };
-  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme, showDataPoints, extensionSeriesMap, externalExtensionSeries, options, extensionZoom]);
+  }, [echartsData, compactMode, axes, tagConfigs, grid, background, display, referenceLines, requestedTimeRange, getDashType, theme, showDataPoints, extensionSeriesMap, externalExtensionSeries, options, extensionZoom, getLegendGrouping]);
 
   // Loading state
   if (loading) {
