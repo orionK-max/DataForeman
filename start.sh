@@ -9,9 +9,16 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 if [[ -f fix-permissions.sh ]]; then
   bash fix-permissions.sh
 else
-  # Minimal fallback when fix-permissions.sh is not present
+  # Minimal fallback when fix-permissions.sh is not present (pre-built image installs)
   mkdir -p logs var
-  chmod 777 logs 2>/dev/null || true
+  # Create all log subdirectories
+  for dir in core connectivity front nats ops ingestor broker tsdb; do
+    mkdir -p "logs/$dir"
+    chmod 0755 "logs/$dir"
+  done
+  # Postgres runs as UID 70 — must be world-writable
+  mkdir -p logs/postgres
+  chmod 0777 logs/postgres
 fi
 
 # Apply Linux host-networking override for EIP autodiscovery (first run only)
