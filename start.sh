@@ -5,6 +5,13 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+# Download nanomq.conf if missing (required by broker container)
+if [[ ! -f nanomq/nanomq.conf ]]; then
+  echo "Downloading nanomq/nanomq.conf..."
+  mkdir -p nanomq
+  curl -fsSL -o nanomq/nanomq.conf https://raw.githubusercontent.com/orionK-max/DataForeman/main/nanomq/nanomq.conf
+fi
+
 # Fix directory permissions so containers can write logs
 if [[ -f fix-permissions.sh ]]; then
   bash fix-permissions.sh

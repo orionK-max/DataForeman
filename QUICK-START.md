@@ -31,6 +31,7 @@ mkdir ~/dataforeman && cd ~/dataforeman
 curl -o docker-compose.yml https://raw.githubusercontent.com/orionK-max/DataForeman/main/docker-compose.yml
 curl -o .env https://raw.githubusercontent.com/orionK-max/DataForeman/main/.env.example
 curl -o start.sh https://raw.githubusercontent.com/orionK-max/DataForeman/main/start.sh
+mkdir -p nanomq && curl -o nanomq/nanomq.conf https://raw.githubusercontent.com/orionK-max/DataForeman/main/nanomq/nanomq.conf
 chmod +x start.sh
 ```
 
