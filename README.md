@@ -17,7 +17,7 @@ DataForeman is a containerized stack for collecting industrial telemetry, storin
 - [What is DataForeman](#what-is-dataforeman)
 - [Getting Started](#getting-started)
   - [Windows Installation](#-windows-installation)
-  - [Linux Installation](#-linux-installation-docker)
+  - [Linux Installation](#-linux-installation-docker) → see [Quick Start Guide](QUICK-START.md)
 - [Starting and Stopping](#starting-and-stopping-dataforeman)
 - [Updating DataForeman](#updating-dataforeman)
 - [Troubleshooting](#troubleshooting)
@@ -32,19 +32,15 @@ DataForeman is a containerized stack for collecting industrial telemetry, storin
 
 ## Quick Start
 
-**Linux Users:**
-```bash
-# Download
-cd ~ && git clone https://github.com/orionK-max/DataForeman.git && cd DataForeman
+**New to DataForeman?** Follow the **[Quick Start Guide](QUICK-START.md)** for step-by-step beginner instructions using pre-built images — no git or build tools required.
 
-# Setup and Start (single command with automatic permission fix)
-npm start
+**Windows Users:** Download the installer from [Releases](https://github.com/orionK-max/DataForeman/releases), run it, and access at http://localhost:8080.
 
-# Access at http://localhost:8080
-# Login: admin@example.com / password
-```
+**Developers / Build-from-Source:** See the [Developer Information](#developer-information) section below.
 
-**Windows Users:** Download installer from [Releases](https://github.com/orionK-max/DataForeman/releases), run it, access at http://localhost:8080
+### Extensions
+
+DataForeman supports installable extensions that add advanced capabilities, including **Advanced Math** and **Forecasting**. Extensions are available at [www.dataforeman.app](https://www.dataforeman.app).
 
 ---
 
@@ -100,108 +96,12 @@ DataForeman is available for both **Windows** and **Linux** systems:
 - For Virtual Machines (VirtualBox, VMware, Parallels, etc.): Enable **virtualization** in VM settings under the "Processors" section (also called VT-x/AMD-V or nested virtualization)
 
 #### 🐧 Linux Installation (Docker)
-**Standard Docker Compose deployment with host networking**
 
-### Prerequisites
-- **Docker** and **Docker Compose** installed
-- **Git** installed (to download DataForeman)
-- **Internet connection** (only needed for initial installation to download Docker images)
+For end users, follow the **[Quick Start Guide](QUICK-START.md)** — it covers downloading pre-built images, configuring credentials, and getting started without needing Git or any build tools.
 
-**Note:** Linux version uses host networking for EIP device autodiscovery. After installation, DataForeman works completely offline.
+**Virtual Machine Note:** If running inside a VM (VirtualBox, Parallels, VMware, etc.), set the network adapter to **Bridged Network** mode. Device discovery uses UDP broadcast packets which cannot traverse NAT — without bridged networking, direct device connections will work but network discovery will fail.
 
-**For Virtual Machines (VirtualBox, Parallels, VMware, etc.):**
-- **Network Adapter**: Must use **Bridged Network** mode (not NAT/Shared)
-- **Why**: Device discovery uses UDP broadcast packets which cannot traverse NAT
-- **Impact**: Without bridged networking, device connections will work but network discovery will fail
-
-### Step-by-Step Installation
-
-**Step 1: Download DataForeman**
-
-Open a terminal and run these commands one at a time:
-
-```bash
-# Download DataForeman to your home folder
-cd ~
-git clone https://github.com/orionK-max/DataForeman.git
-
-# Enter the DataForeman folder
-cd DataForeman
-```
-
-**Step 2: Configure Environment (Optional)**
-
-**Note:** Files starting with `.` (like `.env.example` and `.gitignore.example`) are hidden by default in Linux file managers. Press `Ctrl+H` to show/hide hidden files, or use `ls -a` in the terminal to list them.
-
-If you want to change the default admin password:
-
-```bash
-# Copy the example configuration file
-cp .env.example .env
-
-# Edit the file (use nano, vim, or any text editor)
-nano .env
-
-# Find the line ADMIN_PASSWORD= and change the password
-# Press Ctrl+X, then Y, then Enter to save and exit
-```
-
-**Step 3: Enable Host Networking (Required for EIP Autodiscovery)**
-
-Linux supports host networking, which is needed for EIP device autodiscovery (UDP broadcast). Apply the Linux override:
-
-```bash
-cp docker-compose.override.yml.linux docker-compose.override.yml
-```
-
-> **Skip this step** if you don't use EtherNet/IP autodiscovery (you can still connect to PLCs manually by IP address).
-
-**Step 4: Start DataForeman**
-
-```bash
-# Start all containers (automatically fixes permissions and starts services)
-npm start
-
-# Alternative: Use docker compose directly
-# ./fix-permissions.sh
-# docker compose up -d
-```
-
-Wait for the command to complete. The first time will take longer as it downloads Docker images and creates the containers.
-
-**Step 5: Verify Installation**
-
-Check that all containers are running:
-
-```bash
-docker compose ps
-```
-
-You should see all services with "Up" status (core, front, db, tsdb, nats, broker, connectivity, rotator). If any show "Exited", wait another minute and check again.
-
-**Step 6: Access DataForeman**
-
-Open your web browser and go to:
-```
-http://localhost:8080
-```
-
-**Accessing from other computers on your network:**
-
-Replace `localhost` with the computer's IP address:
-```
-http://192.168.1.100:8080
-```
-
-Make sure your firewall allows:
-- Port **8080** (web interface)
-- Port **3000** (backend API - used by the web interface)
-
-**Default Login:**
-- Email: `admin@example.com`
-- Password: `password` (or the password you set in Step 2)
-
-**Important:** The password from `.env` is only used to create the initial admin account. Once you change your password in the app, it's stored in the database and `.env` is no longer used.
+> For build-from-source / developer setup, see the [Developer Information](#developer-information) section.
 
 ### Updating DataForeman
 
@@ -222,13 +122,16 @@ cd "C:\Program Files\DataForeman"
 
 #### Linux Update
 
-**Step 1: Find the Latest Version**
+**Pre-built image install** (used [Quick Start Guide](QUICK-START.md)):
 
-Visit https://github.com/orionK-max/DataForeman/releases and find the latest release version (for example: `vX.X.X`)
+```bash
+docker compose pull
+docker compose up -d
+```
 
-**Step 2: Update DataForeman**
+Wait 1-2 minutes, then access DataForeman at http://localhost:8080.
 
-Open a terminal in DataForeman folder and run these commands one at a time:
+**Git-based / developer install:**
 
 ```bash
 # Stop the running stack
@@ -242,10 +145,6 @@ git checkout vX.X.X
 docker compose pull
 docker compose up -d
 ```
-
-**Step 3: Wait and Access**
-
-Wait about 1-2 minutes for the update to complete, then access DataForeman at http://localhost:8080
 
 **Important Notes:**
 - ✅ Your databases and configurations are safely preserved during the update

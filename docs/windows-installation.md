@@ -110,36 +110,7 @@ DataForeman requires Docker Desktop to run its containerized services.
 
 **Note:** If you encounter any issues after installation, please refer to the [Troubleshooting](#troubleshooting) section below.
 
-### Method 2: Manual Installation (Advanced Users)
-
-1. **Clone the Repository**
-   ```powershell
-   git clone https://github.com/orionK-max/DataForeman.git
-   cd DataForeman
-   ```
-
-2. **Checkout Specific Version**
-   ```powershell
-   git checkout v1.0.0  # Replace with desired version
-   ```
-
-3. **Create Environment File**
-   ```powershell
-   Copy-Item .env.example .env
-   ```
-
-4. **Edit Configuration** (Optional)
-   ```powershell
-   notepad .env
-   ```
-   Update passwords and settings as needed.
-
-5. **Start DataForeman**
-   ```powershell
-   .\windows-installer\start-dataforeman.bat
-   ```
-
-**Note:** If you experience any issues after manual installation, check the [Troubleshooting](#troubleshooting) section below.
+> **Developers / Build-from-Source:** If you need to build from source, clone the repository and see the Developer Information section in [README.md](../README.md).
 
 ---
 
@@ -234,23 +205,6 @@ You should see:
 4. **Verify Update**
    - Open http://localhost:8080
    - Check the version in the footer or about page
-
-### Manual Update Using Git
-
-For advanced users:
-
-```powershell
-# Stop services
-docker compose down
-
-# Update code
-git fetch --tags
-git checkout v1.2.0
-
-# Rebuild and start
-docker compose build
-docker compose up -d
-```
 
 ### What Gets Preserved During Updates
 
@@ -586,7 +540,9 @@ docker compose logs tsdb
 ```powershell
 cd "C:\Program Files\DataForeman"
 docker compose down
-git checkout v1.0.0  # Replace with previous working version
+# Download the previous version's docker-compose.yml
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/orionK-max/DataForeman/vX.X.X/docker-compose.yml" -OutFile "docker-compose.yml"
+docker compose pull
 docker compose up -d
 ```
 

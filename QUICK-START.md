@@ -36,15 +36,19 @@ chmod +x start.sh
 
 **What this does:** Creates a `dataforeman` folder with the files needed to run DataForeman. No GitHub account needed.
 
-### Step 3: Configure your password (optional)
+### Step 3: Configure your credentials (optional)
 
-Open `.env` in a text editor and change `ADMIN_PASSWORD=password` to something secure. All other defaults work out of the box.
+Open `.env` in a text editor and change `ADMIN_PASSWORD=password` to something secure and `ADMIN_EMAIL=admin@example.com` to your preferred email. All other defaults work out of the box.
 
 ```bash
 nano .env
 ```
 
 Press `Ctrl+X`, then `Y`, then `Enter` to save.
+
+If you skip this step, the default login credentials will be:
+- **Email:** `admin@example.com`
+- **Password:** `password`
 
 ### Step 4: Start DataForeman
 
