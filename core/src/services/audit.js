@@ -2,7 +2,7 @@ import fp from 'fastify-plugin';
 
 export const auditPlugin = fp(async (app) => {
   app.decorate('audit', async (event, { actor, meta } = {}) => {
-    app.log.info({ event, actor, meta }, 'audit');
+    app.log.debug({ event, actor, meta }, 'audit');
     try {
       if (app.db) {
         await app.db.query('insert into audit_log(event, actor, meta) values ($1,$2,$3)', [

@@ -55,7 +55,7 @@ export class DebugLogNode extends BaseNode {
         },
         {
           type: 'subtitle',
-          text: 'Info Level'
+          text: 'Debug Level'
         }
       ],
       handles: {
@@ -185,8 +185,7 @@ export class DebugLogNode extends BaseNode {
     if (inputData === null || inputData === undefined) {
       const formattedMessage = messageTemplate.replace(/\{\{value\}\}/g, 'null');
       
-      // Always log at info level
-      context.logInfo(formattedMessage);
+      context.logDebug(formattedMessage);
       
       return { value: null, quality: 64 }; // Bad quality
     }
@@ -202,8 +201,7 @@ export class DebugLogNode extends BaseNode {
       : String(value);
     const formattedMessage = messageTemplate.replace(/\{\{value\}\}/g, displayValue);
     
-    // Always log at info level
-    context.logInfo(formattedMessage);
+    context.logDebug(formattedMessage);
     
     // Pass through the value unchanged
     return {

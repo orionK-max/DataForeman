@@ -142,7 +142,7 @@ export async function diagRoutes(app) {
         clearTimeout(to);
         if (res.ok) {
           let data = null; try { data = await res.json(); } catch {}
-          app.log.info({ connectivityHealthData: data, url }, 'connectivity health response');
+          app.log.debug({ connectivityHealthData: data, url }, 'connectivity health response');
           connectivity = { ok: true, via: 'http', nats: !!data?.nats, connections: Number(data?.connections ?? 0) };
           break;
         }
@@ -244,7 +244,7 @@ export async function diagRoutes(app) {
       coreIngestion,
       rotator,
     };
-    app.log.info({ diagnosticSummary: response }, 'diag summary response');
+    app.log.debug({ diagnosticSummary: response }, 'diag summary response');
     return response;
   });
 

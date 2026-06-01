@@ -264,7 +264,7 @@ export class MQTTDriver {
   async handleMessage(topic, message, packet) {
     this.messageCount++;
     
-    this.log.info({ topic, size: message.length, connectionId: this.connectionId }, 'Received MQTT message');
+    this.log.debug({ topic, size: message.length, connectionId: this.connectionId }, 'Received MQTT message');
     
     try {
       // Store message in buffer for field analysis (async, don't wait)

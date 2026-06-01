@@ -1093,7 +1093,7 @@ async function main() {
           continue;
         }
         await entry.driver.publish(topic, payload, { qos: qos ?? 0, retain: retain ?? false });
-        log.info({ connection_id, topic }, 'MQTT publish: delivered via driver');
+        log.debug({ connection_id, topic }, 'MQTT publish: delivered via driver');
       } catch (err) {
         log.error({ err: String(err?.message || err) }, 'MQTT publish: delivery failed');
       }

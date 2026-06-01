@@ -236,6 +236,6 @@ export class MqttPublisherService {
       qos: qos ?? 0,
       retain: retain ?? false,
     });
-    this.app.log.info({ topic, connectionId, payloadLength: String(payload).length }, 'MQTT publish: routed via NATS');
+    this.app.log.debug({ topic, connectionId, payloadLength: String(payload).length }, 'MQTT publish: routed via NATS');
   }
 }

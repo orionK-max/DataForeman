@@ -497,7 +497,7 @@ export async function executeFlow(context) {
   let logBuffer = null;
   
   try {
-    log.info('Starting flow execution');
+    log.debug('Starting flow execution');
     
     // Get flow from database
     const flowResult = await app.db.query(
@@ -598,7 +598,7 @@ export async function executeFlow(context) {
     log.info({ 
       executionId: execution.id,
       hasParameters: Object.keys(runtimeParameters).length > 0
-    }, 'Execution record created');
+    }, 'Execution record created'); // debug: per-execution
     
     // Create log buffer for persistent logging if enabled
     logBuffer = null;
@@ -692,7 +692,7 @@ export async function executeFlow(context) {
       }
       
       // Important: do NOT log raw output/value here, it can contain full file contents.
-      log.info(
+      log.debug(
         {
           nodeId,
           nodeType: node.type,
@@ -758,7 +758,7 @@ export async function executeFlow(context) {
     );
     
     // Avoid logging full outputs (may include large payloads like file contents).
-    log.info(
+    log.debug(
       {
         executionId: execution.id,
         nodeCount: Object.keys(outputs).length
@@ -768,7 +768,7 @@ export async function executeFlow(context) {
     
     // Publish execution completion event via NATS for real-time notifications
     const natsSubject = `flow.${flowId}.execution.complete`;
-    log.info({ subject: natsSubject, executionId: execution.id }, 'Publishing NATS event');
+    log.debug({ subject: natsSubject, executionId: execution.id }, 'Publishing NATS event');
     try {
       await app.nats.publish(natsSubject, {
         executionId: execution.id,
@@ -776,7 +776,7 @@ export async function executeFlow(context) {
         outputs,
         timestamp: new Date().toISOString()
       });
-      log.info({ subject: natsSubject }, 'NATS event published successfully');
+      log.debug({ subject: natsSubject }, 'NATS event published successfully');
     } catch (err) {
       log.warn({ err }, 'Failed to publish execution completion event');
     }

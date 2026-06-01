@@ -70,7 +70,7 @@ function msUntilNextBoundary() {
 
 function runRotationNow() {
   try {
-    child_process.execSync('node /app/ops/rotate-logs.js', { stdio: 'ignore' });
+    child_process.execSync('node /app/rotate-logs.js', { stdio: 'ignore' });
     appendRotateEvent(true);
   } catch (e) {
     appendRotateEvent(false, e?.message || 'error');
