@@ -662,15 +662,21 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange, isL
         <Divider sx={{ my: 2 }} />
       )}
       
-      {/* Dynamic Input Count Control */}
-      {(() => {
+      {/* Dynamic Input Count Control — only on the last section to avoid duplication */}
+      {isLast && (() => {
         const inputConfig = getInputConfig(metadata, nodeData);
         if (!inputConfig) return null;
         
         const parsed = parseInputConfig(inputConfig, nodeData);
         if (!parsed.canAdd && !parsed.canRemove) return null;
-        
-        const currentCount = nodeData?.inputCount || parsed.default || 2;
+
+        // Hybrid nodes (fixed definitions + dynamic section) track the dynamic
+        // input count separately so the fixed inputs (e.g. Trigger) are unaffected.
+        const isHybrid = Boolean(parsed.dynamic);
+        const countKey = isHybrid ? 'dynamicInputCount' : 'inputCount';
+        const currentCount = isHybrid
+          ? (nodeData?.dynamicInputCount ?? parsed.default ?? 0)
+          : (nodeData?.inputCount ?? parsed.default ?? 2);
         const canDecrease = parsed.canRemove && currentCount > parsed.min;
         const canIncrease = parsed.canAdd && currentCount < parsed.max;
         
@@ -687,7 +693,7 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange, isL
                 fontWeight: 600 
               }}
             >
-              Inputs
+              {isHybrid ? 'Value Inputs' : 'Inputs'}
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Button
@@ -695,7 +701,7 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange, isL
                 variant="outlined"
                 onClick={() => {
                   if (canDecrease) {
-                    onChange({ inputCount: currentCount - 1 });
+                    onChange({ [countKey]: currentCount - 1 });
                   }
                 }}
                 disabled={!canDecrease}
@@ -705,7 +711,7 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange, isL
               </Button>
               
               <Typography variant="body2" sx={{ minWidth: 80, textAlign: 'center', fontWeight: 500 }}>
-                {currentCount} inputs
+                {currentCount} {isHybrid ? 'values' : 'inputs'}
               </Typography>
               
               <Button
@@ -713,7 +719,7 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange, isL
                 variant="outlined"
                 onClick={() => {
                   if (canIncrease) {
-                    onChange({ inputCount: currentCount + 1 });
+                    onChange({ [countKey]: currentCount + 1 });
                   }
                 }}
                 disabled={!canIncrease}
