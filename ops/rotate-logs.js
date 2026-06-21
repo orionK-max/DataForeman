@@ -55,9 +55,10 @@ function copyTruncate(file) {
 // Rotate by copying current content to a dated file, then truncating the original.
 // The process keeps its file descriptor open on the same inode — no restart needed.
 // Appends to the dated file in case rotation runs more than once in the same period.
-function rotateCopyTruncate(dir, baseName) {
+// filename: override the source file name (default: `${baseName}.current`).
+function rotateCopyTruncate(dir, baseName, filename) {
   const label = getPeriodLabel();
-  const current = path.join(dir, `${baseName}.current`);
+  const current = path.join(dir, filename || `${baseName}.current`);
   const dated = path.join(dir, `${baseName}-${label}.log`);
   ensureDir(dir);
   if (!fs.existsSync(current)) {
@@ -76,43 +77,104 @@ function rotateCopyTruncate(dir, baseName) {
   return { current, dated };
 }
 
-function signal(container, signal) {
-  try { child_process.execSync(`docker compose exec -T ${container} sh -lc 'kill -s ${signal} 1 || true'`, { stdio: 'ignore' }); } catch {}
+// Uses docker exec with the default compose container naming (dataforeman-{service}-1).
+// Requires docker-cli in this container (ops/Dockerfile: apk add docker-cli).
+function signal(container, sig) {
+  const name = `dataforeman-${container}-1`;
+  try { child_process.execSync(`docker exec ${name} sh -c 'kill -s ${sig} 1 || true'`, { stdio: 'ignore' }); } catch {}
 }
 
-function signalNodeByPattern(container, signal, pattern) {
-  const cmd = `docker compose exec -T ${container} sh -lc "(pkill -${signal} -f '${pattern}' || killall -s ${signal} node || true)"`;
+function signalNodeByPattern(container, sig, pattern) {
+  const name = `dataforeman-${container}-1`;
+  const cmd = `docker exec ${name} sh -c "(pkill -${sig} -f '${pattern}' || true)"`;
   try { child_process.execSync(cmd, { stdio: 'ignore' }); } catch {}
 }
 
 function main() {
   const base = resolveBase();
-  // Symlink rotation (process reopens file on SIGHUP/USR1):
+
+  // --- Symlink rotation + SIGHUP (process re-opens the symlink path on signal) ---
+  // Only for services whose Node process calls fileDest.reopen() on SIGHUP (pino).
   const symlinkMap = [
-    { dir: path.join(base, 'core'), name: 'core' },
-    { dir: path.join(base, 'front'), name: 'access' },
-    { dir: path.join(base, 'front'), name: 'error' },
-    { dir: path.join(base, 'ops'), name: 'ops' },
-    { dir: path.join(base, 'connectivity'), name: 'connectivity' },
-    { dir: path.join(base, 'ingestor'), name: 'ingestor' },
+    { dir: path.join(base, 'core'),      name: 'core' },
+    { dir: path.join(base, 'ops'),       name: 'ops' },
+    { dir: path.join(base, 'ingestor'),  name: 'ingestor' },
   ];
   for (const m of symlinkMap) rotateSymlink(m.dir, m.name);
 
-  // Copy-truncate rotation (process keeps fd open, no restart needed):
-  rotateCopyTruncate(path.join(base, 'nats'), 'nats');
+  // --- Copy-truncate (process keeps fd open with O_APPEND; truncate-in-place is safe) ---
+  // nats/broker: already copy-truncate (no signal possible)
+  rotateCopyTruncate(path.join(base, 'nats'),   'nats');
   rotateCopyTruncate(path.join(base, 'broker'), 'broker');
 
-  // Signal processes to reopen:
-  // Core: signal node process (not PID 1 shell) so pino can reopen
-  signalNodeByPattern('core', 'HUP', 'node .*src/server.js');
-  // Nginx (web) supports USR1 for reopen
-  signal('web', 'USR1');
-  // Connectivity: signal node process so pino can reopen
-  signalNodeByPattern('connectivity', 'HUP', 'node .*index-.*.mjs');
-  // Ingestor: signal node process to reopen
-  // Updated to reflect renamed simple-ingestor -> ingestor; keep simple-ingestor for backward compat during transition
+  // front/nginx: writes directly to access.log / error.log (not *.current symlinks).
+  // nginx uses O_APPEND so truncating in-place is safe; no signal needed.
+  rotateCopyTruncate(path.join(base, 'front'), 'access', 'access.log');
+  rotateCopyTruncate(path.join(base, 'front'), 'error',  'error.log');
+
+  // connectivity: logs via `tee -a connectivity.current`.
+  // tee opened the symlink target at container start and ignores SIGHUP.
+  // Strategy: use docker exec to find tee's actual open FD path inside the
+  // container, copy+truncate that real file, then re-point the symlink and
+  // restart connectivity so the new tee process opens today's dated file.
+  rotateConnectivity(path.join(base, 'connectivity'));
+
+  // --- Signal processes to reopen their log file (symlink now points to new dated file) ---
+  // Core: pino listens for SIGHUP and calls fileDest.reopen()
+  signalNodeByPattern('core',     'HUP', 'node .*src/server.js');
+  // Ingestor: pino SIGHUP reopen
   signalNodeByPattern('ingestor', 'HUP', 'node .*src/(index|simple-ingestor|ingestor)\.mjs');
-  // Ops logs are appended by short-lived processes; nothing to signal
+  // Ops logs are written by short-lived processes; nothing to signal.
+}
+
+// Rotate connectivity logs.
+// tee opens connectivity.current at container start and holds that FD forever.
+// We ask docker exec to read tee's /proc fd symlink to find the real file path,
+// copy+truncate it in place, then restart the container so the new tee process
+// opens today's dated file via the freshly re-pointed symlink.
+function rotateConnectivity(dir) {
+  const label = getPeriodLabel();
+  const dated = path.join(dir, `connectivity-${label}.log`);
+  ensureDir(dir);
+
+  // Step 1 — re-point the symlink so the restarted container opens today's file.
+  rotateSymlink(dir, 'connectivity');
+
+  // Step 2 — find the actual file tee has open inside the container.
+  let realLogPath = null; // absolute path on the HOST
+  try {
+    // /proc/$(pgrep tee)/fd/1 inside the container resolves to the log file
+    const out = child_process.execSync(
+      `docker exec dataforeman-connectivity-1 sh -c ` +
+      `'readlink /proc/$(pgrep -x tee | head -1)/fd/1 2>/dev/null'`,
+      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
+    ).trim();
+    // out is a container-internal path like /var/log/connectivity/connectivity-2026-06-01.log
+    // Map to host path by stripping the /var/log/connectivity prefix and using our dir.
+    if (out) {
+      const basename = path.basename(out);
+      realLogPath = path.join(dir, basename);
+    }
+  } catch {}
+
+  // Step 3 — copy current content to dated archive, then truncate in place.
+  if (realLogPath && fs.existsSync(realLogPath)) {
+    try {
+      const st = fs.statSync(realLogPath);
+      if (st.size > 0) {
+        const content = fs.readFileSync(realLogPath);
+        fs.appendFileSync(dated, content);
+        try { fs.chmodSync(dated, 0o666); } catch {}
+      }
+      fs.truncateSync(realLogPath, 0);
+    } catch {}
+  }
+
+  // Step 4 — restart connectivity so tee re-opens via the new symlink.
+  // The service has restart: unless-stopped so it comes back automatically.
+  try {
+    child_process.execSync('docker restart dataforeman-connectivity-1', { stdio: 'ignore' });
+  } catch {}
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();
