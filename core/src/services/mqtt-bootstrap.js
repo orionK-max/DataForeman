@@ -29,6 +29,14 @@ export async function ensureInternalMqttConnection(app) {
     
     if (existing.rows.length > 0) {
       app.log.info({ connection_id: existing.rows[0].id }, 'Internal MQTT connection already exists');
+      // NanoMQ 0.24.14+ rejects connections with NULL username/password at the parser level
+      // before calling the HTTP auth endpoint, so ensure credentials are set.
+      // The auth endpoint allows dataforeman-internal-* client IDs regardless of credential value.
+      await db.query(
+        `UPDATE mqtt_connections SET username = 'dataforeman-system', password = 'dataforeman-system-internal'
+         WHERE connection_id = $1 AND (username IS NULL OR password IS NULL)`,
+        [existing.rows[0].id]
+      );
       return;
     }
     
@@ -56,15 +64,19 @@ export async function ensureInternalMqttConnection(app) {
         broker_port,
         protocol,
         use_tls,
+        username,
+        password,
         client_id_prefix,
         is_system
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         connectionId,
         'broker',
         1883,
         'mqtt',
         false,
+        'dataforeman-system',
+        'dataforeman-system-internal',
         'dataforeman-internal',
         true
       ]
