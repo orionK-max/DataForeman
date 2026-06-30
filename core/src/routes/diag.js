@@ -211,7 +211,7 @@ export async function diagRoutes(app) {
       const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
       const ac = new AbortController();
       const to = setTimeout(() => ac.abort(), 1500);
-      const res = await fetch(`${nanoMqUrl}/api/v4/clients?page=1&limit=1`, {
+      const res = await fetch(`${nanoMqUrl}/api/v4/brokers`, {
         signal: ac.signal,
         headers: {
           'Authorization': 'Basic ' + Buffer.from(`${process.env.MQTT_BROKER_HTTP_USER || 'nmqadmin'}:${process.env.MQTT_BROKER_HTTP_PASSWORD || 'nMQ_Adm1n_Ch4ng3_M3_N0w_3f7a9b2c'}`).toString('base64'),

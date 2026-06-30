@@ -147,6 +147,12 @@ export default async function mqttRoutes(app) {
       // Anonymous mode - allow all connections
       if (!requireAuth) {
         log.info({ clientid, username, mode: 'anonymous' }, 'MQTT auth allowed (anonymous mode)');
+        // Update last_seen for already-registered devices (fire-and-forget, no blocking).
+        // This replaces the removed on_client_connected webhook which had an NNG FD leak.
+        if (clientid && !clientid.startsWith('dataforeman-internal-')) {
+          db.query('UPDATE mqtt_devices SET last_seen = NOW() WHERE client_id = $1', [clientid])
+            .catch(err => log.warn({ err, clientid }, 'Failed to update device last_seen (anonymous mode)'));
+        }
         return reply.send({ 
           result: 'allow',
           is_superuser: false

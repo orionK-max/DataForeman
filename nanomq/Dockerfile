@@ -1,4 +1,4 @@
-FROM emqx/nanomq:0.22.4-full
+FROM emqx/nanomq:0.24.14-full
 
 # Create directories for config and logs
 RUN mkdir -p /etc/nanomq /var/log/broker
