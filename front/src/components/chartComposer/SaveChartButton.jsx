@@ -124,6 +124,7 @@ const SaveChartButton = () => {
             offset: axis.offset ?? 0,
             nameLocation: axis.nameLocation || 'inside',
             nameGap: axis.nameGap ?? 25,
+            ...(axis.gridLine ? { gridLine: axis.gridLine } : {}),
           })),
           // Reference lines
           referenceLines: (chartConfig.referenceLines || []).map(line => ({
@@ -139,9 +140,11 @@ const SaveChartButton = () => {
           grid: {
             color: chartConfig.grid?.color || '#cccccc',
             opacity: chartConfig.grid?.opacity != null ? chartConfig.grid.opacity : 0.3,
-            thickness: chartConfig.grid?.thickness || 1,
+            thickness: chartConfig.grid?.thickness != null ? chartConfig.grid.thickness : 1,
             dash: chartConfig.grid?.dash || 'solid',
           },
+          // X-axis (time) vertical grid line style override (falls back to `grid` when absent)
+          ...(chartConfig.xAxisGrid ? { xAxisGrid: chartConfig.xAxisGrid } : {}),
           // Background settings
           background: {
             color: chartConfig.background?.color || '#ffffff',
@@ -156,7 +159,7 @@ const SaveChartButton = () => {
           // Extension config namespaces (e.g. forecast, custom plugins) — pass through as-is
           ...Object.fromEntries(
             Object.entries(chartConfig).filter(([k, v]) =>
-              !['tagConfigs', 'axes', 'referenceLines', 'grid', 'background', 'display', 'interpolation', 'xAxisTickCount', 'extendCurveEdges'].includes(k) &&
+              !['tagConfigs', 'axes', 'referenceLines', 'grid', 'background', 'display', 'interpolation', 'xAxisTickCount', 'xAxisGrid', 'extendCurveEdges'].includes(k) &&
               v !== null && typeof v === 'object' && !Array.isArray(v)
             )
           ),
