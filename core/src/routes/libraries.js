@@ -19,6 +19,11 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const COMPOSE_FILE = process.env.COMPOSE_PROJECT_FILE || path.join(PROJECT_ROOT, 'docker-compose.yml');
 const COMPOSE_PROJECT_NAME = process.env.COMPOSE_PROJECT_NAME || 'dataforeman';
 const EXTENSIONS_ENV_FILE = path.join(PROJECT_ROOT, 'var', 'extensions.env');
+// Main stack .env (DB credentials, ports, etc.). Must be passed alongside
+// EXTENSIONS_ENV_FILE — a lone --env-file replaces (not merges with) Compose's
+// default .env lookup, which would blank out vars like PGPASSWORD for every
+// service and cause Compose to think shared services (db, nats) need recreating.
+const ROOT_ENV_FILE = path.join(PROJECT_ROOT, '.env');
 
 async function readExtensionsEnv() {
   try {
@@ -117,12 +122,17 @@ async function manageExtensionService(profile, serviceName, action = 'up') {
     throw new Error('Neither "docker compose" nor "docker-compose" is available');
   }
 
-  const envFileArg = `--env-file ${EXTENSIONS_ENV_FILE}`;
+  // Order matters: later --env-file values win on key conflicts, so load the main
+  // stack .env first and let extensions.env only add/override extension-specific keys.
+  const envFileArg = `--env-file ${ROOT_ENV_FILE} --env-file ${EXTENSIONS_ENV_FILE}`;
 
   let cmd;
   if (action === 'up') {
-    const pullCmd = `${composeCmd} --env-file ${EXTENSIONS_ENV_FILE} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} pull ${serviceName}`;
-    const upCmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --force-recreate ${serviceName}`;
+    const pullCmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} pull ${serviceName}`;
+    // --no-deps: this only manages the extension's own sidecar container — shared
+    // services like db/nats are already running under the main stack and must not
+    // be touched (recreating them here previously caused a full outage).
+    const upCmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --no-deps --force-recreate ${serviceName}`;
     const pullResult = await execAsync(pullCmd);
     const upResult = await execAsync(upCmd);
     return {

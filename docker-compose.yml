@@ -168,6 +168,7 @@ services:
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./.env:/app/.env:ro
 
   connectivity:
     image: ghcr.io/orionk-max/dataforeman-connectivity:latest
