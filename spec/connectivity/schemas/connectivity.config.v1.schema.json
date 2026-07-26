@@ -14,7 +14,11 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "name": { "type": "string" },
-        "type": { "type": "string", "enum": ["opcua-client", "opcua-server", "s7", "eip", "mqtt"] },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Built-in (opcua-client, opcua-server, s7, eip, mqtt) or an installable driver type registered in connectivity_driver_types. Not enumerated here since installable driver types are dynamic; core validates conn.type against the built-in list unioned with enabled connectivity_driver_types rows before publishing."
+        },
         "enabled": { "type": "boolean" },
         "endpoint": { "type": "string" },
         "host": { "type": "string" },

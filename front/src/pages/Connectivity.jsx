@@ -37,6 +37,8 @@ import ConnectionBrowser from '../components/connectivity/ConnectionBrowser';
 import FolderTree from '../components/folders/FolderTree';
 import MqttManager from '../components/connectivity/MqttManager';
 import MqttTagConfiguration from '../components/connectivity/MqttTagConfiguration';
+import InstallableDriverForm from '../components/connectivity/InstallableDriverForm';
+import PluginRegistry from '../utils/PluginRegistry';
 
 // Tab panel component
 function TabPanel({ children, value, index, ...other }) {
@@ -68,6 +70,19 @@ const Connectivity = () => {
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Installable connectivity drivers (installable-drivers framework, Phase 0):
+  // one connection-form entry per installed "connectivity-driver-form" extension.
+  const [driverForms, setDriverForms] = useState(PluginRegistry.getConnectivityDriverForms());
+  const [showDriverForm, setShowDriverForm] = useState({}); // driverType -> bool
+  const [editingDriverConnection, setEditingDriverConnection] = useState({}); // driverType -> conn|null
+
+  useEffect(() => {
+    const unsubscribe = PluginRegistry.subscribe(() => {
+      setDriverForms(PluginRegistry.getConnectivityDriverForms());
+    });
+    return unsubscribe;
+  }, []);
   
   // Status data with auto-refresh
   const [status, setStatus] = useState([]);
@@ -277,12 +292,14 @@ const Connectivity = () => {
     .filter((c) => !c.is_system_connection)
     .filter((c) => c?.type === 'mqtt');
   // Virtual “driver folders” for Connectivity
+  const installedDriverFolders = driverForms.map((df) => ({ id: df.driverType, name: df.label, children: [] }));
   const driverFolders = (section === 'tags')
     ? [
         { id: 'opcua', name: 'OPC UA', children: [] },
         { id: 's7', name: 'Siemens S7', children: [] },
         { id: 'eip', name: 'EtherNet/IP', children: [] },
         { id: 'mqtt', name: 'MQTT', children: [] },
+        ...installedDriverFolders,
         { id: 'internal', name: 'Internal', children: [] },
       ]
     : [
@@ -290,6 +307,7 @@ const Connectivity = () => {
         { id: 's7', name: 'Siemens S7', children: [] },
         { id: 'eip', name: 'EtherNet/IP', children: [] },
         { id: 'mqtt', name: 'MQTT', children: [] },
+        ...installedDriverFolders,
       ];
   
   if (loading) {
@@ -549,6 +567,57 @@ const Connectivity = () => {
               <TabPanel value={protocolTab} index="mqtt">
                 <MqttManager />
               </TabPanel>
+
+              {/* Installable driver tabs (installable-drivers framework, Phase 0) */}
+              {driverForms.map((df) => (
+                <TabPanel value={protocolTab} index={df.driverType} key={df.driverType}>
+                  <Box sx={{ mb: 3 }}>
+                    {can('connectivity.devices', 'create') && (
+                      <Button
+                        variant="contained"
+                        startIcon={<AddIcon />}
+                        onClick={() => {
+                          setEditingDriverConnection((prev) => ({ ...prev, [df.driverType]: null }));
+                          setShowDriverForm((prev) => ({ ...prev, [df.driverType]: !prev[df.driverType] }));
+                        }}
+                        sx={{ mb: showDriverForm[df.driverType] ? 2 : 0 }}
+                      >
+                        {showDriverForm[df.driverType] ? 'Hide Form' : 'Setup New Connection'}
+                      </Button>
+                    )}
+
+                    {showDriverForm[df.driverType] && (
+                      <Box sx={{ mt: 2 }}>
+                        <InstallableDriverForm
+                          driverType={df.driverType}
+                          formComponentUrl={df.formComponentUrl}
+                          initialConnection={editingDriverConnection[df.driverType]}
+                          onSave={(result) => {
+                            handleConnectionSaved(result);
+                            setShowDriverForm((prev) => ({ ...prev, [df.driverType]: false }));
+                            setEditingDriverConnection((prev) => ({ ...prev, [df.driverType]: null }));
+                          }}
+                          onTest={handleConnectionTested}
+                        />
+                      </Box>
+                    )}
+                  </Box>
+
+                  <ConnectionBrowser
+                    driver={df.driverType}
+                    label={df.label}
+                    connections={savedConnections.filter((c) => !c.is_system_connection && c?.type === df.driverType)}
+                    statuses={status}
+                    onStart={handleStartConnection}
+                    onStop={handleStopConnection}
+                    onDelete={can('connectivity.devices', 'delete') ? handleDeleteConnection : null}
+                    onEdit={can('connectivity.devices', 'update') ? (conn) => {
+                      setEditingDriverConnection((prev) => ({ ...prev, [df.driverType]: conn }));
+                      setShowDriverForm((prev) => ({ ...prev, [df.driverType]: true }));
+                    } : null}
+                  />
+                </TabPanel>
+              ))}
             </Box>
           </Box>
       )}
@@ -664,6 +733,14 @@ const Connectivity = () => {
                 No MQTT connections configured. Go to the Devices tab to create a connection first.
               </Alert>
             )}
+
+            {/* Installable driver tags (installable-drivers framework, Phase 0) */}
+            {driverForms.map((df) => protocolTab === df.driverType && (
+              <Alert severity="info" key={df.driverType}>
+                Tag configuration for {df.label} is managed by the driver itself. Go to the Devices
+                tab to configure the connection; supported data points are exposed there.
+              </Alert>
+            ))}
           </Box>
         </Box>
       )}

@@ -435,6 +435,32 @@ class LibraryManagerClass {
       if (manifest.provides.nodeTypes && !Array.isArray(manifest.provides.nodeTypes)) {
         errors.push('provides.nodeTypes must be an array');
       }
+
+      // Installable connectivity driver (installable-drivers framework, Phase 0)
+      if (manifest.provides.connectivityDriver) {
+        const cd = manifest.provides.connectivityDriver;
+        const reservedTypes = ['opcua-client', 'opcua-server', 's7', 'eip', 'mqtt', 'system', 'internal'];
+        if (!cd.driverType || typeof cd.driverType !== 'string') {
+          errors.push('provides.connectivityDriver.driverType is required');
+        } else if (!/^[a-z0-9-]+$/.test(cd.driverType)) {
+          errors.push('provides.connectivityDriver.driverType must contain only lowercase letters, numbers, and hyphens');
+        } else if (reservedTypes.includes(cd.driverType)) {
+          errors.push(`provides.connectivityDriver.driverType "${cd.driverType}" is reserved for a built-in driver`);
+        }
+        if (!cd.rpcSubjectPrefix || typeof cd.rpcSubjectPrefix !== 'string') {
+          errors.push('provides.connectivityDriver.rpcSubjectPrefix is required');
+        }
+        if (cd.configSchema !== undefined && (typeof cd.configSchema !== 'object' || cd.configSchema === null || Array.isArray(cd.configSchema))) {
+          errors.push('provides.connectivityDriver.configSchema must be an object (JSON Schema)');
+        }
+        // A connectivityDriver extension must declare its sidecar service so the framework
+        // knows which requires.services[] entry to resolve the sidecar base URL from.
+        if (!cd.sidecarServiceName || typeof cd.sidecarServiceName !== 'string') {
+          errors.push('provides.connectivityDriver.sidecarServiceName is required');
+        } else if (!(manifest.requires?.services || []).some(svc => svc.name === cd.sidecarServiceName)) {
+          errors.push(`provides.connectivityDriver.sidecarServiceName "${cd.sidecarServiceName}" must match a requires.services[].name entry`);
+        }
+      }
     }
 
     // Validate uiExtensions entries
@@ -442,7 +468,7 @@ class LibraryManagerClass {
       if (!Array.isArray(manifest.uiExtensions)) {
         errors.push('uiExtensions must be an array');
       } else {
-        const validUiTypes = ['sidebar-item', 'route', 'chart-plugin'];
+        const validUiTypes = ['sidebar-item', 'route', 'chart-plugin', 'connectivity-driver-form'];
         manifest.uiExtensions.forEach((ext, i) => {
           if (!ext.type) {
             errors.push(`uiExtensions[${i}].type is required`);
@@ -458,6 +484,12 @@ class LibraryManagerClass {
             if (ext.configTabUrl && !ext.configTabLabel) {
               errors.push(`uiExtensions[${i}].configTabLabel is required when configTabUrl is set`);
             }
+          }
+
+          if (ext.type === 'connectivity-driver-form') {
+            if (!ext.driverType) errors.push(`uiExtensions[${i}].driverType is required for connectivity-driver-form`);
+            if (!ext.formComponentUrl) errors.push(`uiExtensions[${i}].formComponentUrl is required for connectivity-driver-form`);
+            if (!ext.label) errors.push(`uiExtensions[${i}].label is required for connectivity-driver-form`);
           }
         });
       }

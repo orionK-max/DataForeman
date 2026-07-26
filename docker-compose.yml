@@ -270,6 +270,31 @@ services:
     expose:
       - "8100"
 
+  # Tuya smart-device driver sidecar (installable-drivers framework, Phase 1 pilot).
+  # Off by default; enabled via the Library Manager when the "tuya" extension is installed.
+  tuya-driver:
+    image: ghcr.io/orionk-max/dataforeman-tuya-driver:${TUYA_DRIVER_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    profiles: ["tuya"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    environment:
+      NATS_URL: "${NATS_URL:-nats://nats:4222}"
+      PGHOST: "${PGHOST:-db}"
+      PGPORT: 5432
+      PGDATABASE: dataforeman
+      PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
+    depends_on:
+      - nats
+      - db
+    # Internal only — only connectivity needs to reach it.
+    expose:
+      - "8200"
+
 volumes:
   db-data:
   tsdb-data:

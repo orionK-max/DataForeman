@@ -41,3 +41,9 @@ services:
     build:
       context: ${FORECAST_SERVICE_CONTEXT:-./extensions/forecast/service}
       dockerfile: Dockerfile
+
+  tuya-driver:
+    image: ""
+    build:
+      context: ${TUYA_DRIVER_SERVICE_CONTEXT:-./extensions/tuya/service}
+      dockerfile: Dockerfile

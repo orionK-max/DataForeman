@@ -152,6 +152,39 @@ async function checkServiceHealth(healthUrl) {
   }
 }
 
+/**
+ * Sync the connectivity_driver_types registry row for an extension that declares
+ * provides.connectivityDriver (installable-drivers framework, Phase 0).
+ * No-op for extensions/libraries that don't declare a connectivity driver.
+ * Upserts on install/enable/update, flips enabled=false on disable.
+ * Deletion is handled automatically via ON DELETE CASCADE from node_libraries.
+ */
+async function syncConnectivityDriverType(db, libraryId, manifest, enabled) {
+  const cd = manifest?.provides?.connectivityDriver;
+  if (!cd) return;
+
+  const svc = (manifest.requires?.services || []).find(s => s.name === cd.sidecarServiceName);
+  if (!svc) return; // manifest failed validation elsewhere; nothing sane to store
+
+  let baseUrl;
+  try {
+    baseUrl = new URL(svc.healthUrl).origin;
+  } catch {
+    return; // malformed healthUrl — skip rather than store garbage
+  }
+
+  await db.query(
+    `INSERT INTO connectivity_driver_types
+       (driver_type, library_id, rpc_subject_prefix, sidecar_service_name, sidecar_health_url, sidecar_base_url, config_schema, enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (driver_type)
+     DO UPDATE SET library_id = $2, rpc_subject_prefix = $3, sidecar_service_name = $4,
+                   sidecar_health_url = $5, sidecar_base_url = $6, config_schema = $7,
+                   enabled = $8, updated_at = now()`,
+    [cd.driverType, libraryId, cd.rpcSubjectPrefix, cd.sidecarServiceName, svc.healthUrl, baseUrl, cd.configSchema || {}, enabled]
+  );
+}
+
 export default async function libraryRoutes(app) {
   const db = app.db;
 
@@ -458,6 +491,8 @@ export default async function libraryRoutes(app) {
             }
           }
 
+          try { await syncConnectivityDriverType(db, libraryId, manifest, true); } catch (err) { req.log.warn({ err, libraryId }, 'Failed to sync connectivity driver type'); }
+
           req.log.info({ libraryId, version: manifest.version }, 'Extension installed; restart required to activate routes');
           return reply.code(201).send({
             message: 'Extension installed. Restart the app to activate API routes and job workers.',
@@ -603,6 +638,8 @@ export default async function libraryRoutes(app) {
           'UPDATE node_libraries SET last_loaded_at = NOW() WHERE library_id = $1',
           [libraryId]
         );
+
+        try { await syncConnectivityDriverType(db, libraryId, metaRows?.[0]?.manifest, true); } catch (err) { req.log.warn({ err, libraryId }, 'Failed to sync connectivity driver type'); }
       } catch (err) {
         req.log.error({ err, libraryId }, 'Failed to hot-load library');
         return reply.code(500).send({ 
@@ -653,6 +690,8 @@ export default async function libraryRoutes(app) {
           [libraryId]
         );
         const manifest = metaRows?.[0]?.manifest;
+        try { await syncConnectivityDriverType(db, libraryId, manifest, false); } catch (err) { req.log.warn({ err, libraryId }, 'Failed to sync connectivity driver type'); }
+
         if (manifest?.type === 'extension') {
           return reply.send({
             message: 'Extension disabled. Restart core to fully unload it.',
@@ -786,6 +825,8 @@ export default async function libraryRoutes(app) {
            WHERE library_id = $4`,
           [manifest.name, manifest.version, manifest, libraryId]
         );
+
+        try { await syncConnectivityDriverType(db, libraryId, manifest, true); } catch (err) { req.log.warn({ err, libraryId }, 'Failed to sync connectivity driver type'); }
 
         // Extensions require a restart to re-register Fastify routes — skip hot-reload
         if (manifest.type === 'extension') {
@@ -933,6 +974,8 @@ export default async function libraryRoutes(app) {
 
       // Delete library files
       await db.query('DELETE FROM node_libraries WHERE library_id = $1', [libraryId]);
+      // Note: any connectivity_driver_types row for this extension is removed automatically
+      // via ON DELETE CASCADE (installable-drivers framework, Phase 0).
 
       // Delete from filesystem
       const libraryDir = path.join(__dirname, '../nodes/libraries', libraryId);

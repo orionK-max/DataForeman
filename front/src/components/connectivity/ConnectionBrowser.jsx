@@ -127,12 +127,13 @@ export default function ConnectionBrowser({
   onStop,
   onDelete,
   onEdit,
+  label: labelOverride,
 }) {
   const [displayMode, setDisplayMode] = useState('table'); // 'table' | 'card'
 
   const statusMap = useMemo(() => getConnectionStatusMap(statuses), [statuses]);
 
-  const label = DRIVER_LABELS[driver] || 'Connections';
+  const label = labelOverride || DRIVER_LABELS[driver] || 'Connections';
 
   const getStatus = (connId) => {
     const status = statusMap.get(connId);
