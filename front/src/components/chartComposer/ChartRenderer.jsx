@@ -406,8 +406,13 @@ const ChartRenderer = React.forwardRef(({
 
     // Helper: Fill gaps for write-on-change tags (updated 2025-10-23)
     // Persists last heartbeat and keeps it anchored at query start (left edge)
-    const fillWriteOnChangeGaps = (tagId, tagData) => {
+    // `interpolation` (updated 2026-07-25): for step-type series (used for bools/discrete
+    // values), the left-edge anchor must HOLD the previous value flat instead of linearly
+    // interpolating toward the first real point — linear interpolation of a 0/1 value
+    // produces a fractional "half up" plateau which is meaningless for step-rendered data.
+    const fillWriteOnChangeGaps = (tagId, tagData, interpolation) => {
       const meta = tagMetadata?.[tagId];
+      const isStepType = interpolation === 'step' || interpolation === 'stepBefore' || interpolation === 'stepAfter';
       
       if (!meta?.on_change_enabled) {
         // Not a write-on-change tag - anchor line to left/right edges of the chart window
@@ -430,9 +435,11 @@ const ChartRenderer = React.forwardRef(({
             const vPrev = Number(lvb.v);
             const [t0, v0] = result[0];
             const span = t0 - tPrev;
-            const edgeValue = span > 0
-              ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span) // interpolate
-              : v0;
+            const edgeValue = isStepType
+              ? vPrev // hold flat — step series should not show an interpolated in-between value
+              : (span > 0
+                ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span) // interpolate
+                : v0);
             result.unshift([queryStartTime, edgeValue]);           // visible anchor at left edge
             result.unshift([queryStartTime - edgeExt, edgeValue]); // ghost beyond left edge
           }
@@ -510,9 +517,11 @@ const ChartRenderer = React.forwardRef(({
             const vPrev = Number(lvb.v);
             const t0 = timestamps[0], v0 = tagData.get(t0);
             const span = t0 - tPrev;
-            const edgeValue = span > 0
-              ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span)
-              : v0;
+            const edgeValue = isStepType
+              ? vPrev // hold flat — step series should not show an interpolated in-between value
+              : (span > 0
+                ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span)
+                : v0);
             result.push([queryStartTime - edgeExt, edgeValue]); // ghost
             result.push([queryStartTime, edgeValue]);            // visible anchor
           }
@@ -555,7 +564,7 @@ const ChartRenderer = React.forwardRef(({
         const tagData = tagDataMap.get(tagId) || new Map();
         
         // Apply write-on-change gap filling
-        const values = fillWriteOnChangeGaps(tagId, tagData);
+        const values = fillWriteOnChangeGaps(tagId, tagData, tagConfig.interpolation);
         
         // Get axis index for this tag
         const axisId = tagConfig.axisId || 'default';
