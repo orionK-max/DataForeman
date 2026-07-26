@@ -137,6 +137,7 @@ my-extension/
 | `type` | | `"node-library"` (default) or `"extension"` |
 | `requires.dataforemanVersion` | | Semver range, e.g. `">=0.7.0"` |
 | `requires.services[]` | | Docker sidecar services the extension needs |
+| `provides.connectivityDriver` | | Declares an installable connectivity driver (see [Connectivity Driver Extensions](#connectivity-driver-extensions)) |
 | `uiExtensions[]` | | Frontend extension points (see below) |
 
 ### `uiExtensions` Types
@@ -166,6 +167,81 @@ Adds an entry to the main left navigation.
 | `icon` | MUI icon name |
 | `feature` | Feature gate (e.g. `flows`) |
 | `componentUrl` | Path to page React component asset |
+
+#### `connectivity-driver-form`
+
+Adds a connection-config form for an installable connectivity driver — renders as
+a dynamic tab in the Connectivity page's Devices/Tags sections, alongside the
+built-in driver tabs (OPC UA, S7, EIP, MQTT).
+
+| Field | Notes |
+|-------|-------|
+| `driverType` | Must match `provides.connectivityDriver.driverType` in the same manifest |
+| `label` | Tab label shown in the Connectivity page |
+| `formComponentUrl` | Path to the connection-form React component asset (relative to library root) |
+
+> **Build-tool note:** `formComponentUrl` must be included in the extensions
+> build tool's `UI_ASSET_KEYS` list (`extensions/build-tool/build.js`) or the
+> asset silently gets dropped from the packaged zip. This was fixed for the
+> `tuya` extension — if you add another asset-URL field in the future, add it
+> there too.
+
+---
+
+## Connectivity Driver Extensions
+
+An extension can declare `provides.connectivityDriver` to add a new, **optional**
+connection type to the Connectivity page without any changes to `core` or
+`connectivity` source code. This is the "installable drivers" framework — see the
+`tuya` extension for a complete working example.
+
+```json
+{
+  "provides": {
+    "connectivityDriver": {
+      "driverType": "tuya",
+      "rpcSubjectPrefix": "df.connectivity.tuya",
+      "sidecarServiceName": "tuya-driver",
+      "configSchema": { "type": "object", "...": "..." }
+    }
+  },
+  "requires": {
+    "services": [
+      { "name": "tuya-driver", "profile": "tuya", "healthUrl": "http://tuya-driver:8200/health" }
+    ]
+  }
+}
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `driverType` | ✅ | Lowercase alphanumeric + hyphens; stored in `connections.type`. Cannot be one of the built-in types (`opcua-client`, `opcua-server`, `s7`, `eip`, `mqtt`, `system`, `internal`) |
+| `rpcSubjectPrefix` | ✅ | NATS subject prefix for the generic control/command route, e.g. `df.connectivity.tuya` |
+| `sidecarServiceName` | ✅ | Must match a `requires.services[].name` entry — the Docker Compose service implementing the driver |
+| `configSchema` | | JSON Schema describing the connection's config fields (reserved for future generic form validation) |
+
+### How it works
+
+1. **Sidecar container** implements the Driver Plugin Protocol over HTTP:
+   `POST /init`, `/start`, `/stop`, `/update-config`, `/rpc`, and `GET /health`.
+   It publishes telemetry directly to NATS (`df.telemetry.raw.<connectionId>`) —
+   it does **not** relay through the `connectivity` service.
+2. On install/enable, `core` writes a row to the `connectivity_driver_types`
+   table (`driver_type`, `rpc_subject_prefix`, `sidecar_base_url`, etc.).
+3. `connectivity`'s `DriverManager` polls that table (every 30s, plus on
+   startup) and routes any `conn.type` it finds there through a generic
+   `RemoteSidecarDriver` proxy — no static `if/else` entry needed per driver.
+4. Control/command calls go through one generic route,
+   `POST /api/connectivity/drivers/:id/rpc` (`{ method, params }`), forwarded
+   to the sidecar's `/rpc`. Built-in drivers keep their own dedicated routes
+   (e.g. `/api/connectivity/eip/tags/:id`) and are unaffected.
+5. Basic connection CRUD (`GET/POST /api/connectivity/connections`, `/config`,
+   `/status`, `/read`, `/write/:id`, `/browse/:id`) already works for any
+   `conn.type` — no new core routes are needed for those either.
+
+See `extensions/tuya/` for a full reference implementation (FastAPI + Python),
+and the main repo's `temp/installable-drivers-plan.md` for the original design
+discussion (not committed — ask in the repo for context if it's gone).
 
 ---
 
@@ -352,18 +428,21 @@ Extension frontend assets are cached aggressively in the browser. The system han
 
 ## Hot-Reload
 
-All library operations support hot-reload:
-
 | Operation | Hot-Reload |
 |-----------|-----------|
 | Install (node-library) | ✅ |
-| Install (extension) | ✅ |
-| Enable | ✅ |
-| Disable | ✅ |
-| Update | ✅ |
+| Install (extension) | ❌ — requires a `core` restart to register routes/job workers and to appear as `loaded: true` in `GET /api/flows/libraries` (which gates whether its `uiExtensions` show up in the frontend) |
+| Enable (node-library) | ✅ |
+| Enable (extension) | ❌ — same restart requirement as install |
+| Disable | ✅ (node-library); extension routes remain registered until restart, but `enabled: false` still stops it being surfaced/usable |
+| Update (node-library) | ✅ |
+| Update (extension) | ❌ — files are replaced and hot-*unloaded*, but not reloaded until restart |
 | Delete | ✅ |
 
-Running flows and data ingest are not disrupted.
+Running flows and data ingest are not disrupted by a restart. Sidecar Docker
+services declared via `requires.services[]` (§ Sidecar Docker Services) are
+started/stopped independently of the restart requirement above — that part is
+always immediate.
 
 ---
 
