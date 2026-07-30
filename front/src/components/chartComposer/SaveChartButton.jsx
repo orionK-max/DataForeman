@@ -135,6 +135,36 @@ const SaveChartButton = () => {
             lineStyle: line.lineStyle || 'solid',
             yAxisId: line.yAxisId || 'default',
           })),
+          // States & Events overlays (see temp/States and Events.md)
+          overlays: (chartConfig.overlays || []).map(overlay => ({
+            id: overlay.id,
+            name: overlay.name,
+            enabled: overlay.enabled !== false,
+            type: overlay.type,
+            sourceTagId: overlay.sourceTagId,
+            showInLegend: overlay.showInLegend !== false,
+            color: overlay.color || '#3b82f6',
+            opacity: overlay.opacity ?? 0.25,
+            verticalPosition: overlay.verticalPosition ?? 0,
+            displayPreset: overlay.displayPreset,
+            border: overlay.border,
+            label: overlay.label,
+            // state-only
+            ...(overlay.type === 'state' ? {
+              activeValue: overlay.activeValue,
+              valueMap: overlay.valueMap,
+              height: overlay.height ?? 100,
+              unknownStyle: overlay.unknownStyle,
+            } : {}),
+            // event-only
+            ...(overlay.type === 'event' ? {
+              trigger: overlay.trigger,
+              triggerValue: overlay.triggerValue,
+              alignment: overlay.alignment || 'left',
+              widthPx: overlay.widthPx ?? 6,
+              heightPct: overlay.heightPct ?? 100,
+            } : {}),
+          })),
           // Grid settings
           grid: {
             color: chartConfig.grid?.color || '#cccccc',

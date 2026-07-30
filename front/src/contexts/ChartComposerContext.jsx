@@ -37,6 +37,7 @@ export const ChartComposerProvider = ({ children }) => {
     tagConfigs: [], // [{ tag_id, name, alias, color, thickness, strokeType, axisId, interpolation, hidden }]
     axes: [defaultAxis],
     referenceLines: [], // [{ id, value, label, color, lineWidth, lineStyle, yAxisId }]
+    overlays: [], // [{ id, name, type: 'state'|'event', sourceTagId, ... }] — see temp/States and Events.md
     grid: { color: '#cccccc', opacity: 0.3, thickness: 1, dash: 'solid' },
     background: { color: '#000000', opacity: 1 },
     display: { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
@@ -132,6 +133,47 @@ export const ChartComposerProvider = ({ children }) => {
         line.id === lineId ? { ...line, [field]: value } : line
       ),
     }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // States & Events overlays (see temp/States and Events.md) — mirrors referenceLines pattern.
+  const addOverlay = useCallback((overlay) => {
+    setChartConfig(prev => ({
+      ...prev,
+      overlays: [...(prev.overlays || []), overlay],
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const removeOverlay = useCallback((overlayId) => {
+    setChartConfig(prev => ({
+      ...prev,
+      overlays: (prev.overlays || []).filter(o => o.id !== overlayId),
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const updateOverlay = useCallback((overlayId, field, fieldValue) => {
+    setChartConfig(prev => ({
+      ...prev,
+      overlays: (prev.overlays || []).map(o =>
+        o.id === overlayId ? { ...o, [field]: fieldValue } : o
+      ),
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // Reorder only affects z-order (later overlay draws on top) — simple up/down swap, no drag-and-drop.
+  const moveOverlay = useCallback((overlayId, direction) => {
+    setChartConfig(prev => {
+      const list = [...(prev.overlays || [])];
+      const idx = list.findIndex(o => o.id === overlayId);
+      if (idx === -1) return prev;
+      const swapWith = direction === 'up' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= list.length) return prev;
+      [list[idx], list[swapWith]] = [list[swapWith], list[idx]];
+      return { ...prev, overlays: list };
+    });
     setHasUnsavedChanges(true);
   }, []);
 
@@ -431,6 +473,16 @@ export const ChartComposerProvider = ({ children }) => {
           }));
         }
         
+        // Update overlays if present (States & Events — see temp/States and Events.md).
+        // No axis-reference fixup needed: overlays reference a tag_id, not an axis, and a
+        // dangling sourceTagId is intentionally not hard-validated on load (see plan doc).
+        if (opts.overlays && Array.isArray(opts.overlays)) {
+          setChartConfig(prev => ({
+            ...prev,
+            overlays: opts.overlays,
+          }));
+        }
+        
         // Update grid settings if present and normalize dash pattern
         if (opts.grid) {
           const normalizedGrid = { ...opts.grid };
@@ -612,6 +664,7 @@ export const ChartComposerProvider = ({ children }) => {
       tagConfigs: [],
       axes: [defaultAxis],
       referenceLines: [],
+      overlays: [],
       grid: { color: '#cccccc', opacity: 0.3, thickness: 1, dash: 'solid' },
       background: { color: '#000000', opacity: 1 },
       display: { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
@@ -939,6 +992,10 @@ export const ChartComposerProvider = ({ children }) => {
     addReferenceLine,
     updateReferenceLine,
     removeReferenceLine,
+    addOverlay,
+    updateOverlay,
+    removeOverlay,
+    moveOverlay,
     updateGridConfig,
     updateBackgroundConfig,
     updateDisplayConfig,

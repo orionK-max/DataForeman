@@ -455,6 +455,7 @@ const ChartLoader = ({
       tagConfigs={mappedTagConfigs}
       axes={chartConfig.axes || []}
       referenceLines={chartConfig.referenceLines || []}
+      overlays={chartConfig.overlays || []}
       grid={chartConfig.grid}
       background={chartConfig.background || { color: 'transparent', opacity: 1 }}
       display={chartConfig.display}

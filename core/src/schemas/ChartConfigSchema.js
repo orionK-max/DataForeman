@@ -22,6 +22,7 @@ export const CHART_LIMITS = {
   MAX_REFERENCE_LINES: 10,
   MAX_CRITICAL_RANGES: 10,
   MAX_DERIVED_SERIES: 10,
+  MAX_OVERLAYS: 20,
   MAX_NAME_LENGTH: 120,
   MAX_OPTIONS_SIZE: 65536, // bytes
   MAX_ALIAS_LENGTH: 100,
@@ -52,6 +53,33 @@ export const INTERPOLATION_TYPES = ['linear', 'monotone', 'step', 'stepBefore', 
  * Valid stroke types
  */
 export const STROKE_TYPES = ['solid', 'dashed', 'dotted'];
+
+/**
+ * States & Events overlay types
+ */
+export const OVERLAY_TYPES = ['state', 'event'];
+
+/**
+ * State overlay display presets (no dedicated "lane" — see temp/States and Events.md)
+ */
+export const OVERLAY_STATE_PRESETS = ['fullBand', 'customBand'];
+
+/**
+ * Event overlay display presets
+ */
+export const OVERLAY_EVENT_PRESETS = ['fullHeight', 'bottomBar', 'customBar'];
+
+/**
+ * Event overlay trigger modes. risingEdge/fallingEdge/eitherEdge are bool-native;
+ * specificValue/everySample also work for int/real source tags (exact match only,
+ * no threshold/comparator support by design — see temp/States and Events.md).
+ */
+export const OVERLAY_EVENT_TRIGGERS = ['everySample', 'risingEdge', 'fallingEdge', 'eitherEdge', 'specificValue'];
+
+/**
+ * Event marker timestamp alignment
+ */
+export const OVERLAY_ALIGNMENTS = ['left', 'center', 'right'];
 
 /**
  * Chart Configuration Schema Definition
@@ -495,6 +523,183 @@ export const ChartOptionsSchema = {
             type: 'string',
             required: true,
             description: 'Y-axis for this series'
+          }
+        }
+      }
+    },
+    
+    // States & Events overlays (display-only; detection/derivation logic lives in Flows —
+    // see temp/States and Events.md for the full design discussion)
+    overlays: {
+      type: 'array',
+      description: 'State/event overlays drawn on top of the chart',
+      maxItems: CHART_LIMITS.MAX_OVERLAYS,
+      default: [],
+      items: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            required: true,
+            description: 'Unique overlay identifier'
+          },
+          name: {
+            type: 'string',
+            required: true,
+            maxLength: CHART_LIMITS.MAX_LABEL_LENGTH,
+            description: 'Overlay display name'
+          },
+          enabled: {
+            type: 'boolean',
+            required: false,
+            default: true,
+            description: 'Whether this overlay is active'
+          },
+          type: {
+            type: 'enum',
+            required: true,
+            values: OVERLAY_TYPES,
+            description: 'Overlay kind: state (interval) or event (instant)'
+          },
+          sourceTagId: {
+            type: 'integer',
+            required: true,
+            description: 'Tag ID this overlay derives from. Must be a tag already present in ' +
+              'options.tags (visible or hidden) — no separate data-fetch pipeline for overlays.'
+          },
+          showInLegend: {
+            type: 'boolean',
+            required: false,
+            default: true,
+            description: 'Show this overlay in the chart legend'
+          },
+
+          // --- state-only fields ---
+          // Exact-match only (bool/int/real). No threshold/range operators by design —
+          // that decision belongs in a Flow, which writes a derived tag this overlay consumes.
+          activeValue: {
+            type: ['boolean', 'number', 'string'],
+            required: false,
+            description: 'Value considered "active" for a state overlay (exact match)'
+          },
+          valueMap: {
+            type: 'array',
+            required: false,
+            description: 'Multi-state value→label/color mapping (overrides activeValue)',
+            items: {
+              type: 'object',
+              properties: {
+                value: { type: ['number', 'boolean', 'string'], required: true },
+                label: { type: 'string', required: true, maxLength: CHART_LIMITS.MAX_LABEL_LENGTH },
+                color: { type: 'string', required: true, pattern: /^#[0-9a-fA-F]{6}$/ },
+                enabled: { type: 'boolean', required: false, default: true }
+              }
+            }
+          },
+
+          // --- event-only fields ---
+          // risingEdge/fallingEdge/eitherEdge are bool-native. For int/real source tags, use
+          // 'specificValue' (exact match) or 'everySample' — no threshold-crossing trigger.
+          trigger: {
+            type: 'enum',
+            required: false,
+            values: OVERLAY_EVENT_TRIGGERS,
+            description: 'Event trigger condition (event overlays only)'
+          },
+          triggerValue: {
+            type: ['boolean', 'number', 'string'],
+            required: false,
+            description: 'Exact value to match when trigger === "specificValue"'
+          },
+          alignment: {
+            type: 'enum',
+            required: false,
+            values: OVERLAY_ALIGNMENTS,
+            default: 'left',
+            description: 'Event marker alignment relative to its timestamp'
+          },
+          widthPx: {
+            type: 'number',
+            required: false,
+            min: 1,
+            max: 200,
+            default: 6,
+            description: 'Event marker width in pixels (visual affordance only, not a duration)'
+          },
+          heightPct: {
+            type: 'number',
+            required: false,
+            min: 1,
+            max: 100,
+            default: 100,
+            description: 'Event marker height as % of plot area'
+          },
+
+          // --- shared appearance fields ---
+          displayPreset: {
+            type: 'enum',
+            required: false,
+            values: [...OVERLAY_STATE_PRESETS, ...OVERLAY_EVENT_PRESETS],
+            description: 'Rendering preset; valid values depend on overlay type'
+          },
+          color: {
+            type: 'string',
+            required: true,
+            pattern: /^#[0-9a-fA-F]{6}$/,
+            description: 'Overlay fill color'
+          },
+          opacity: {
+            type: 'number',
+            required: false,
+            min: 0,
+            max: 1,
+            default: 0.25,
+            description: 'Overlay fill opacity'
+          },
+          verticalPosition: {
+            type: 'number',
+            required: false,
+            min: 0,
+            max: 100,
+            default: 0,
+            description: '% from top of plot area (customBand/customBar presets only)'
+          },
+          height: {
+            type: 'number',
+            required: false,
+            min: 0,
+            max: 100,
+            default: 100,
+            description: '% of plot area height (customBand preset only, state overlays)'
+          },
+          border: {
+            type: 'object',
+            required: false,
+            description: 'Optional border around the state band',
+            properties: {
+              enabled: { type: 'boolean', required: false, default: false },
+              color: { type: 'string', required: false, pattern: /^#[0-9a-fA-F]{6}$/ },
+              width: { type: 'number', required: false, min: 0.5, max: 10, default: 1 }
+            }
+          },
+          label: {
+            type: 'object',
+            required: false,
+            description: 'Optional inline label/icon',
+            properties: {
+              show: { type: 'boolean', required: false, default: false },
+              text: { type: 'string', required: false, maxLength: CHART_LIMITS.MAX_LABEL_LENGTH },
+              icon: { type: 'string', required: false }
+            }
+          },
+          unknownStyle: {
+            type: 'object',
+            required: false,
+            description: 'Style used before the first known value (state overlays only)',
+            properties: {
+              color: { type: 'string', required: false, pattern: /^#[0-9a-fA-F]{6}$/, default: '#666666' },
+              opacity: { type: 'number', required: false, min: 0, max: 1, default: 0.1 }
+            }
           }
         }
       }
