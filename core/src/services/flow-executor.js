@@ -367,7 +367,16 @@ export async function executeNode(node, nodeOutputs, context) {
     
     // Capture output values after execution (for automatic live values)
     const capturedOutputs = {};
-    if (result.outputs) {
+    if (Array.isArray(result)) {
+      // Multi-output nodes (e.g. Switch, JavaScript with Output count > 1) return an
+      // array of { value, quality } aligned to output-0, output-1, etc.
+      result.forEach((portResult, idx) => {
+        capturedOutputs[`output-${idx}`] = {
+          value: portResult?.value ?? null,
+          quality: portResult?.quality ?? 192
+        };
+      });
+    } else if (result.outputs) {
       // Extract values from structured outputs format
       result.outputs.forEach((outputArray, idx) => {
         if (outputArray && outputArray[0] && outputArray[0].json) {

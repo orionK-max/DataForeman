@@ -330,3 +330,24 @@ export function getRequiredInputAdjustment(metadata, nodeData) {
   
   return null;
 }
+
+/**
+ * Check if output count needs adjustment based on ioRule
+ * @param {Object} metadata - Node type metadata
+ * @param {Object} nodeData - Node data
+ * @returns {Object|null} { outputCount: number } if adjustment needed, null otherwise
+ */
+export function getRequiredOutputAdjustment(metadata, nodeData) {
+  const config = getOutputConfig(metadata, nodeData);
+  const currentCount = nodeData.outputCount ?? config.count;
+  
+  // Check if current count is outside allowed range
+  if (config.min !== undefined && currentCount < config.min) {
+    return { outputCount: config.min };
+  }
+  if (config.max !== undefined && currentCount > config.max) {
+    return { outputCount: config.max };
+  }
+  
+  return null;
+}

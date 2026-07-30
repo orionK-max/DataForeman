@@ -65,10 +65,12 @@ const NodeBrowser = ({ open, onClose, onAddNode }) => {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event) => {
-      // "/" to open and focus search (only if not already typing in an input)
+      // "/" to open and focus search (only if not already typing in an input or code editor)
       if (event.key === '/' && !open) {
         const target = event.target;
-        const isTyping = ['INPUT', 'TEXTAREA'].includes(target.tagName);
+        const isTyping = ['INPUT', 'TEXTAREA'].includes(target.tagName) ||
+          target?.isContentEditable ||
+          target?.closest?.('.monaco-editor') !== null;
         
         if (!isTyping) {
           event.preventDefault();
