@@ -377,6 +377,32 @@ export const ChartOptionsSchema = {
             required: false,
             default: 0,
             description: 'Offset of axis name'
+          },
+          gridLine: {
+            type: 'object',
+            required: false,
+            description: 'Per-axis horizontal grid (split) line styling. Falls back to the chart-wide grid style when not set.',
+            properties: {
+              color: {
+                type: 'string',
+                required: false,
+                pattern: /^#[0-9a-fA-F]{6}$/,
+                description: 'Grid line color'
+              },
+              thickness: {
+                type: 'number',
+                required: false,
+                min: 0,
+                max: 5,
+                description: 'Grid line thickness (0 hides the line)'
+              },
+              dash: {
+                type: 'enum',
+                required: false,
+                values: STROKE_TYPES,
+                description: 'Grid line style (solid, dashed, dotted)'
+              }
+            }
           }
         }
       }
@@ -727,9 +753,9 @@ export const ChartOptionsSchema = {
         thickness: {
           type: 'number',
           required: true,
-          min: 0.5,
+          min: 0,
           max: 5,
-          description: 'Grid line thickness'
+          description: 'Grid line thickness (0 hides the line)'
         },
         dash: {
           type: 'string',
@@ -826,6 +852,34 @@ export const ChartOptionsSchema = {
       max: 20,
       default: 5,
       description: 'Number of X-axis tick marks'
+    },
+
+    // X-axis vertical grid (split) line styling. Falls back to the chart-wide grid style when not set.
+    xAxisGrid: {
+      type: 'object',
+      required: false,
+      description: 'X-axis (time) vertical grid line styling',
+      properties: {
+        color: {
+          type: 'string',
+          required: false,
+          pattern: /^#[0-9a-fA-F]{6}$/,
+          description: 'Grid line color'
+        },
+        thickness: {
+          type: 'number',
+          required: false,
+          min: 0,
+          max: 5,
+          description: 'Grid line thickness (0 hides the line)'
+        },
+        dash: {
+          type: 'enum',
+          required: false,
+          values: STROKE_TYPES,
+          description: 'Grid line style (solid, dashed, dotted)'
+        }
+      }
     },
 
     // Extension config namespaces (e.g. "forecast", custom plugins)

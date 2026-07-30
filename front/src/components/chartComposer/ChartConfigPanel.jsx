@@ -146,6 +146,13 @@ const ChartConfigPanel = ({
   // Generate a unique ID
   const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+  // Normalize any legacy/free-form dash pattern down to one of the three supported grid-line styles
+  const normalizeGridDashStyle = (dash) => {
+    if (dash === 'dashed' || dash === '4 4' || dash === '8 4') return 'dashed';
+    if (dash === 'dotted' || dash === '2 2') return 'dotted';
+    return 'solid';
+  };
+
   const handleAddAxis = () => {
     const newId = generateId();
     const axesCount = chartConfig.axes.length;
@@ -698,10 +705,12 @@ const ChartConfigPanel = ({
               />
             </Box>
 
-            {/* Grid Row */}
+            {/* Grid Opacity Row */}
+            {/* Color, thickness and style (dashed/dotted) are configured per-axis and for the
+                X-axis (time) in the "Axes & Scaling" tab. Opacity applies to all grid lines. */}
             <Box sx={{ 
               display: 'grid', 
-              gridTemplateColumns: '150px 60px 60px 140px 120px', 
+              gridTemplateColumns: '150px 1fr', 
               gap: 1, 
               alignItems: 'center',
               px: 1.5,
@@ -716,44 +725,8 @@ const ChartConfigPanel = ({
               }
             }}>
               <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>
-                Grid
+                Grid Opacity
               </Typography>
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <input
-                  type="color"
-                  value={chartConfig.grid?.color || '#cccccc'}
-                  onChange={(e) => updateGridConfig('color', e.target.value)}
-                  style={{ 
-                    width: 40, 
-                    height: 28, 
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    padding: 0
-                  }}
-                />
-              </Box>
-              <TextField
-                value={chartConfig.grid?.thickness ?? 1}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/[^0-9.]/g, '');
-                  if (val === '') {
-                    updateGridConfig('thickness', 1);
-                  } else {
-                    const num = parseFloat(val);
-                    updateGridConfig('thickness', Math.min(5, Math.max(0.5, num)));
-                  }
-                }}
-                size="small"
-                sx={{ 
-                  '& .MuiInputBase-root': { 
-                    fontSize: '0.75rem',
-                    height: 28,
-                    px: 0.75
-                  },
-                  '& input': { textAlign: 'center' }
-                }}
-              />
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                 <Slider
                   value={chartConfig.grid?.opacity ?? 0.3}
@@ -768,30 +741,6 @@ const ChartConfigPanel = ({
                   {Math.round((chartConfig.grid?.opacity ?? 0.3) * 100)}%
                 </Typography>
               </Box>
-              <TextField
-                value={chartConfig.grid?.dash || '4 4'}
-                onChange={(e) => updateGridConfig('dash', e.target.value)}
-                onBlur={(e) => {
-                  const val = e.target.value;
-                  const validation = validateDashPattern(val);
-                  if (validation.valid) {
-                    updateGridConfig('dash', validation.value);
-                  } else {
-                    updateGridConfig('dash', chartConfig.grid?.dash || '4 4');
-                  }
-                }}
-                placeholder="e.g., 10 5 or 0 for solid"
-                title="Space-separated numbers 1-100. e.g., '4 4'"
-                size="small"
-                sx={{ 
-                  '& .MuiInputBase-root': { 
-                    fontSize: '0.75rem',
-                    height: 28,
-                    px: 0.75
-                  },
-                  '& input': { textAlign: 'center' }
-                }}
-              />
             </Box>
 
             {/* Background Row */}
@@ -839,6 +788,7 @@ const ChartConfigPanel = ({
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ px: 1.5 }}>
               Configure Y axes with custom scaling. Tags are assigned to axes in the Series tab.
+              Grid line color/thickness/style are set per-axis below; overall grid opacity is in the Display tab.
             </Typography>
             
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.5, mb: 0.5 }}>
@@ -892,12 +842,6 @@ const ChartConfigPanel = ({
               <Box 
                 key={axis.id}
                 sx={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: '180px 100px 160px 70px 100px 80px 60px', 
-                  gap: 1, 
-                  alignItems: 'center',
-                  px: 1.5,
-                  py: 1,
                   bgcolor: 'background.paper',
                   borderRadius: 1,
                   border: '1px solid',
@@ -907,6 +851,16 @@ const ChartConfigPanel = ({
                     bgcolor: 'action.hover',
                     boxShadow: 1
                   }
+                }}
+              >
+              <Box 
+                sx={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '180px 100px 160px 70px 100px 80px 60px', 
+                  gap: 1, 
+                  alignItems: 'center',
+                  px: 1.5,
+                  py: 1,
                 }}
               >
                 {/* Label */}
@@ -1082,7 +1036,80 @@ const ChartConfigPanel = ({
                   )}
                 </Box>
               </Box>
+
+              <Divider />
+
+              {/* Horizontal Grid Line styling for this axis */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '110px 60px 90px 120px',
+                  gap: 1,
+                  alignItems: 'center',
+                  px: 1.5,
+                  py: 0.75,
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6875rem' }}>
+                  Grid Line (horizontal)
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                  <input
+                    type="color"
+                    value={axis.gridLine?.color || chartConfig.grid?.color || '#cccccc'}
+                    onChange={(e) => updateAxis(axis.id, 'gridLine', { ...(axis.gridLine || {}), color: e.target.value })}
+                    style={{
+                      width: 40,
+                      height: 28,
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  />
+                </Box>
+                <TextField
+                  size="small"
+                  value={axis.gridLine?.thickness ?? chartConfig.grid?.thickness ?? 1}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^0-9.]/g, '');
+                    if (val === '') return;
+                    const num = Math.min(5, Math.max(0, parseFloat(val)));
+                    updateAxis(axis.id, 'gridLine', { ...(axis.gridLine || {}), thickness: num });
+                  }}
+                  placeholder="1"
+                  title="Line thickness (0 - 5). Use 0 to hide this axis's grid line."
+                  sx={{
+                    '& .MuiInputBase-root': {
+                      fontSize: '0.75rem',
+                      height: 28,
+                      px: 0.75
+                    },
+                    '& input': { textAlign: 'center' }
+                  }}
+                />
+                <Select
+                  value={axis.gridLine?.dash || normalizeGridDashStyle(chartConfig.grid?.dash)}
+                  onChange={(e) => updateAxis(axis.id, 'gridLine', { ...(axis.gridLine || {}), dash: e.target.value })}
+                  size="small"
+                  sx={{
+                    fontSize: '0.75rem',
+                    height: 28,
+                    '& .MuiSelect-select': {
+                      fontSize: '0.75rem',
+                      py: 0.5,
+                      px: 1
+                    }
+                  }}
+                >
+                  <MenuItem value="solid" sx={{ fontSize: '0.75rem' }}>Solid</MenuItem>
+                  <MenuItem value="dashed" sx={{ fontSize: '0.75rem' }}>Dashed</MenuItem>
+                  <MenuItem value="dotted" sx={{ fontSize: '0.75rem' }}>Dotted</MenuItem>
+                </Select>
+              </Box>
+              </Box>
             ))}
+
 
             {/* X-Axis Configuration */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.5, mt: 3, mb: 0.5 }}>
@@ -1126,6 +1153,78 @@ const ChartConfigPanel = ({
                 <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6875rem', fontStyle: 'italic', textAlign: 'center' }}>
                   Adjust the number of time labels shown on the X-axis
                 </Typography>
+              </Box>
+
+              <Divider sx={{ my: 1.5 }} />
+
+              {/* Vertical grid line styling for the time axis */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                  Grid Line (vertical)
+                </Typography>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '60px 90px 120px',
+                    gap: 1,
+                    alignItems: 'center',
+                    px: 1,
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <input
+                      type="color"
+                      value={chartConfig.xAxisGrid?.color || chartConfig.grid?.color || '#cccccc'}
+                      onChange={(e) => updateChartConfig({ xAxisGrid: { ...(chartConfig.xAxisGrid || {}), color: e.target.value } })}
+                      style={{
+                        width: 40,
+                        height: 28,
+                        border: '1px solid #ddd',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        padding: 0
+                      }}
+                    />
+                  </Box>
+                  <TextField
+                    size="small"
+                    value={chartConfig.xAxisGrid?.thickness ?? chartConfig.grid?.thickness ?? 1}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9.]/g, '');
+                      if (val === '') return;
+                      const num = Math.min(5, Math.max(0, parseFloat(val)));
+                      updateChartConfig({ xAxisGrid: { ...(chartConfig.xAxisGrid || {}), thickness: num } });
+                    }}
+                    placeholder="1"
+                    title="Line thickness (0 - 5). Use 0 to hide the vertical grid lines."
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        fontSize: '0.75rem',
+                        height: 28,
+                        px: 0.75
+                      },
+                      '& input': { textAlign: 'center' }
+                    }}
+                  />
+                  <Select
+                    value={chartConfig.xAxisGrid?.dash || normalizeGridDashStyle(chartConfig.grid?.dash)}
+                    onChange={(e) => updateChartConfig({ xAxisGrid: { ...(chartConfig.xAxisGrid || {}), dash: e.target.value } })}
+                    size="small"
+                    sx={{
+                      fontSize: '0.75rem',
+                      height: 28,
+                      '& .MuiSelect-select': {
+                        fontSize: '0.75rem',
+                        py: 0.5,
+                        px: 1
+                      }
+                    }}
+                  >
+                    <MenuItem value="solid" sx={{ fontSize: '0.75rem' }}>Solid</MenuItem>
+                    <MenuItem value="dashed" sx={{ fontSize: '0.75rem' }}>Dashed</MenuItem>
+                    <MenuItem value="dotted" sx={{ fontSize: '0.75rem' }}>Dotted</MenuItem>
+                  </Select>
+                </Box>
               </Box>
             </Box>
           </Box>

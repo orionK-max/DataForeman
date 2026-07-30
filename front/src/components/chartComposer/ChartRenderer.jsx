@@ -851,6 +851,9 @@ const ChartRenderer = React.forwardRef(({
         effectiveNameGap = Math.abs(nameGap);
       }
       
+      // Resolve this axis's grid line thickness (0 = hidden)
+      const yGridThickness = axis.gridLine?.thickness ?? grid.thickness ?? 1;
+      
       const axisConfig = {
         type: 'value',
         name: compactMode ? '' : labelText,
@@ -888,11 +891,12 @@ const ChartRenderer = React.forwardRef(({
           },
         },
         splitLine: {
+          show: yGridThickness > 0,
           lineStyle: {
-            color: grid.color || '#333',
+            color: axis.gridLine?.color || grid.color || '#333',
             opacity: grid.opacity ?? 0.3,
-            width: grid.thickness || 1,
-            type: getDashType(grid.dash),
+            width: yGridThickness,
+            type: getDashType(axis.gridLine?.dash || grid.dash),
           },
         },
       };
@@ -1344,6 +1348,8 @@ const ChartRenderer = React.forwardRef(({
             : new Date(requestedTimeRange.to).getTime())
           : 'dataMax';
 
+        // Resolve the X-axis (time) grid line thickness (0 = hidden)
+        const xGridThickness = options?.xAxisGrid?.thickness ?? grid.thickness ?? 1;
 
         return {
           type: 'time',
@@ -1374,12 +1380,12 @@ const ChartRenderer = React.forwardRef(({
             },
           },
           splitLine: {
-            show: true,
+            show: xGridThickness > 0,
             lineStyle: {
-              color: grid.color || '#333',
+              color: options?.xAxisGrid?.color || grid.color || '#333',
               opacity: grid.opacity ?? 0.3,
-              width: grid.thickness || 1,
-              type: getDashType(grid.dash),
+              width: xGridThickness,
+              type: getDashType(options?.xAxisGrid?.dash || grid.dash),
             },
           },
         };

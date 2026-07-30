@@ -314,6 +314,7 @@ export const ChartComposerProvider = ({ children }) => {
               offset: axis.offset ?? 0,
               nameLocation: axis.nameLocation || 'inside',
               nameGap: axis.nameGap ?? 25,
+              gridLine: axis.gridLine && typeof axis.gridLine === 'object' ? { ...axis.gridLine } : undefined,
             }));
           
           if (validAxes.length > 0) {
@@ -519,6 +520,14 @@ export const ChartComposerProvider = ({ children }) => {
           }));
         }
         
+        // Update X-axis (time) vertical grid line style override if present
+        if (opts.xAxisGrid && typeof opts.xAxisGrid === 'object') {
+          setChartConfig(prev => ({
+            ...prev,
+            xAxisGrid: { ...opts.xAxisGrid },
+          }));
+        }
+        
         // Update display options if present
         if (opts.display) {
           setChartConfig(prev => ({
@@ -560,7 +569,7 @@ export const ChartComposerProvider = ({ children }) => {
         // Load extension-namespaced configs (non-core plain object keys, e.g. opts.forecast)
         const CORE_OPTS = new Set([
           'axes', 'referenceLines', 'tags', 'grid', 'background', 'display',
-          'interpolation', 'xAxisTickCount', 'extendCurveEdges',
+          'interpolation', 'xAxisTickCount', 'xAxisGrid', 'extendCurveEdges',
           'smartCompression', 'maxDataPoints', 'refreshIntervalValue', 'customRefreshInterval',
         ]);
         const extConfigs = Object.fromEntries(

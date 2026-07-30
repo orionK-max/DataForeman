@@ -285,11 +285,20 @@ export function validateChartOptions(options, { partial = false, strict = false 
     value.xAxisTickCount = 5;
   }
 
+  // X-axis (time) vertical grid line style override
+  if ('xAxisGrid' in options) {
+    const xAxisGridResult = validateGridLineStyle(options.xAxisGrid);
+    warnings.push(...xAxisGridResult.warnings.map(w => `xAxisGrid: ${w}`));
+    if (xAxisGridResult.value) {
+      value.xAxisGrid = xAxisGridResult.value;
+    }
+  }
+
   // Extension config namespaces — pass through plain objects not owned by core.
   // Extensions write to their own configKey (e.g. options.forecast, options.myPlugin).
   const CORE_OPTION_KEYS = new Set([
     'axes', 'referenceLines', 'tags', 'grid', 'background', 'display',
-    'xAxisTickCount', 'extendCurveEdges'
+    'xAxisTickCount', 'xAxisGrid', 'extendCurveEdges'
   ]);
   for (const [key, val] of Object.entries(options)) {
     if (!CORE_OPTION_KEYS.has(key) && val !== null && typeof val === 'object' && !Array.isArray(val)) {
@@ -498,11 +507,71 @@ function validateAxes(axes) {
     if ('namePosition' in axis && ['start', 'middle', 'end'].includes(axis.namePosition)) {
       validAxis.namePosition = axis.namePosition;
     }
+
+    // Frontend-managed name placement fields (pass through as-is)
+    if ('nameLocation' in axis && ['inside', 'outside'].includes(axis.nameLocation)) {
+      validAxis.nameLocation = axis.nameLocation;
+    }
+    if ('nameGap' in axis) {
+      validAxis.nameGap = Number(axis.nameGap) || 0;
+    }
+
+    // Per-axis grid (split) line style override
+    if ('gridLine' in axis) {
+      const gridLineResult = validateGridLineStyle(axis.gridLine);
+      warnings.push(...gridLineResult.warnings.map(w => `axis[${idx}].gridLine: ${w}`));
+      if (gridLineResult.value) {
+        validAxis.gridLine = gridLineResult.value;
+      }
+    }
     
     value.push(validAxis);
   });
   
   return { errors, warnings, value };
+}
+
+/**
+ * Validate a partial grid-line style override (used for per-axis gridLine and xAxisGrid).
+ * Unlike validateGrid, this does NOT fill in defaults — only explicitly-set, valid
+ * fields are kept, so unset fields fall back to the chart-wide grid style at render time.
+ */
+function validateGridLineStyle(style) {
+  const warnings = [];
+  
+  if (!style || typeof style !== 'object') {
+    return { warnings, value: null };
+  }
+  
+  const value = {};
+  const hexPattern = /^#[0-9a-fA-F]{6}$/;
+  
+  if ('color' in style) {
+    if (hexPattern.test(style.color)) {
+      value.color = style.color;
+    } else {
+      warnings.push(`invalid color: ${style.color}`);
+    }
+  }
+  
+  if ('thickness' in style) {
+    const t = Number(style.thickness);
+    if (t >= 0 && t <= 5) {
+      value.thickness = t;
+    } else {
+      warnings.push(`invalid thickness: ${style.thickness}`);
+    }
+  }
+  
+  if ('dash' in style) {
+    if (STROKE_TYPES.includes(style.dash)) {
+      value.dash = style.dash;
+    } else {
+      warnings.push(`invalid dash style: ${style.dash}`);
+    }
+  }
+  
+  return { warnings, value: Object.keys(value).length > 0 ? value : null };
 }
 
 /**
@@ -871,7 +940,7 @@ function validateGrid(grid) {
   
   if ('thickness' in grid) {
     const t = Number(grid.thickness);
-    if (t >= 0.5 && t <= 5) {
+    if (t >= 0 && t <= 5) {
       value.thickness = t;
     }
   }

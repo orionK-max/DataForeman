@@ -19,7 +19,7 @@ import Editor from '@monaco-editor/react';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { getInputConfig, parseInputConfig } from '../../../utils/ioRulesUtils';
+import { getInputConfig, parseInputConfig, getOutputConfig } from '../../../utils/ioRulesUtils';
 
 /**
  * Property group section - renders properties from node metadata
@@ -751,6 +751,79 @@ const PropertyGroupSection = ({ section, nodeData, metadata, flow, onChange, isL
       
       {/* Exposable parameters - with exposure UI */}
       {exposableProps.map(renderPropertyWithExposure)}
+      
+      {/* Dynamic Output Count Control — only on the last section to avoid duplication */}
+      {isLast && (() => {
+        const outputConfig = getOutputConfig(metadata, nodeData);
+        if (!outputConfig || (!outputConfig.canAdd && !outputConfig.canRemove)) return null;
+
+        const currentCount = nodeData?.outputCount ?? outputConfig.count ?? outputConfig.min ?? 1;
+        const canDecrease = outputConfig.canRemove && currentCount > outputConfig.min;
+        const canIncrease = outputConfig.canAdd && currentCount < outputConfig.max;
+
+        return (
+          <Box sx={{ mt: 3 }}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                display: 'block', 
+                mb: 1.5, 
+                textTransform: 'uppercase', 
+                letterSpacing: 0.5, 
+                color: 'text.secondary',
+                fontWeight: 600 
+              }}
+            >
+              Outputs
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  if (canDecrease) {
+                    onChange({ outputCount: currentCount - 1 });
+                  }
+                }}
+                disabled={!canDecrease}
+                sx={{ minWidth: 36, px: 1 }}
+              >
+                −
+              </Button>
+              
+              <Typography variant="body2" sx={{ minWidth: 80, textAlign: 'center', fontWeight: 500 }}>
+                {currentCount} outputs
+              </Typography>
+              
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  if (canIncrease) {
+                    onChange({ outputCount: currentCount + 1 });
+                  }
+                }}
+                disabled={!canIncrease}
+                sx={{ minWidth: 36, px: 1 }}
+              >
+                +
+              </Button>
+              
+              <Typography 
+                variant="caption" 
+                color="text.secondary" 
+                sx={{ 
+                  fontSize: '0.7rem',
+                  whiteSpace: 'nowrap',
+                  fontStyle: 'italic'
+                }}
+              >
+                Range: {outputConfig.min}–{outputConfig.max}
+              </Typography>
+            </Box>
+          </Box>
+        );
+      })()}
       
       {/* Divider before outputs */}
       {isLast && exposableProps.length > 0 && isManualFlow && metadata.outputs && metadata.outputs.length > 0 && (
