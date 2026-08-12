@@ -392,8 +392,10 @@ class LibraryManagerClass {
 
     if (!manifest.version) {
       errors.push('version is required');
-    } else if (!/^\d+\.\d+\.\d+/.test(manifest.version)) {
-      errors.push('version must follow semantic versioning (e.g., 1.0.0)');
+    } else if (!/^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$/.test(manifest.version)) {
+      // Anchored at both ends (not just a prefix match) — this value is used to build
+      // Docker image tags, so it must not be able to smuggle extra characters.
+      errors.push('version must follow semantic versioning (e.g., 1.0.0 or 1.0.0-beta.1)');
     }
 
     if (!manifest.schemaVersion) {
@@ -417,8 +419,18 @@ class LibraryManagerClass {
           errors.push('requires.services must be an array');
         } else {
           manifest.requires.services.forEach((svc, i) => {
-            if (!svc.name) errors.push(`requires.services[${i}].name is required`);
-            if (!svc.profile) errors.push(`requires.services[${i}].profile is required`);
+            if (!svc.name) {
+              errors.push(`requires.services[${i}].name is required`);
+            } else if (!/^[a-z0-9-]+$/.test(svc.name)) {
+              // These values are passed to `docker compose`/`docker` as service and
+              // container-name arguments — restrict to a safe identifier charset.
+              errors.push(`requires.services[${i}].name must contain only lowercase letters, numbers, and hyphens`);
+            }
+            if (!svc.profile) {
+              errors.push(`requires.services[${i}].profile is required`);
+            } else if (!/^[a-z0-9-]+$/.test(svc.profile)) {
+              errors.push(`requires.services[${i}].profile must contain only lowercase letters, numbers, and hyphens`);
+            }
             if (!svc.healthUrl) errors.push(`requires.services[${i}].healthUrl is required`);
           });
         }

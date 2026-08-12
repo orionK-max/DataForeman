@@ -4,6 +4,7 @@
  */
 import mqtt from 'mqtt';
 import sparkplugPayload from 'sparkplug-payload';
+import { evaluateSafeExpression } from '../safe-expression.mjs';
 const { spPayload } = sparkplugPayload;
 
 export class MQTTDriver {
@@ -339,11 +340,13 @@ export class MQTTDriver {
             }, 'Extracted field value');
           }
 
-          // For raw (non-JSON) payloads, evaluate value_expression if provided
+          // For raw (non-JSON) payloads, evaluate value_expression if provided.
+          // Uses a restricted, whitelist-based AST evaluator (no access to
+          // globals/require/Function) since this runs unattended on every
+          // matching message — see src/safe-expression.mjs.
           if (mapping.value_expression && typeof payload === 'string') {
             try {
-              // eslint-disable-next-line no-new-func
-              value = new Function('payload', `"use strict"; return (${mapping.value_expression});`)(payload);
+              value = evaluateSafeExpression(mapping.value_expression, { payload });
             } catch (err) {
               this.log.warn({ err, expression: mapping.value_expression, tag_name: mapping.tag_name }, 'Expression evaluation failed');
               value = null;

@@ -48,9 +48,11 @@ services:
       NANOMQ_ALLOW_ANONYMOUS: "false"
     ports:
       - "${NANOMQ_MQTT_PORT:-1883}:1883"        # MQTT
-      - "${NANOMQ_MQTTS_PORT:-8883}:8883"       # MQTT over TLS
       - "${NANOMQ_WS_PORT:-8081}:8081"          # WebSocket
       - "127.0.0.1:${NANOMQ_HTTP_PORT:-8001}:8001"  # HTTP API — localhost only
+      # 8883 (MQTT over TLS) intentionally not published — the TLS listener is
+      # disabled in nanomq/nanomq.conf, so nothing was ever listening behind
+      # this port; publishing it was dead/misleading attack surface (Finding #5).
     volumes:
       - ./logs/broker:/var/log/broker
       - ./nanomq/nanomq.conf:/etc/nanomq.conf:ro
@@ -127,7 +129,15 @@ services:
       MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-20}
       # NanoMQ HTTP API credentials
       MQTT_BROKER_HTTP_USER: ${MQTT_BROKER_HTTP_USER:-nmqadmin}
-      MQTT_BROKER_HTTP_PASSWORD: ${MQTT_BROKER_HTTP_PASSWORD:-nMQ_Adm1n_Ch4ng3_M3_N0w_3f7a9b2c}
+      MQTT_BROKER_HTTP_PASSWORD: ${MQTT_BROKER_HTTP_PASSWORD:-a51e59fffc618902a60a7fffa729e2037663c31934905ff0}
+      # Shared secret for the internal system MQTT connection's superuser bypass in
+      # /api/mqtt/auth — change this in .env for production (do not rely on the default).
+      MQTT_INTERNAL_PASSWORD: ${MQTT_INTERNAL_PASSWORD:-mQi_1nt3rn4l_Ch4ng3_M3_N0w_5f8a2b91c3d4}
+      # Shared secret nanomq.conf sends as the x-nanomq-secret header on /api/mqtt/webhook
+      # and /api/mqtt/acl calls, so core can verify these broker-only endpoints are actually
+      # being called by the broker and not directly from the internet. Must match the
+      # literal value baked into nanomq/nanomq.conf (broker image rebuild required to change).
+      MQTT_WEBHOOK_SECRET: ${MQTT_WEBHOOK_SECRET:-ed81bf13c2455c5f7106582d070449b2bf91baa36fdbcd01}
       # Forecast service
       FORECAST_SERVICE_URL: ${FORECAST_SERVICE_URL:-http://forecast:8100}
       APP_VERSION: ${APP_VERSION:-0.7.0}

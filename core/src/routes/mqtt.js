@@ -1,7 +1,33 @@
+import { timingSafeEqual } from 'crypto';
+import { evaluateSafeExpression } from '../utils/safeExpression.js';
+
 /**
  * MQTT Management Routes
  * Handles MQTT broker authentication, management, and monitoring
  */
+
+// Credentials for the internal system MQTT connection (see services/mqtt-bootstrap.js).
+// The client ID prefix alone is NOT trusted for the superuser bypass below — it is
+// attacker-controlled (sent in the CONNECT packet), so a real secret is required too.
+const INTERNAL_MQTT_USERNAME = 'dataforeman-system';
+const INTERNAL_MQTT_PASSWORD = process.env.MQTT_INTERNAL_PASSWORD || 'dataforeman-system-internal';
+
+// Shared secret nanomq.conf sends as the `x-nanomq-secret` header on webhook/acl calls
+// (see nanomq/nanomq.conf). These endpoints are `skipAuth: true` (no JWT) since the broker
+// can't present a user token, but front's nginx proxies all of /api/* publicly, so without
+// this check anyone could POST directly to them. Must match nanomq.conf's baked-in value.
+const MQTT_WEBHOOK_SECRET = process.env.MQTT_WEBHOOK_SECRET || 'dataforeman-webhook-internal';
+
+function safeStringEqual(a, b) {
+  const bufA = Buffer.from(String(a || ''));
+  const bufB = Buffer.from(String(b || ''));
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
+function isFromBroker(req) {
+  return safeStringEqual(req.headers['x-nanomq-secret'], MQTT_WEBHOOK_SECRET);
+}
 
 /**
  * Parse {{tag_id:N}} tokens from a resolved template and upsert entries
@@ -128,11 +154,19 @@ export default async function mqttRoutes(app) {
     log.debug({ clientid, username }, 'MQTT auth request');
 
     try {
-      // Always allow the internal DataForeman service (connects from within Docker, no credentials)
+      // Allow the internal DataForeman service — requires the client ID prefix AND the
+      // shared secret (MQTT_INTERNAL_PASSWORD) to match. The client ID prefix alone is
+      // attacker-controlled and must never grant superuser access by itself.
       // Client ID pattern: dataforeman-internal-{connection-uuid}-{timestamp}
       if (clientid && clientid.startsWith('dataforeman-internal-')) {
-        log.info({ clientid }, 'MQTT auth allowed (internal service)');
-        return reply.send({ result: 'allow', is_superuser: true });
+        const credsMatch = safeStringEqual(username, INTERNAL_MQTT_USERNAME) &&
+          safeStringEqual(password, INTERNAL_MQTT_PASSWORD);
+        if (credsMatch) {
+          log.info({ clientid }, 'MQTT auth allowed (internal service)');
+          return reply.send({ result: 'allow', is_superuser: true });
+        }
+        log.warn({ clientid, username }, 'MQTT auth denied: internal client ID used with invalid credentials');
+        return reply.code(400).send({ result: 'deny', reason: 'invalid_credentials' });
       }
 
       // Check global authentication setting
@@ -293,6 +327,11 @@ export default async function mqttRoutes(app) {
    * on_client_connected payload: { action, clientid, username, keepalive, proto_ver, ts }
    */
   app.post('/api/mqtt/webhook', { config: { skipAuth: true } }, async (req, reply) => {
+    if (!isFromBroker(req)) {
+      log.warn({ ip: req.ip }, 'MQTT webhook: rejected call missing/invalid broker secret');
+      return reply.code(401).send({ result: 'error' });
+    }
+
     // Reply immediately — DB work below is fire-and-forget
     reply.send({ result: 'ok' });
 
@@ -347,6 +386,10 @@ export default async function mqttRoutes(app) {
    */
   // NOAUTH: broker-internal endpoint — permission enforcement is in /api/mqtt/auth
   app.post('/api/mqtt/acl', { config: { skipAuth: true } }, async (req, reply) => {
+    if (!isFromBroker(req)) {
+      log.warn({ ip: req.ip }, 'MQTT acl: rejected call missing/invalid broker secret');
+      return reply.code(401).send({ result: 'deny' });
+    }
     reply.send({ result: 'allow' });
   });
 
@@ -1391,15 +1434,15 @@ export default async function mqttRoutes(app) {
         ? bufferPayload._raw
         : JSON.stringify(bufferPayload);
 
-      // Evaluate expression in a sandboxed Function context
+      // Evaluate expression using a restricted, whitelist-based AST evaluator
+      // (no access to globals/require/Function — see utils/safeExpression.js)
       let result, evalError;
       try {
         // Validate expression is a string and doesn't exceed reasonable length
         if (typeof expression !== 'string' || expression.length > 2000) {
           return reply.code(400).send({ error: 'invalid_expression' });
         }
-        // eslint-disable-next-line no-new-func
-        result = new Function('payload', `"use strict"; return (${expression});`)(rawPayload);
+        result = evaluateSafeExpression(expression, { payload: rawPayload });
       } catch (err) {
         evalError = err.message;
       }

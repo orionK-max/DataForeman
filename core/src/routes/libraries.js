@@ -59,14 +59,27 @@ function getServiceImageTagKey(serviceName) {
   return `${serviceName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_IMAGE_TAG`;
 }
 
+// Defense in depth: LibraryManager.validateManifest() already rejects manifests whose
+// requires.services[].name/.profile contain anything but this charset, but re-check
+// here too since these values end up as command arguments to docker/docker compose.
+const SAFE_IDENTIFIER_RE = /^[a-z0-9-]+$/;
+function assertSafeIdentifier(value, label) {
+  if (typeof value !== 'string' || !SAFE_IDENTIFIER_RE.test(value)) {
+    throw new Error(`Invalid ${label}: must contain only lowercase letters, numbers, and hyphens`);
+  }
+}
+
 async function resolveServiceImageTag(serviceName, preferredTag) {
-  const { exec } = await import('child_process');
+  assertSafeIdentifier(serviceName, 'service name');
+  const { execFile } = await import('child_process');
   const { promisify } = await import('util');
-  const execAsync = promisify(exec);
+  const execFileAsync = promisify(execFile);
   const imageRef = `ghcr.io/orionk-max/dataforeman-${serviceName}:${preferredTag}`;
 
   try {
-    await execAsync(`docker manifest inspect ${imageRef}`);
+    // No shell involved — args are passed directly to the docker binary, so imageRef
+    // cannot be used to inject additional shell commands even if it contained metacharacters.
+    await execFileAsync('docker', ['manifest', 'inspect', imageRef]);
     return preferredTag;
   } catch {
     return 'latest';
@@ -108,33 +121,43 @@ function satisfiesVersion(version, range) {
  * Uses shell-out (same as Diagnostics page service restart).
  */
 async function manageExtensionService(profile, serviceName, action = 'up') {
-  const { exec } = await import('child_process');
-  const { promisify } = await import('util');
-  const execAsync = promisify(exec);
-  // Use docker compose plugin if available, fall back to docker-compose v1
-  const composeCmd = await (async () => {
-    try { await execAsync('docker compose version'); return 'docker compose'; } catch {}
-    try { await execAsync('docker-compose version'); return 'docker-compose'; } catch {}
-    return null;
-  })();
+  assertSafeIdentifier(profile, 'profile');
+  assertSafeIdentifier(serviceName, 'service name');
 
-  if (!composeCmd) {
-    throw new Error('Neither "docker compose" nor "docker-compose" is available');
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const execFileAsync = promisify(execFile);
+
+  // Use docker compose plugin if available, fall back to docker-compose v1.
+  // No shell involved in any of the calls below — all arguments are passed as an
+  // array directly to the binary, so manifest-derived values cannot inject shell commands.
+  let composeBin;
+  let composeBaseArgs;
+  try {
+    await execFileAsync('docker', ['compose', 'version']);
+    composeBin = 'docker';
+    composeBaseArgs = ['compose'];
+  } catch {
+    try {
+      await execFileAsync('docker-compose', ['version']);
+      composeBin = 'docker-compose';
+      composeBaseArgs = [];
+    } catch {
+      throw new Error('Neither "docker compose" nor "docker-compose" is available');
+    }
   }
 
   // Order matters: later --env-file values win on key conflicts, so load the main
   // stack .env first and let extensions.env only add/override extension-specific keys.
-  const envFileArg = `--env-file ${ROOT_ENV_FILE} --env-file ${EXTENSIONS_ENV_FILE}`;
+  const envFileArgs = ['--env-file', ROOT_ENV_FILE, '--env-file', EXTENSIONS_ENV_FILE];
 
-  let cmd;
   if (action === 'up') {
-    const pullCmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} pull ${serviceName}`;
+    const baseArgs = [...composeBaseArgs, ...envFileArgs, '-f', COMPOSE_FILE, '-p', COMPOSE_PROJECT_NAME, '--profile', profile];
     // --no-deps: this only manages the extension's own sidecar container — shared
     // services like db/nats are already running under the main stack and must not
     // be touched (recreating them here previously caused a full outage).
-    const upCmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --no-deps --force-recreate ${serviceName}`;
-    const pullResult = await execAsync(pullCmd);
-    const upResult = await execAsync(upCmd);
+    const pullResult = await execFileAsync(composeBin, [...baseArgs, 'pull', serviceName]);
+    const upResult = await execFileAsync(composeBin, [...baseArgs, 'up', '-d', '--no-deps', '--force-recreate', serviceName]);
     return {
       stdout: [pullResult.stdout, upResult.stdout].filter(Boolean).join('\n'),
       stderr: [pullResult.stderr, upResult.stderr].filter(Boolean).join('\n')
@@ -142,12 +165,17 @@ async function manageExtensionService(profile, serviceName, action = 'up') {
   } else if (action === 'remove') {
     // Stop and remove the container directly — avoids compose dependency resolution errors
     const containerName = `${COMPOSE_PROJECT_NAME}-${serviceName}-1`;
-    cmd = `docker stop ${containerName} && docker rm ${containerName}`;
+    const stopResult = await execFileAsync('docker', ['stop', containerName]);
+    const rmResult = await execFileAsync('docker', ['rm', containerName]);
+    return {
+      stdout: [stopResult.stdout, rmResult.stdout].filter(Boolean).join('\n'),
+      stderr: [stopResult.stderr, rmResult.stderr].filter(Boolean).join('\n')
+    };
   } else {
-    cmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} stop ${serviceName}`;
+    const args = [...composeBaseArgs, ...envFileArgs, '-f', COMPOSE_FILE, '-p', COMPOSE_PROJECT_NAME, '--profile', profile, 'stop', serviceName];
+    const { stdout, stderr } = await execFileAsync(composeBin, args);
+    return { stdout, stderr };
   }
-  const { stdout, stderr } = await execAsync(cmd);
-  return { stdout, stderr };
 }
 
 /**

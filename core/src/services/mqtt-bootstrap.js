@@ -7,6 +7,11 @@
 
 const INTERNAL_CONNECTION_NAME = 'MQTT - Internal';
 
+// Must match the credentials checked in routes/mqtt.js `/api/mqtt/auth` — override
+// MQTT_INTERNAL_PASSWORD in .env for production deployments (like JWT_SECRET, PGPASSWORD, etc.).
+const INTERNAL_USERNAME = 'dataforeman-system';
+const INTERNAL_PASSWORD = process.env.MQTT_INTERNAL_PASSWORD || 'dataforeman-system-internal';
+
 /**
  * Ensures the internal "Internal" connection exists.
  * Creates it if missing, skips if already exists.
@@ -30,12 +35,12 @@ export async function ensureInternalMqttConnection(app) {
     if (existing.rows.length > 0) {
       app.log.info({ connection_id: existing.rows[0].id }, 'Internal MQTT connection already exists');
       // NanoMQ 0.24.14+ rejects connections with NULL username/password at the parser level
-      // before calling the HTTP auth endpoint, so ensure credentials are set.
-      // The auth endpoint allows dataforeman-internal-* client IDs regardless of credential value.
+      // before calling the HTTP auth endpoint, so ensure credentials are set. Always sync
+      // (not just when null) so rotating MQTT_INTERNAL_PASSWORD in .env takes effect on restart.
       await db.query(
-        `UPDATE mqtt_connections SET username = 'dataforeman-system', password = 'dataforeman-system-internal'
-         WHERE connection_id = $1 AND (username IS NULL OR password IS NULL)`,
-        [existing.rows[0].id]
+        `UPDATE mqtt_connections SET username = $2, password = $3
+         WHERE connection_id = $1`,
+        [existing.rows[0].id, INTERNAL_USERNAME, INTERNAL_PASSWORD]
       );
       return;
     }
@@ -75,8 +80,8 @@ export async function ensureInternalMqttConnection(app) {
         1883,
         'mqtt',
         false,
-        'dataforeman-system',
-        'dataforeman-system-internal',
+        INTERNAL_USERNAME,
+        INTERNAL_PASSWORD,
         'dataforeman-internal',
         true
       ]

@@ -1,4 +1,5 @@
 import { BaseNode } from './BaseNode.js';
+import { evaluateSafeExpression, ExpressionError } from '../../utils/safeExpression.js';
 
 /**
  * Node Template - Complete Example
@@ -775,28 +776,27 @@ export class NodeTemplate extends BaseNode {
    * @private
    */
   evaluateFormula(formula, values) {
-    // Replace input0, input1, etc. with actual values
-    let expression = formula;
+    // Build scope with input variables (input0, input1, ...)
+    const scope = {};
     values.forEach((value, index) => {
-      const regex = new RegExp(`\\binput${index}\\b`, 'g');
-      expression = expression.replace(regex, value);
+      scope[`input${index}`] = value;
     });
-    
-    // Validate expression (whitelist approach for security)
-    if (!/^[\d\s+\-*/%().]+$/.test(expression)) {
-      throw new Error('Formula contains invalid characters');
-    }
-    
-    // Evaluate safely
+
+    // Evaluate safely using a restricted, whitelist-based AST evaluator
+    // (no `new Function`/`eval` — see utils/safeExpression.js). Never use
+    // `new Function`/`eval` directly on user-supplied formula strings.
     try {
-      const result = new Function(`return ${expression}`)();
-      
+      const result = evaluateSafeExpression(formula, scope);
+
       if (!isFinite(result)) {
         throw new Error('Formula resulted in invalid number');
       }
-      
+
       return result;
     } catch (error) {
+      if (error instanceof ExpressionError) {
+        throw new Error(`Formula contains invalid characters or unsupported syntax: ${error.message}`);
+      }
       throw new Error(`Formula evaluation failed: ${error.message}`);
     }
   }
