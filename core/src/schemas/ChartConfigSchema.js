@@ -82,6 +82,13 @@ export const OVERLAY_EVENT_TRIGGERS = ['everySample', 'risingEdge', 'fallingEdge
 export const OVERLAY_ALIGNMENTS = ['left', 'center', 'right'];
 
 /**
+ * Which edge of the plot area verticalPosition/height are measured from (customBand/customBar
+ * presets only) — 'bottom' avoids having to recompute verticalPosition when height changes for
+ * bars meant to sit flush against the bottom axis (see temp/States and Events.md).
+ */
+export const OVERLAY_POSITION_ANCHORS = ['top', 'bottom'];
+
+/**
  * Chart Configuration Schema Definition
  * 
  * This schema defines the complete structure for chart configurations.
@@ -688,7 +695,14 @@ export const ChartOptionsSchema = {
             min: 0,
             max: 100,
             default: 0,
-            description: '% from top of plot area (customBand/customBar presets only)'
+            description: '% from the positionAnchor edge of plot area (customBand/customBar presets only)'
+          },
+          positionAnchor: {
+            type: 'enum',
+            required: false,
+            values: OVERLAY_POSITION_ANCHORS,
+            default: 'top',
+            description: 'Which edge verticalPosition is measured from (customBand/customBar presets only)'
           },
           height: {
             type: 'number',
@@ -725,6 +739,13 @@ export const ChartOptionsSchema = {
                 default: 50,
                 description: '% from top of the band\'s own rect (not the whole plot area) — ' +
                   'lets labels for different/overlapping bands be separated vertically'
+              },
+              textColor: {
+                type: 'string',
+                required: false,
+                pattern: /^#[0-9a-fA-F]{6}$/,
+                description: 'Optional caption text color override. Auto-computed (black/white ' +
+                  'for contrast against the band fill) when not set.'
               },
               icon: { type: 'string', required: false }
             }

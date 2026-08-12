@@ -581,6 +581,24 @@ const ChartConfigPanel = ({
           </Box>
         );
 
+        // Top/Bottom anchor selector for customBand (state) / customBar (event) positioning —
+        // avoids having to recompute "Vertical Position" whenever "Height" changes just to keep
+        // a bar flush against the bottom axis (see temp/States and Events.md).
+        const renderAnchorSelect = (value, onChange) => (
+          <Box>
+            <Typography variant="caption" sx={{ fontSize: '0.6875rem', display: 'block' }}>Anchor</Typography>
+            <Select
+              value={value || 'top'}
+              onChange={(e) => onChange(e.target.value)}
+              size="small"
+              sx={{ width: 90, fontSize: '0.75rem', height: 28, '& .MuiSelect-select': { fontSize: '0.75rem', py: 0.5, px: 1 } }}
+            >
+              <MenuItem value="top" sx={{ fontSize: '0.75rem' }}>Top</MenuItem>
+              <MenuItem value="bottom" sx={{ fontSize: '0.75rem' }}>Bottom</MenuItem>
+            </Select>
+          </Box>
+        );
+
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -1061,7 +1079,8 @@ const ChartConfigPanel = ({
 
                               {overlay.displayPreset === 'customBand' && (
                                 <Box sx={{ display: 'flex', gap: 2 }}>
-                                  {renderPercentField('Vertical Position (from top)', overlay.verticalPosition ?? 0, (v) => updateOverlay(overlay.id, 'verticalPosition', v))}
+                                  {renderAnchorSelect(overlay.positionAnchor, (v) => updateOverlay(overlay.id, 'positionAnchor', v))}
+                                  {renderPercentField(`Vertical Position (from ${overlay.positionAnchor === 'bottom' ? 'bottom' : 'top'})`, overlay.verticalPosition ?? 0, (v) => updateOverlay(overlay.id, 'verticalPosition', v))}
                                   {renderPercentField('Height', overlay.height ?? 100, (v) => updateOverlay(overlay.id, 'height', v))}
                                 </Box>
                               )}
@@ -1108,6 +1127,28 @@ const ChartConfigPanel = ({
                                   <>
                                     {renderTextField('Text (optional override)', overlay.label?.text ?? '', (e) => updateOverlay(overlay.id, 'label', { ...(overlay.label || {}), text: e.target.value }), { width: 160, title: 'Leave blank to use the state name.' })}
                                     {renderPercentField('Vertical Position', overlay.label?.verticalPosition ?? 50, (v) => updateOverlay(overlay.id, 'label', { ...(overlay.label || {}), verticalPosition: v }), { title: "% from the top of this band's own rect — use to separate labels of different/overlapping bands." })}
+                                    <FormControlLabel
+                                      control={
+                                        <Checkbox
+                                          checked={!!overlay.label?.textColor}
+                                          onChange={(e) => updateOverlay(overlay.id, 'label', {
+                                            ...(overlay.label || {}),
+                                            textColor: e.target.checked ? (overlay.label?.textColor || '#ffffff') : undefined,
+                                          })}
+                                          size="small"
+                                        />
+                                      }
+                                      label={<Typography variant="caption" sx={{ fontSize: '0.6875rem' }}>Custom text color</Typography>}
+                                      title="Auto black/white contrast is used when off."
+                                    />
+                                    {overlay.label?.textColor && (
+                                      <input
+                                        type="color"
+                                        value={overlay.label.textColor}
+                                        onChange={(e) => updateOverlay(overlay.id, 'label', { ...(overlay.label || {}), textColor: e.target.value })}
+                                        style={{ width: 32, height: 24, border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
+                                      />
+                                    )}
                                   </>
                                 )}
                               </Box>
@@ -1195,7 +1236,10 @@ const ChartConfigPanel = ({
                                 {renderTextField('Width (px)', overlay.widthPx ?? 6, (e) => updateOverlay(overlay.id, 'widthPx', Math.min(200, Math.max(1, Number(e.target.value) || 1))), { width: 110, title: 'Visual marker width in pixels — not a duration; stays constant while zooming.' })}
                                 {renderPercentField('Height', overlay.heightPct ?? 100, (v) => updateOverlay(overlay.id, 'heightPct', v), { disabled: overlay.displayPreset !== 'customBar' })}
                                 {overlay.displayPreset === 'customBar' && (
-                                  renderPercentField('Vertical Position (from top)', overlay.verticalPosition ?? 0, (v) => updateOverlay(overlay.id, 'verticalPosition', v))
+                                  <>
+                                    {renderAnchorSelect(overlay.positionAnchor, (v) => updateOverlay(overlay.id, 'positionAnchor', v))}
+                                    {renderPercentField(`Vertical Position (from ${overlay.positionAnchor === 'bottom' ? 'bottom' : 'top'})`, overlay.verticalPosition ?? 0, (v) => updateOverlay(overlay.id, 'verticalPosition', v))}
+                                  </>
                                 )}
                               </Box>
 

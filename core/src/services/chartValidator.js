@@ -818,6 +818,7 @@ function validateOverlays(overlays) {
       ? overlay.opacity : 0.25;
     validOverlay.verticalPosition = (typeof overlay.verticalPosition === 'number' && overlay.verticalPosition >= 0 && overlay.verticalPosition <= 100)
       ? overlay.verticalPosition : 0;
+    validOverlay.positionAnchor = overlay.positionAnchor === 'bottom' ? 'bottom' : 'top';
     
     if (isState) {
       const validPresets = OVERLAY_STATE_PRESETS;
@@ -906,6 +907,7 @@ function validateOverlays(overlays) {
         text: typeof overlay.label.text === 'string' ? overlay.label.text.substring(0, CHART_LIMITS.MAX_LABEL_LENGTH) : '',
         verticalPosition: (typeof overlay.label.verticalPosition === 'number' && overlay.label.verticalPosition >= 0 && overlay.label.verticalPosition <= 100)
           ? overlay.label.verticalPosition : 50,
+        ...(hexPattern.test(overlay.label.textColor) ? { textColor: overlay.label.textColor } : {}),
         ...(overlay.label.icon ? { icon: String(overlay.label.icon) } : {})
       };
     }

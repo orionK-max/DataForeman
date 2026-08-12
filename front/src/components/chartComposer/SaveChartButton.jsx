@@ -147,6 +147,7 @@ const SaveChartButton = () => {
             color: overlay.color || '#3b82f6',
             opacity: overlay.opacity ?? 0.25,
             verticalPosition: overlay.verticalPosition ?? 0,
+            positionAnchor: overlay.positionAnchor === 'bottom' ? 'bottom' : 'top',
             displayPreset: overlay.displayPreset,
             border: overlay.border,
             label: overlay.label,

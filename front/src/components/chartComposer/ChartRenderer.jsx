@@ -794,11 +794,13 @@ const ChartRenderer = React.forwardRef(({
               isUnknown: band.isUnknown,
               displayPreset: overlay.displayPreset || 'fullBand',
               verticalPosition: overlay.verticalPosition ?? 0,
+              positionAnchor: overlay.positionAnchor === 'bottom' ? 'bottom' : 'top',
               height: overlay.height ?? 100,
               border: overlay.border,
               showLabel: !!overlay.label?.show,
               labelText: overlay.label?.text || undefined, // falls back to band.label at render time
               labelVerticalPosition: overlay.label?.verticalPosition ?? 50,
+              labelTextColor: overlay.label?.textColor || undefined, // falls back to auto-contrast at render time
             });
           });
         });
@@ -819,6 +821,7 @@ const ChartRenderer = React.forwardRef(({
               widthPx: overlay.widthPx ?? 6,
               heightPct: overlay.heightPct ?? 100,
               verticalPosition: overlay.verticalPosition ?? 0,
+              positionAnchor: overlay.positionAnchor === 'bottom' ? 'bottom' : 'top',
               displayPreset: overlay.displayPreset || 'fullHeight',
             });
           });
@@ -1151,7 +1154,10 @@ const ChartRenderer = React.forwardRef(({
           let top, height;
           if (b.displayPreset === 'customBand') {
             height = coordSys.height * (Math.min(Math.max(b.height, 0), 100) / 100);
-            top = coordSys.y + coordSys.height * (Math.min(Math.max(b.verticalPosition, 0), 100) / 100);
+            const posPct = Math.min(Math.max(b.verticalPosition, 0), 100) / 100;
+            top = b.positionAnchor === 'bottom'
+              ? coordSys.y + coordSys.height * (1 - posPct) - height
+              : coordSys.y + coordSys.height * posPct;
           } else {
             // fullBand (default): spans the full plot height, matches old markArea behavior
             top = coordSys.y;
@@ -1212,7 +1218,7 @@ const ChartRenderer = React.forwardRef(({
                   text: labelText,
                   x: textX,
                   y: textY,
-                  fill: getContrastingTextColor(b.color),
+                  fill: b.labelTextColor || getContrastingTextColor(b.color),
                   fontSize: FONT_SIZE,
                   fontWeight: 500,
                   textVerticalAlign: 'middle',
@@ -1252,9 +1258,12 @@ const ChartRenderer = React.forwardRef(({
             height = coordSys.height * 0.08; // small fixed height, anchored to bottom
             top = coordSys.y + coordSys.height - height;
           } else {
-            // customBar: fully respects configured verticalPosition/heightPct
+            // customBar: fully respects configured verticalPosition/heightPct/positionAnchor
             height = coordSys.height * (Math.min(Math.max(m.heightPct, 0), 100) / 100);
-            top = coordSys.y + coordSys.height * (Math.min(Math.max(m.verticalPosition, 0), 100) / 100);
+            const posPct = Math.min(Math.max(m.verticalPosition, 0), 100) / 100;
+            top = m.positionAnchor === 'bottom'
+              ? coordSys.y + coordSys.height * (1 - posPct) - height
+              : coordSys.y + coordSys.height * posPct;
           }
 
           let x;
