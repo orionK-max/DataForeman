@@ -3,8 +3,11 @@ FROM emqx/nanomq:0.24.14-full
 # Create directories for config and logs
 RUN mkdir -p /etc/nanomq /var/log/broker
 
-# Copy default configuration
-COPY nanomq.conf /etc/nanomq/nanomq.conf
+# Copy config template (real secrets are injected at container start from env vars,
+# not baked into the image) and the render-and-start entrypoint script.
+COPY nanomq.conf.template /etc/nanomq/nanomq.conf.template
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Expose ports:
 # 1883: MQTT
@@ -13,4 +16,4 @@ COPY nanomq.conf /etc/nanomq/nanomq.conf
 # 8001: HTTP API
 EXPOSE 1883 8883 8081 8001
 
-CMD ["sh", "-c", "nanomq start --conf /etc/nanomq/nanomq.conf >> /var/log/broker/broker.current 2>&1"]
+CMD ["/docker-entrypoint.sh"]

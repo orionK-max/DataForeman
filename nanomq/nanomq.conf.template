@@ -1,4 +1,9 @@
 # nanoMQ Configuration File
+#
+# This is a TEMPLATE, not the final config. `docker-entrypoint.sh` renders it into
+# /etc/nanomq/nanomq.conf at container start, substituting the placeholders below with
+# values from the MQTT_BROKER_HTTP_PASSWORD / MQTT_WEBHOOK_SECRET environment variables
+# (sourced from .env). Do not put real secrets in this file — it is committed to git.
 
 # MQTT TCP Listener
 mqtt {
@@ -32,7 +37,7 @@ http_server {
     port = 8001
     limit_conn = 32
     username = "nmqadmin"
-    password = "a51e59fffc618902a60a7fffa729e2037663c31934905ff0"
+    password = "__MQTT_BROKER_HTTP_PASSWORD__"
 }
 
 # Async webhook — fires on client connect and message publish.
@@ -49,7 +54,7 @@ webhook {
     # Shared secret so core can verify this call actually came from the broker and not
     # from an internet client hitting the endpoint directly through front's /api/* proxy.
     # Must match MQTT_WEBHOOK_SECRET in core's environment (docker-compose.yml / .env).
-    headers.x-nanomq-secret = "ed81bf13c2455c5f7106582d070449b2bf91baa36fdbcd01"
+    headers.x-nanomq-secret = "__MQTT_WEBHOOK_SECRET__"
     body.encoding = plain
     pool_size = 4
 

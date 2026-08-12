@@ -13,9 +13,10 @@ const INTERNAL_MQTT_USERNAME = 'dataforeman-system';
 const INTERNAL_MQTT_PASSWORD = process.env.MQTT_INTERNAL_PASSWORD || 'dataforeman-system-internal';
 
 // Shared secret nanomq.conf sends as the `x-nanomq-secret` header on webhook/acl calls
-// (see nanomq/nanomq.conf). These endpoints are `skipAuth: true` (no JWT) since the broker
-// can't present a user token, but front's nginx proxies all of /api/* publicly, so without
-// this check anyone could POST directly to them. Must match nanomq.conf's baked-in value.
+// (see nanomq/nanomq.conf.template). These endpoints are `skipAuth: true` (no JWT) since
+// the broker can't present a user token, but front's nginx proxies all of /api/* publicly,
+// so without this check anyone could POST directly to them. Must match the
+// MQTT_WEBHOOK_SECRET env var, which nanomq/docker-entrypoint.sh renders into nanomq.conf.
 const MQTT_WEBHOOK_SECRET = process.env.MQTT_WEBHOOK_SECRET || 'dataforeman-webhook-internal';
 
 function safeStringEqual(a, b) {

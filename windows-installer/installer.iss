@@ -44,7 +44,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Application files (exclude large directories)
 Source: "..\docker-compose.yml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Caddyfile"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\nanomq\nanomq.conf"; DestDir: "{app}\nanomq"; Flags: ignoreversion
+Source: "..\nanomq\nanomq.conf.template"; DestDir: "{app}\nanomq"; Flags: ignoreversion
+Source: "..\nanomq\docker-entrypoint.sh"; DestDir: "{app}\nanomq"; Flags: ignoreversion
 Source: "..\spec\connectivity\schemas\*"; DestDir: "{app}\spec\connectivity\schemas"; Flags: ignoreversion
 ; Windows-specific .env file (copy .env.windows to .env if .env doesn't exist)
 Source: "..\.env.windows"; DestDir: "{app}"; DestName: ".env"; Flags: onlyifdoesntexist
