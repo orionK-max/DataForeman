@@ -288,9 +288,7 @@ export class MQTTDriver {
    * Handle raw MQTT message
    */
   handleRawMqttMessage(topic, message) {
-    const sub = this.subscriptions.get(topic) || 
-                Array.from(this.subscriptions.entries())
-                  .find(([pattern]) => this.matchTopic(topic, pattern))?.[1];
+    const sub = this.findMatchingSubscription(topic);
 
     if (!sub) {
       return; // No subscription handler for this topic
@@ -714,6 +712,49 @@ export class MQTTDriver {
 
     const encoded = spPayload.encodePayload(payload);
     await this.publish(topic, encoded, { qos: 0, retain: false });
+  }
+
+  /**
+   * Find the subscription whose topic filter best matches the given topic.
+   *
+   * A connection can have multiple overlapping subscriptions (e.g. a broad
+   * catch-all "#" alongside a more specific "turbro/manifold/#"). Picking the
+   * first matching entry in Map iteration (load/insertion) order is unreliable
+   * because a catch-all subscription created earlier would always shadow a
+   * more specific subscription created later - silently dropping its field
+   * mappings/tag routing. Instead, prefer the most specific matching filter.
+   */
+  findMatchingSubscription(topic) {
+    const exact = this.subscriptions.get(topic);
+    if (exact) return exact;
+
+    let best = null;
+    let bestScore = -1;
+    for (const [pattern, sub] of this.subscriptions.entries()) {
+      if (!this.matchTopic(topic, pattern)) continue;
+      const score = this.topicSpecificityScore(pattern);
+      if (score > bestScore) {
+        bestScore = score;
+        best = sub;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Score a topic filter's specificity. Literal segments score highest,
+   * single-level wildcards ('+') score lower, and the multi-level wildcard
+   * ('#') scores lowest - so more specific filters always outrank broader
+   * catch-all filters regardless of subscription order.
+   */
+  topicSpecificityScore(pattern) {
+    let score = 0;
+    for (const seg of pattern.split('/')) {
+      if (seg === '#') score += 1;
+      else if (seg === '+') score += 10;
+      else score += 100;
+    }
+    return score;
   }
 
   /**
