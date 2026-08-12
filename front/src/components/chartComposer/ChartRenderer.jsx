@@ -40,7 +40,11 @@ export function deriveStateBands(tagData, overlay, lastValueBefore, queryStartTi
   // a "gap" (known value, but not matching any active/mapped state — nothing drawn there).
   const resolveStyle = (v) => {
     if (v === undefined) {
-      const u = overlay.unknownStyle || { color: '#666666', opacity: 0.1 };
+      // Opt-in only (default off): most users don't need to distinguish "no data yet" from
+      // "known inactive" — both render as nothing unless explicitly enabled. See
+      // temp/States and Events.md for the reasoning (absence of evidence vs evidence of absence).
+      if (!overlay.unknownStyle?.enabled) return null;
+      const u = overlay.unknownStyle;
       return { isUnknown: true, color: u.color || '#666666', opacity: u.opacity ?? 0.1, label: undefined };
     }
     if (Array.isArray(overlay.valueMap) && overlay.valueMap.length > 0) {
@@ -129,6 +133,36 @@ export function deriveEventMarkers(tagData, overlay, lastValueBefore, queryStart
     prevValue = v;
   }
   return events;
+}
+
+/**
+ * Human-readable duration for state-overlay tooltips (Section 7 — see temp/States and Events.md).
+ * e.g. 90000 -> "1m 30s", 7200000 -> "2h 0m".
+ */
+function formatOverlayDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const totalSec = Math.round(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/**
+ * Pick black or white text so a state-band caption stays readable against its fill color
+ * (see temp/States and Events.md, on-chart label positioning). Standard relative-luminance
+ * threshold, not color-accuracy-critical so a cheap approximation is fine.
+ */
+function getContrastingTextColor(hexColor) {
+  const hex = (hexColor || '').replace('#', '');
+  if (hex.length !== 6) return '#000000';
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? '#000000' : '#ffffff';
 }
 
 const ChartRenderer = React.forwardRef(({ 
@@ -762,6 +796,9 @@ const ChartRenderer = React.forwardRef(({
               verticalPosition: overlay.verticalPosition ?? 0,
               height: overlay.height ?? 100,
               border: overlay.border,
+              showLabel: !!overlay.label?.show,
+              labelText: overlay.label?.text || undefined, // falls back to band.label at render time
+              labelVerticalPosition: overlay.label?.verticalPosition ?? 50,
             });
           });
         });
@@ -1121,9 +1158,10 @@ const ChartRenderer = React.forwardRef(({
             height = coordSys.height;
           }
 
-          return {
+          const rectShape = { x: xStart, y: top, width: Math.max(xEnd - xStart, 0), height };
+          const rect = {
             type: 'rect',
-            shape: { x: xStart, y: top, width: Math.max(xEnd - xStart, 0), height },
+            shape: rectShape,
             style: {
               fill: b.color,
               opacity: b.opacity,
@@ -1132,6 +1170,56 @@ const ChartRenderer = React.forwardRef(({
                 : {})
             },
             silent: true,
+          };
+
+          // On-chart caption (Section 7 label positioning — see temp/States and Events.md,
+          // "option 1: clamp to visible edge"). Skipped for unknown/no-data bands, which have
+          // no meaningful label anyway.
+          const labelText = b.showLabel && !b.isUnknown ? (b.labelText || b.label) : null;
+          if (!labelText) return rect;
+
+          const viewLeft = coordSys.x;
+          const viewRight = coordSys.x + coordSys.width;
+          const visibleLeft = Math.max(xStart, viewLeft);
+          const visibleRight = Math.min(xEnd, viewRight);
+          const visibleWidth = visibleRight - visibleLeft;
+
+          const PADDING = 6;
+          const FONT_SIZE = 12;
+          const MIN_WIDTH_FOR_LABEL = 24; // px — hide the caption on very narrow/just-started bands
+          // Rough width estimate (avoids an expensive text-measure call every frame); if it's
+          // wrong we simply hide the label rather than risk it overflowing the band.
+          const estTextWidth = labelText.length * FONT_SIZE * 0.6;
+
+          if (visibleWidth < MIN_WIDTH_FOR_LABEL || estTextWidth + PADDING * 2 > visibleWidth) {
+            return rect;
+          }
+
+          // Anchored to the visible left edge (clamped), so the caption stays on-screen while
+          // the band's true start has scrolled off — this math keeps it within [xStart, xEnd]
+          // AND within the current viewport without needing canvas-level clipping.
+          const textX = visibleLeft + PADDING;
+          const textY = top + height * (Math.min(Math.max(b.labelVerticalPosition, 0), 100) / 100);
+
+          return {
+            type: 'group',
+            children: [
+              rect,
+              {
+                type: 'text',
+                silent: true,
+                style: {
+                  text: labelText,
+                  x: textX,
+                  y: textY,
+                  fill: getContrastingTextColor(b.color),
+                  fontSize: FONT_SIZE,
+                  fontWeight: 500,
+                  textVerticalAlign: 'middle',
+                  textAlign: 'left',
+                },
+              },
+            ],
           };
         },
         data: stateOverlayBands.map((_, i) => i), // dummy indices; real data read via closure above
@@ -1187,6 +1275,42 @@ const ChartRenderer = React.forwardRef(({
         z: 10, // draw above state-overlay bands and lines
       });
     }
+
+    // Overlay legend proxies. State/event overlays render as ONE combined custom series per
+    // type, so per-overlay names have no real series ECharts can match in legend.data — using
+    // legend.data objects with an itemStyle override doesn't work (ECharts still needs a
+    // series with that name to source the icon color, otherwise it warns "series not exists"
+    // and renders nothing). So add tiny invisible dummy series instead, one per legend entry,
+    // named to match (state overlays with a valueMap get one proxy per enabled mapped value).
+    const overlayLegendIcons = new Map(); // name -> icon shape, used by legend.data below
+    (Array.isArray(overlays) ? overlays : []).forEach(overlay => {
+      if (!overlay || overlay.enabled === false || overlay.showInLegend === false) return;
+      const addProxy = (name, color, icon) => {
+        if (!name) return;
+        overlayLegendIcons.set(name, icon);
+        reorderedSeries.push({
+          name,
+          type: 'line',
+          data: [],
+          showSymbol: false,
+          symbol: 'none',
+          lineStyle: { opacity: 0 },
+          itemStyle: { color },
+          silent: true,
+          legendHoverLink: false,
+          tooltip: { show: false },
+          z: -10,
+        });
+      };
+      if (overlay.type === 'state' && Array.isArray(overlay.valueMap) && overlay.valueMap.length > 0) {
+        overlay.valueMap.forEach(entry => {
+          if (entry.enabled === false) return;
+          addProxy(entry.label, entry.color, 'roundRect');
+        });
+      } else if (overlay.type === 'state' || overlay.type === 'event') {
+        addProxy(overlay.name, overlay.color, overlay.type === 'state' ? 'roundRect' : 'rect');
+      }
+    });
 
     // Calculate grid margins based on axes with offsets
     const leftAxes = yAxisConfig.filter(axis => axis.position === 'left');
@@ -1312,12 +1436,67 @@ const ChartRenderer = React.forwardRef(({
               </div>
             `;
           });
+
+          // States & Events (Section 7 tooltip integration — see temp/States and Events.md).
+          // Independent of the curve loop above since overlays render via combined custom
+          // series with dummy data, not real per-timestamp series data.
+          const activeStateBands = (echartsData.stateOverlayBands || []).filter(
+            b => !b.isUnknown && b.label && b.start <= time && time < b.end
+          );
+          if (activeStateBands.length > 0) {
+            html += `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.15);"></div>`;
+            activeStateBands.forEach(b => {
+              const startStr = new Date(b.start).toLocaleTimeString();
+              const endStr = new Date(b.end).toLocaleTimeString();
+              html += `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: ${b.color}; opacity: ${b.opacity};"></span>
+                  <span><strong>${b.label}</strong> (${startStr}–${endStr}, ${formatOverlayDuration(b.end - b.start)})</span>
+                </div>
+              `;
+            });
+          }
+
+          // Events are instantaneous, so "at the cursor" needs a small tolerance rather than
+          // an exact match — sized relative to the visible time range.
+          const rangeMs = requestedTimeRange
+            ? (new Date(requestedTimeRange.to).getTime() - new Date(requestedTimeRange.from).getTime())
+            : null;
+          const eventTolerance = rangeMs ? Math.max(rangeMs * 0.004, 1000) : 5000;
+          const nearbyEvents = (echartsData.eventOverlayMarkers || [])
+            .filter(m => Math.abs(m.timestamp - time) <= eventTolerance)
+            .sort((a, b) => Math.abs(a.timestamp - time) - Math.abs(b.timestamp - time));
+          if (nearbyEvents.length > 0) {
+            if (activeStateBands.length === 0) {
+              html += `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.15);"></div>`;
+            }
+            nearbyEvents.forEach(m => {
+              const d = new Date(m.timestamp);
+              const tStr = d.toLocaleTimeString();
+              const ms2 = d.getMilliseconds().toString().padStart(3, '0');
+              html += `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="display: inline-block; width: 8px; height: 8px; background: ${m.color}; opacity: ${m.opacity};"></span>
+                  <span><strong>${m.label || 'Event'}</strong> at ${tStr}.${ms2}</span>
+                </div>
+              `;
+            });
+          }
           
           return html;
         }
       },
       legend: {
         show: display.showLegend !== false && !compactMode,
+        // Exclude internal helper series (reference-line dummy series, combined states/events
+        // overlay render series) from the legend — ECharts otherwise auto-populates it from
+        // every series' name, which would surface raw internal names like
+        // "_state_overlay_bands_". Overlay entries themselves come from the invisible proxy
+        // series added above (one per overlay/mapped-value with "Show in legend" enabled),
+        // matched by name so ECharts can source the icon color from itemStyle.
+        data: reorderedSeries
+          .filter(s => !s.name?.startsWith('_'))
+          .map(s => overlayLegendIcons.has(s.name) ? { name: s.name, icon: overlayLegendIcons.get(s.name) } : s.name),
         bottom: 0,
         type: 'scroll',
         formatter: (name) => name,

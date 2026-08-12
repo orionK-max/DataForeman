@@ -711,18 +711,32 @@ export const ChartOptionsSchema = {
           label: {
             type: 'object',
             required: false,
-            description: 'Optional inline label/icon',
+            description: 'Optional inline caption showing the state name on the chart itself ' +
+              '(state overlays only). Text is clamped to stay within the visible viewport as ' +
+              'the band scrolls, and hidden entirely when the band is too narrow to fit it.',
             properties: {
               show: { type: 'boolean', required: false, default: false },
               text: { type: 'string', required: false, maxLength: CHART_LIMITS.MAX_LABEL_LENGTH },
+              verticalPosition: {
+                type: 'number',
+                required: false,
+                min: 0,
+                max: 100,
+                default: 50,
+                description: '% from top of the band\'s own rect (not the whole plot area) — ' +
+                  'lets labels for different/overlapping bands be separated vertically'
+              },
               icon: { type: 'string', required: false }
             }
           },
           unknownStyle: {
             type: 'object',
             required: false,
-            description: 'Style used before the first known value (state overlays only)',
+            description: 'Style used before the first known value (state overlays only). Opt-in ' +
+              '— disabled by default, in which case the no-data period renders as nothing (same ' +
+              'as a known-inactive period), avoiding a confusing unexplained band for most users.',
             properties: {
+              enabled: { type: 'boolean', required: false, default: false },
               color: { type: 'string', required: false, pattern: /^#[0-9a-fA-F]{6}$/, default: '#666666' },
               opacity: { type: 'number', required: false, min: 0, max: 1, default: 0.1 }
             }

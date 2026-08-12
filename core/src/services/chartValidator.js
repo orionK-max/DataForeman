@@ -857,12 +857,13 @@ function validateOverlays(overlays) {
       
       if (overlay.unknownStyle && typeof overlay.unknownStyle === 'object') {
         validOverlay.unknownStyle = {
+          enabled: !!overlay.unknownStyle.enabled,
           color: hexPattern.test(overlay.unknownStyle.color) ? overlay.unknownStyle.color : '#666666',
           opacity: (typeof overlay.unknownStyle.opacity === 'number' && overlay.unknownStyle.opacity >= 0 && overlay.unknownStyle.opacity <= 1)
             ? overlay.unknownStyle.opacity : 0.1
         };
       } else {
-        validOverlay.unknownStyle = { color: '#666666', opacity: 0.1 };
+        validOverlay.unknownStyle = { enabled: false, color: '#666666', opacity: 0.1 };
       }
     } else {
       // Event overlay
@@ -903,6 +904,8 @@ function validateOverlays(overlays) {
       validOverlay.label = {
         show: !!overlay.label.show,
         text: typeof overlay.label.text === 'string' ? overlay.label.text.substring(0, CHART_LIMITS.MAX_LABEL_LENGTH) : '',
+        verticalPosition: (typeof overlay.label.verticalPosition === 'number' && overlay.label.verticalPosition >= 0 && overlay.label.verticalPosition <= 100)
+          ? overlay.label.verticalPosition : 50,
         ...(overlay.label.icon ? { icon: String(overlay.label.icon) } : {})
       };
     }
