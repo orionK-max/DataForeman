@@ -421,7 +421,7 @@ export async function chartComposerRoutes(app) {
                    WHERE ${envelopeWhere.join(' AND ')} AND v_num IS NOT NULL
                  ),
                  min_max AS (
-                   SELECT DISTINCT ON (bucket, extreme) ts, tag_id, v_num, extreme
+                   SELECT DISTINCT ON (bucket, extreme) ts, tag_id, v_num, bucket, extreme
                    FROM (
                      SELECT ts, tag_id, v_num, bucket, 'min' AS extreme,
                             ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC) AS rk
@@ -442,7 +442,7 @@ export async function chartComposerRoutes(app) {
                  ),
                  min_max AS (
                    SELECT DISTINCT ON (bucket, extreme)
-                     ts, connection_id, tag_id, q, v_num, v_text, v_json, extreme
+                     ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket, extreme
                    FROM (
                      SELECT ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket,
                             'min' AS extreme,
