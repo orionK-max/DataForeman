@@ -187,7 +187,7 @@ export async function chartComposerRoutes(app) {
     
     // Implement new semantics for Limit handling
     const noAggregation = req.query.no_aggregation === 'true'; // Smart Compression OFF when true
-    req.log.info({ noAggregation, smartCompressionEnabled: !noAggregation, requestedLimit, query_param: req.query.no_aggregation }, 'Smart Compression mode check');
+    req.log.debug({ noAggregation, smartCompressionEnabled: !noAggregation, requestedLimit, query_param: req.query.no_aggregation }, 'Smart Compression mode check');
     
     // Time range provided
     if (from && to) {
@@ -353,7 +353,7 @@ export async function chartComposerRoutes(app) {
           return { tag_id: tid, weight: fastestMs / ms };
         });
         
-        req.log.info({ weights }, 'Weights calculated');
+        req.log.debug({ weights }, 'Weights calculated');
         
         // Calculate total weight
         const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
@@ -366,14 +366,130 @@ export async function chartComposerRoutes(app) {
         
         // Verify total and adjust if needed (shouldn't exceed but safety check)
         const totalQuota = quotas.reduce((sum, q) => sum + q.quota, 0);
-        req.log.info({ requestedLimit, quotas, totalQuota, numTags: quotas.length }, 'Smart Compression quotas calculated');
+        req.log.debug({ requestedLimit, quotas, totalQuota, numTags: quotas.length }, 'Smart Compression quotas calculated');
         if (totalQuota > requestedLimit) {
           // Scale down proportionally to fit within limit
           const scaleFactor = requestedLimit / totalQuota;
           quotas.forEach(q => {
             q.quota = Math.max(1, Math.floor(q.quota * scaleFactor));
           });
-          req.log.info({ scaleFactor, adjustedQuotas: quotas, newTotal: quotas.reduce((sum, q) => sum + q.quota, 0) }, 'Quotas scaled down to fit limit');
+          req.log.debug({ scaleFactor, adjustedQuotas: quotas, newTotal: quotas.reduce((sum, q) => sum + q.quota, 0) }, 'Quotas scaled down to fit limit');
+        }
+
+        // Live/auto-refresh delta mode (opt-in via since_ts query param).
+        // Instead of recomputing the full min/max envelope over the whole window every tick,
+        // only re-query the bucket(s) that could still change since the last tick: a bucket's
+        // time range must include "now" (i.e. still be within [since_ts, to]) to still be mutable;
+        // once a bucket's range is fully in the past its min/max is settled and never re-sent.
+        // Buckets are anchored to absolute epoch time (not to this request's from/to), so bucket
+        // identity (bucket_id) stays stable across ticks even as the window slides in rolling/shifted
+        // live mode - this is what lets the client merge deltas by id instead of the chart reshuffling.
+        if (req.query.since_ts) {
+          const deltaStarted = Date.now();
+          const fromMs = new Date(from).getTime();
+          const toMs = new Date(to).getTime();
+          const sinceMs = new Date(req.query.since_ts).getTime();
+          const deltaItems = [];
+          const bucketWidthMsByTag = {};
+
+          for (const { tag_id, quota } of quotas) {
+            const bucketsPerTag = Math.max(Math.floor(quota / 2), 1);
+            const bucketWidthMs = (toMs - fromMs) / bucketsPerTag;
+            bucketWidthMsByTag[tag_id] = bucketWidthMs;
+            if (!Number.isFinite(bucketWidthMs) || bucketWidthMs <= 0) continue;
+
+            // Range to re-check: from the start of the bucket containing since_ts (clamped to `from`)
+            // through `to`. On the very first tick of a live session (since_ts <= from) this naturally
+            // spans the whole window, so the same code path serves both the initial fetch and deltas.
+            const openBucketIdx = Math.floor(sinceMs / bucketWidthMs);
+            const rangeStartMs = Math.max(fromMs, openBucketIdx * bucketWidthMs);
+            const rangeStart = new Date(rangeStartMs).toISOString();
+
+            const envelopeWhere = [];
+            const qParams = [];
+            let paramIdx = 1;
+            if (!useSystemMetricsTable && conn_id) { qParams.push(conn_id); envelopeWhere.push(`connection_id = $${paramIdx++}`); }
+            envelopeWhere.push(`tag_id = ${tag_id}`);
+            qParams.push(rangeStart); envelopeWhere.push(`ts >= $${paramIdx++}`);
+            qParams.push(to); envelopeWhere.push(`ts <= $${paramIdx++}`);
+            const bucketExpr = `FLOOR(EXTRACT(EPOCH FROM ts) * 1000 / ${bucketWidthMs})`;
+
+            const dq = useSystemMetricsTable
+              ? `WITH tag_data AS (
+                   SELECT ts, tag_id, v_num, ${bucketExpr} AS bucket
+                   FROM ${tableName}
+                   WHERE ${envelopeWhere.join(' AND ')} AND v_num IS NOT NULL
+                 ),
+                 min_max AS (
+                   SELECT DISTINCT ON (bucket, extreme) ts, tag_id, v_num, extreme
+                   FROM (
+                     SELECT ts, tag_id, v_num, bucket, 'min' AS extreme,
+                            ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC) AS rk
+                     FROM tag_data
+                     UNION ALL
+                     SELECT ts, tag_id, v_num, bucket, 'max' AS extreme,
+                            ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num DESC) AS rk
+                     FROM tag_data
+                   ) sub WHERE rk = 1
+                   ORDER BY bucket, extreme, ts
+                 )
+                 SELECT DISTINCT ts, tag_id, v_num, bucket FROM min_max`
+              : `WITH tag_data AS (
+                   SELECT ts, connection_id, tag_id, quality AS q, v_num, v_text, v_json,
+                          ${bucketExpr} AS bucket
+                   FROM ${tableName}
+                   WHERE ${envelopeWhere.join(' AND ')}
+                 ),
+                 min_max AS (
+                   SELECT DISTINCT ON (bucket, extreme)
+                     ts, connection_id, tag_id, q, v_num, v_text, v_json, extreme
+                   FROM (
+                     SELECT ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket,
+                            'min' AS extreme,
+                            ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num ASC NULLS LAST) AS rk
+                     FROM tag_data
+                     WHERE v_num IS NOT NULL
+                     UNION ALL
+                     SELECT ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket,
+                            'max' AS extreme,
+                            ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v_num DESC NULLS LAST) AS rk
+                     FROM tag_data
+                     WHERE v_num IS NOT NULL
+                   ) sub WHERE rk = 1
+                   ORDER BY bucket, extreme, ts
+                 )
+                 SELECT DISTINCT ts, connection_id, tag_id, q, v_num, v_text, v_json, bucket FROM min_max`;
+
+            const { rows } = await db.query(dq, qParams);
+            for (const r of rows) {
+              deltaItems.push(useSystemMetricsTable
+                ? {
+                    ts: r.ts, conn_id: 'System', tag_id: r.tag_id,
+                    v: r.v_num != null ? Number(r.v_num) : null, q: 192, src_ts: null,
+                    bucket_id: `${tag_id}:${r.bucket}`,
+                  }
+                : {
+                    ts: r.ts, conn_id: r.connection_id, tag_id: r.tag_id,
+                    v: r.v_json != null ? r.v_json : (r.v_num != null ? Number(r.v_num) : (r.v_text != null ? r.v_text : null)),
+                    q: r.q, src_ts: null,
+                    bucket_id: `${tag_id}:${r.bucket}`,
+                  });
+            }
+          }
+
+          try {
+            req.log.debug({ route: 'chart_composer.points.delta', conn_id, tag_ids: tagIdsForQuota, since_ts: req.query.since_ts, from, to, rows: deltaItems.length, ms: Date.now() - deltaStarted }, 'chart_composer points (live delta)');
+          } catch {}
+
+          return {
+            items: deltaItems,
+            delta: true,
+            bucket_width_ms: bucketWidthMsByTag,
+            since_ts: to,
+            limit: requestedLimit,
+            limitHit: false,
+            tagLimitHits: [],
+          };
         }
 
         // Build quotas arrays

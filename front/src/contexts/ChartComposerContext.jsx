@@ -62,7 +62,16 @@ export const ChartComposerProvider = ({ children }) => {
   const [chartHeight, setChartHeight] = useState(720);
   const [originalTimeWindow, setOriginalTimeWindow] = useState(null); // For sliding window in auto-refresh
   const [forecastLiveShiftMs, setForecastLiveShiftMs] = useState(0); // Right-shift for forecast zone in live mode
-  
+
+  // Live/auto-refresh delta state (see temp/mqtt-broker-flapping-fixes-plan.md item #4).
+  // Instead of re-fetching and recomputing the full min/max envelope every tick, we keep a
+  // per-tag map of bucket_id -> point that's incrementally updated from small server "delta"
+  // responses (only the buckets that could still change). This is plain merge/filter bookkeeping,
+  // not recomputation - the server remains the source of truth for bucket assignment.
+  const liveBucketMapRef = React.useRef(new Map()); // tag_id -> Map(bucket_id -> point)
+  const liveBucketWidthRef = React.useRef(new Map()); // tag_id -> bucketWidthMs
+  const liveSinceTsRef = React.useRef(null); // cursor for next delta request
+
   // Time mode state
   const [timeMode, setTimeMode] = useState('fixed');
   const [timeDuration, setTimeDuration] = useState(3600000); // 1 hour in ms
@@ -843,6 +852,21 @@ export const ChartComposerProvider = ({ children }) => {
       if (chartConfig.tagConfigs.length === 0) {
         return;
       }
+
+      // Reset live delta state (bucket maps + since_ts cursor) whenever something that affects
+      // bucket assignment changes - tag selection, compression mode, point budget, or the time
+      // window basis (mode/offset/duration). NOTE: this effect body re-runs every tick (timeRange
+      // is a dependency and is updated each tick for rolling/shifted modes), so we can't just
+      // reset unconditionally at the top - only reset when the actual "session" signature changes,
+      // otherwise every tick would wipe the buckets we're trying to preserve.
+      const allTagIds = chartConfig.tagConfigs.map(tag => tag.tag_id);
+      const liveSessionKey = JSON.stringify([allTagIds, smartCompression, maxDataPoints, timeMode, timeOffset, originalTimeWindow]);
+      if (liveBucketMapRef.current.__sessionKey !== liveSessionKey) {
+        liveBucketMapRef.current = new Map();
+        liveBucketMapRef.current.__sessionKey = liveSessionKey;
+        liveBucketWidthRef.current = new Map();
+        liveSinceTsRef.current = null;
+      }
       
       try {
         // For auto-refresh, use sliding window if originalTimeWindow is set
@@ -870,9 +894,88 @@ export const ChartComposerProvider = ({ children }) => {
           }
           // Fixed mode: don't slide the window — time range is intentionally static
         }
-        
-        // Collect all tag IDs - use same approach as regular query
-        const allTagIds = chartConfig.tagConfigs.map(tag => tag.tag_id);
+
+        // Live delta mode only applies to Smart Compression (envelope) queries - that's the
+        // expensive, reshuffle-prone path. Raw/no-aggregation mode keeps the existing full query.
+        if (smartCompression) {
+          // Defensive guard: if the cursor from a previous tick is somehow at/after the new
+          // window's end (e.g. a fast offset/mode change slipped in before the session-key reset
+          // above took effect), sending it would ask the server for an empty/invalid range and
+          // the chart would go blank. Treat it as a fresh session instead.
+          if (liveSinceTsRef.current && liveSinceTsRef.current >= effectiveTo.toISOString()) {
+            liveBucketMapRef.current = new Map();
+            liveBucketMapRef.current.__sessionKey = liveSessionKey;
+            liveBucketWidthRef.current = new Map();
+            liveSinceTsRef.current = null;
+          }
+
+          const response = await chartComposerService.queryData({
+            tag_ids: allTagIds,
+            from: effectiveFrom.toISOString(),
+            to: effectiveTo.toISOString(),
+            limit: maxDataPoints,
+            no_aggregation: false,
+            since_ts: (liveSinceTsRef.current || effectiveFrom.toISOString()),
+          });
+
+          if (response?.delta) {
+            // Merge the small set of updated buckets into our per-tag bucket maps.
+            const deltaItems = Array.isArray(response.items) ? response.items : [];
+            for (const item of deltaItems) {
+              if (!item.bucket_id) continue;
+              if (!liveBucketMapRef.current.has(item.tag_id)) {
+                liveBucketMapRef.current.set(item.tag_id, new Map());
+              }
+              liveBucketMapRef.current.get(item.tag_id).set(item.bucket_id, item);
+            }
+            if (response.bucket_width_ms && typeof response.bucket_width_ms === 'object') {
+              for (const [tagId, width] of Object.entries(response.bucket_width_ms)) {
+                if (Number.isFinite(width) && width > 0) {
+                  liveBucketWidthRef.current.set(Number(tagId), width);
+                }
+              }
+            }
+            liveSinceTsRef.current = response.since_ts || effectiveTo.toISOString();
+
+            // Evict buckets that have aged out of the visible window (rolling/shifted modes).
+            // This is a plain arithmetic filter (bucket end <= new "from"), not recomputation.
+            const fromMs = effectiveFrom.getTime();
+            const merged = [];
+            for (const [tagId, bucketMap] of liveBucketMapRef.current.entries()) {
+              const width = liveBucketWidthRef.current.get(tagId);
+              for (const [bucketId, point] of bucketMap.entries()) {
+                if (Number.isFinite(width) && width > 0) {
+                  const bucketIdx = Number(String(bucketId).split(':')[1]);
+                  const bucketEndMs = (bucketIdx + 1) * width;
+                  if (bucketEndMs <= fromMs) {
+                    bucketMap.delete(bucketId);
+                    continue;
+                  }
+                }
+                merged.push(point);
+              }
+            }
+            merged.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+            setItems(merged);
+            return;
+          }
+
+          // Server didn't return a delta response (e.g. fell back to non-envelope path) -
+          // fall through to treat it like a regular full response below.
+          const items = Array.isArray(response?.items) ? response.items : [];
+          if (response?.tag_metadata && typeof response.tag_metadata === 'object') {
+            setTagMetadata(response.tag_metadata);
+          } else {
+            setTagMetadata({});
+          }
+          if (response?.last_values_before && typeof response.last_values_before === 'object') {
+            setLastValuesBefore(response.last_values_before);
+          } else {
+            setLastValuesBefore({});
+          }
+          setItems(items);
+          return;
+        }
 
         // Single API call for all tags - same as regular query
         // Backend will auto-detect System tags vs regular tags based on tag_id

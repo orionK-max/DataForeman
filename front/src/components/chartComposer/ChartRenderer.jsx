@@ -1370,11 +1370,12 @@ const ChartRenderer = React.forwardRef(({
 
           const date = new Date(time);
           if (Number.isNaN(date.getTime())) return '';
+          const dateStr = date.toLocaleDateString();
           const timeStr = date.toLocaleTimeString();
           const ms = date.getMilliseconds().toString().padStart(3, '0');
           
           // Display time header
-          let html = `<div style="font-weight: 600; margin-bottom: 4px;">${timeStr}.${ms}</div>`;
+          let html = `<div style="font-weight: 600; margin-bottom: 4px;">${dateStr} ${timeStr}.${ms}</div>`;
           
           // For ALL visible series, compute the value at cursor time matching the series
           // interpolation mode so the tooltip agrees with the drawn line:
@@ -1980,7 +1981,7 @@ const ChartRenderer = React.forwardRef(({
                       fontSize: '0.75rem',
                       whiteSpace: 'nowrap'
                     }}>
-                      {new Date(crosshairPosition.time).toLocaleTimeString()}.{new Date(crosshairPosition.time).getMilliseconds().toString().padStart(3, '0')}
+                      {new Date(crosshairPosition.time).toLocaleDateString()} {new Date(crosshairPosition.time).toLocaleTimeString()}.{new Date(crosshairPosition.time).getMilliseconds().toString().padStart(3, '0')}
                     </Box>
                     
                     {/* Y-axis values labels */}
