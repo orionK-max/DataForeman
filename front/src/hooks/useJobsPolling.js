@@ -42,9 +42,12 @@ export function useJobsPolling(enabled = true, intervalMs = 2000) {
   };
 
   useEffect(() => {
+    // Always fetch once on mount / when re-enabled, regardless of auto-refresh setting -
+    // auto-refresh only controls whether we keep polling afterwards.
+    fetchJobs();
+
     if (!enabled) return;
 
-    fetchJobs();
     const interval = setInterval(fetchJobs, intervalMs);
 
     return () => {

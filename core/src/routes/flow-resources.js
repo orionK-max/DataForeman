@@ -4,8 +4,6 @@
  * API endpoints for tracking and warning about flow resource usage.
  */
 
-import { FlowSession } from '../services/flow-session.js';
-
 export default async function flowResourceRoutes(app, opts) {
   /**
    * GET /api/flows/resources/active
@@ -52,8 +50,9 @@ export default async function flowResourceRoutes(app, opts) {
       );
 
       const flows = result.rows.map(row => {
-        // Get live metrics from in-memory session
-        const session = FlowSession.activeSessions.get(row.flow_id);
+        // Get live metrics synced from the flow executor process (see
+        // temp/mqtt-broker-flapping-fixes-plan.md item #5) instead of an in-process session object.
+        const liveMetrics = app.flowExecutorManager.getMetrics(row.flow_id);
         
         let metrics = {
           scanCount: 0,
@@ -69,11 +68,9 @@ export default async function flowResourceRoutes(app, opts) {
         
         let lastScanAt = row.started_at;
         
-        // Get live metrics from running session
-        if (session && session.scanExecutor) {
-          const liveMetrics = session.scanExecutor.getMetrics();
+        if (liveMetrics) {
           metrics = {
-            scanCount: session.scanExecutor.scanCycle || 0,
+            scanCount: liveMetrics.totalCycles || 0,
             scanEfficiencyPercent: liveMetrics.scanEfficiencyPercent,
             totalCycles: liveMetrics.totalCycles,
             cyclesPerSecond: liveMetrics.cyclesPerSecond,
@@ -198,15 +195,14 @@ export default async function flowResourceRoutes(app, opts) {
       let scanDurationSum = 0;
       let scanDurationCount = 0;
 
-      // Aggregate metrics from in-memory sessions
+      // Aggregate metrics synced from the flow executor process
       for (const row of result.rows) {
-        const session = FlowSession.activeSessions.get(row.flow_id);
-        if (session && session.scanExecutor) {
-          const metrics = session.scanExecutor.getMetrics();
-          totalCpuTimeMs += metrics.cpuTimeMs;
-          totalMemoryPeakMb += metrics.memoryPeakMb;
-          totalMemoryAvgMb += metrics.memoryAvgMb;
-          maxScanDurationMs = Math.max(maxScanDurationMs, metrics.scanDurationMaxMs);
+        const metrics = app.flowExecutorManager.getMetrics(row.flow_id);
+        if (metrics) {
+          totalCpuTimeMs += metrics.cpuTimeMs || 0;
+          totalMemoryPeakMb += metrics.memoryPeakMb || 0;
+          totalMemoryAvgMb += metrics.memoryAvgMb || 0;
+          maxScanDurationMs = Math.max(maxScanDurationMs, metrics.scanDurationMaxMs || 0);
           if (metrics.scanDurationAvgMs > 0) {
             scanDurationSum += metrics.scanDurationAvgMs;
             scanDurationCount++;

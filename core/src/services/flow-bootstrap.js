@@ -30,11 +30,11 @@ export const flowBootstrap = fp(async (app, opts = {}) => {
 
       for (const flow of deployedFlows) {
         try {
-          // Check if there's already an active session in memory
-          // (Unlikely on startup, but good for manual triggers of this function)
-          const { FlowSession } = await import('./flow-session.js');
-          if (FlowSession.activeSessions.has(flow.id)) {
-            log.debug({ flowId: flow.id, flowName: flow.name }, 'Flow already has an active session in memory');
+          // Check if the flow executor process already has an active session for this flow
+          // (sessions live in the forked executor process now, not in core's own memory -
+          // see temp/mqtt-broker-flapping-fixes-plan.md item #5).
+          if (app.flowExecutorManager?.isRunning?.(flow.id)) {
+            log.debug({ flowId: flow.id, flowName: flow.name }, 'Flow already running in executor process');
             continue;
           }
 

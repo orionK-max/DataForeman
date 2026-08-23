@@ -41,6 +41,7 @@ import {
   Chip,
   ButtonGroup,
   Divider,
+  useTheme,
 } from '@mui/material';
 import {
   PlayArrow as RunIcon,
@@ -75,6 +76,7 @@ const FlowEditor = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const theme = useTheme();
   const { setPageTitle, setPageSubtitle } = usePageTitle();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -1860,7 +1862,12 @@ const FlowEditor = () => {
             >
               <Background />
               <Controls />
-              <MiniMap />
+              <MiniMap
+                style={{ backgroundColor: theme.palette.background.paper }}
+                maskColor={theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(240, 240, 240, 0.6)'}
+                nodeColor={theme.palette.mode === 'dark' ? '#555' : '#ccc'}
+                nodeStrokeColor={theme.palette.divider}
+              />
             </ReactFlow>
           </Box>
 

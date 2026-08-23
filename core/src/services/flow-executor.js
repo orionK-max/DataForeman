@@ -533,26 +533,26 @@ export async function executeFlow(context) {
     const useContinuousSession = flow.execution_mode === 'continuous' && (flow.deployed || flow.test_mode);
     
     if (useContinuousSession) {
-      log.info('Starting continuous execution mode with session management');
-      
-      // Create FlowSession for continuous execution
-      const executionContext = { app, flow, execution: null, params: job.params, logBuffer: null, runtimeState: app.runtimeState };
-      const flowSession = new FlowSession(flow, executionContext, ScanExecutor);
+      // Continuous-mode flows run in a dedicated forked process (see
+      // temp/mqtt-broker-flapping-fixes-plan.md item #5) instead of an in-process FlowSession, so
+      // a runaway/slow scan cycle can never block this process's HTTP/chart/broker-probe handling.
+      // ScanExecutor/FlowSession themselves are unchanged - only *where* they run has moved.
+      log.info('Starting continuous execution mode via flow executor process');
       
       try {
-        const sessionId = await flowSession.start();
-        log.info({ sessionId }, 'Flow session started successfully');
+        const result = await app.flowExecutorManager.startFlow(flow);
+        log.info({ sessionId: result?.sessionId }, 'Flow executor started session successfully');
         
-        // Session runs indefinitely until stopped
-        // Complete the job immediately since session is now running in background
+        // Session runs indefinitely (in the executor process) until stopped.
+        // Complete the job immediately since the session is now running in the background.
         await complete(job.id, { 
           success: true, 
           mode: 'continuous', 
-          sessionId,
-          message: 'Flow session started and running' 
+          sessionId: result?.sessionId,
+          message: 'Flow session started and running (executor process)' 
         });
       } catch (error) {
-        log.error({ error }, 'Failed to start flow session');
+        log.error({ error }, 'Failed to start flow in executor process');
         throw error;
       }
       
@@ -853,7 +853,7 @@ export async function executeFlow(context) {
 /**
  * Scan-based executor for continuous flow execution
  */
-class ScanExecutor {
+export class ScanExecutor {
   constructor(flow, context) {
     this.flow = flow;
     this.context = context;
@@ -1319,5 +1319,5 @@ class ScanExecutor {
   }
 }
 
-// Export ScanExecutor for use by FlowSession
-export { ScanExecutor };
+// ScanExecutor is exported directly at its class declaration above (also used by
+// core/src/executor/index.js for the forked flow-execution process).
