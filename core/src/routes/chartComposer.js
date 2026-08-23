@@ -194,6 +194,36 @@ export async function chartComposerRoutes(app) {
       const db = app.tsdb || app.db;
       // Mode A: Smart Compression OFF (and Time Aggregation OFF on UI -> points route)
       if (noAggregation) {
+        // Live/auto-refresh delta mode (opt-in via since_ts). Raw mode has no envelope/bucketing
+        // to worry about - a delta tick is simply "rows newer than since_ts", appended by the
+        // client and trimmed to the visible window. See temp/mqtt-broker-flapping-fixes-plan.md #4.
+        if (req.query.since_ts) {
+          const deltaStarted = Date.now();
+          const numTags = selectedTagIds.length || 1;
+          const perTagQuota = Math.max(1, Math.floor(requestedLimit / numTags));
+          const deltaRows = [];
+          for (const tagId of selectedTagIds) {
+            const tagWhere = [];
+            const tagParams = [];
+            tagParams.push(req.query.since_ts); tagWhere.push(`ts > $${tagParams.length}`);
+            tagParams.push(to); tagWhere.push(`ts <= $${tagParams.length}`);
+            tagParams.push(tagId); tagWhere.push(`tag_id = $${tagParams.length}`);
+            const tagQuery = useSystemMetricsTable
+              ? `SELECT tv.ts, tv.tag_id, tv.v_num FROM ${tableName} tv WHERE ${tagWhere.join(' AND ')} ORDER BY tv.ts ASC LIMIT ${perTagQuota}`
+              : `SELECT tv.ts, tv.connection_id, tv.tag_id, tv.quality as q, tv.v_num, tv.v_text, tv.v_json FROM ${tableName} tv WHERE ${tagWhere.join(' AND ')} ORDER BY tv.ts ASC LIMIT ${perTagQuota}`;
+            const { rows: tagRows } = await db.query(tagQuery, tagParams);
+            deltaRows.push(...tagRows);
+          }
+          const deltaItems = deltaRows.map(r => useSystemMetricsTable
+            ? { ts: r.ts, conn_id: 'System', tag_id: r.tag_id, v: r.v_num != null ? Number(r.v_num) : null, q: 192, src_ts: null }
+            : { ts: r.ts, conn_id: r.connection_id, tag_id: r.tag_id, v: r.v_json != null ? r.v_json : (r.v_num != null ? Number(r.v_num) : (r.v_text != null ? r.v_text : null)), q: r.q, src_ts: null }
+          );
+          try {
+            req.log.debug({ route: 'chart_composer.points.raw_delta', conn_id, tag_ids: selectedTagIds, since_ts: req.query.since_ts, from, to, rows: deltaItems.length, ms: Date.now() - deltaStarted }, 'chart_composer points (raw live delta)');
+          } catch {}
+          return { items: deltaItems, delta: true, since_ts: to, limit: requestedLimit, limitHit: false, tagLimitHits: [] };
+        }
+
         // OPTIMIZED: Use simple subquery per tag instead of expensive window functions
         const numTags = selectedTagIds.length;
         const perTagQuota = numTags > 0 ? Math.floor(requestedLimit / numTags) : requestedLimit;

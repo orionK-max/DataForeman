@@ -71,6 +71,10 @@ export const ChartComposerProvider = ({ children }) => {
   const liveBucketMapRef = React.useRef(new Map()); // tag_id -> Map(bucket_id -> point)
   const liveBucketWidthRef = React.useRef(new Map()); // tag_id -> bucketWidthMs
   const liveSinceTsRef = React.useRef(null); // cursor for next delta request
+  // Raw/no-aggregation live delta state: simpler than the bucketed version above - just a flat
+  // set of already-seen points (keyed by "tag_id:ts") that we append to and evict from.
+  const liveRawItemsRef = React.useRef(new Map()); // key `${tag_id}:${ts}` -> point
+  const liveRawSinceTsRef = React.useRef(null);
 
   // Time mode state
   const [timeMode, setTimeMode] = useState('fixed');
@@ -866,6 +870,8 @@ export const ChartComposerProvider = ({ children }) => {
         liveBucketMapRef.current.__sessionKey = liveSessionKey;
         liveBucketWidthRef.current = new Map();
         liveSinceTsRef.current = null;
+        liveRawItemsRef.current = new Map();
+        liveRawSinceTsRef.current = null;
       }
       
       try {
@@ -977,16 +983,43 @@ export const ChartComposerProvider = ({ children }) => {
           return;
         }
 
-        // Single API call for all tags - same as regular query
-        // Backend will auto-detect System tags vs regular tags based on tag_id
-        // and handle multi-connection queries internally
+        // Raw/no-aggregation live delta: simpler than the bucketed Smart Compression version -
+        // just fetch rows newer than since_ts, append them, and evict anything that aged out of
+        // the visible window. No bucket anchoring needed since there's no envelope to keep stable.
+        if (liveRawSinceTsRef.current && liveRawSinceTsRef.current >= effectiveTo.toISOString()) {
+          liveRawItemsRef.current = new Map();
+          liveRawSinceTsRef.current = null;
+        }
+
         const response = await chartComposerService.queryData({
           tag_ids: allTagIds,
           from: effectiveFrom.toISOString(),
           to: effectiveTo.toISOString(),
           limit: maxDataPoints,
-          no_aggregation: !smartCompression,
+          no_aggregation: true,
+          since_ts: (liveRawSinceTsRef.current || effectiveFrom.toISOString()),
         });
+
+        if (response?.delta) {
+          const deltaItems = Array.isArray(response.items) ? response.items : [];
+          for (const item of deltaItems) {
+            liveRawItemsRef.current.set(`${item.tag_id}:${item.ts}`, item);
+          }
+          liveRawSinceTsRef.current = response.since_ts || effectiveTo.toISOString();
+
+          const fromMs = effectiveFrom.getTime();
+          const merged = [];
+          for (const [key, point] of liveRawItemsRef.current.entries()) {
+            if (new Date(point.ts).getTime() < fromMs) {
+              liveRawItemsRef.current.delete(key);
+              continue;
+            }
+            merged.push(point);
+          }
+          merged.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+          setItems(merged);
+          return;
+        }
 
         // Handle response - same as regular query
         const items = Array.isArray(response?.items) ? response.items : [];
