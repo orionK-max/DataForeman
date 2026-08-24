@@ -71,6 +71,18 @@ export const connectivityService = {
    */
   deleteConnection: (id) => 
     apiClient.post('/connectivity/connections', { op: 'delete', id }),
+
+  /**
+   * Send a control/command RPC to an installable driver connection
+   * (installable-drivers framework, Phase 0). Not used by the 5 built-in drivers,
+   * which keep their own dedicated endpoints (e.g. EIP tag browsing).
+   * @param {string} id - Connection ID
+   * @param {string} method - Driver-specific operation name (e.g. 'set_value')
+   * @param {Object} [params] - Method parameters
+   * @returns {Promise}
+   */
+  driverRpc: (id, method, params = {}) =>
+    apiClient.post(`/connectivity/drivers/${encodeURIComponent(id)}/rpc`, { method, params }),
   
   // ===== Live Config (Runtime) =====
   

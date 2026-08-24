@@ -10,6 +10,8 @@ import { OPCUAServerDriver } from './drivers/opcuaServer.mjs';
 import { S7Driver } from './drivers/s7.mjs';
 import { EIPPyComm3Driver } from './drivers/eip-pycomm3.mjs';
 import { MQTTDriver } from './drivers/mqtt.mjs';
+import { RemoteSidecarDriver } from './drivers/remote-sidecar.mjs';
+import { DriverManager } from './driver-manager.mjs';
 import { DatabaseHelper } from './db-helper.mjs';
 
 // Logger setup - write to both file and stdout (docker logs)
@@ -48,6 +50,8 @@ const connStats = new Map(); // connId -> { wStart: ms, count: number, bytes: nu
 const activeConnectionsByHost = new Map(); // host -> Set<connection_id>
 // Periodic reconciliation interval (ms) for pruning deleted/unsubscribed tags that may linger in drivers
 const TAG_RECONCILE_INTERVAL_MS = parseInt(process.env.TAG_RECONCILE_INTERVAL_MS || '60000', 10);
+// Refresh interval (ms) for the installable driver type registry (installable-drivers framework, Phase 0)
+const DRIVER_TYPES_REFRESH_INTERVAL_MS = parseInt(process.env.DRIVER_TYPES_REFRESH_INTERVAL_MS || '30000', 10);
 let lastTagReconcile = 0;
 
 // Connection tracker functions
@@ -434,6 +438,8 @@ async function handleConfigUpdate(nc, data) {
       await handleS7ConfigUpdate(nc, id, data.conn, existing);
     } else if (data.conn.type === 'mqtt') {
       await handleMQTTConfigUpdate(nc, id, data.conn, existing);
+    } else if (DriverManager.has(data.conn.type)) {
+      await handleRemoteDriverConfigUpdate(nc, id, data.conn, existing);
     } else {
       log.warn({ 
         connectionId: id, 
@@ -441,11 +447,52 @@ async function handleConfigUpdate(nc, data) {
         name: data.conn.name,
         host: data.conn.host,
         port: data.conn.port,
-        supportedTypes: ['eip', 'opcua-client', 'opcua-server', 's7', 'mqtt']
+        supportedTypes: ['eip', 'opcua-client', 'opcua-server', 's7', 'mqtt', ...DriverManager.types()]
       }, 'Unsupported driver type - connection config will be ignored');
     }
   } catch (err) {
     log.error({ connectionId: id, err: String(err?.message || err) }, 'Config update failed');
+    await publishStatus(nc, id, 'error', err.message);
+  }
+}
+
+// Generic handler for any installed driver type routed through the RemoteSidecarDriver
+// proxy (installable-drivers framework, Phase 0). Mirrors the shape of the built-in
+// handlers (e.g. handleMQTTConfigUpdate) so it plugs into the same connections map /
+// status publishing / disconnect lifecycle.
+async function handleRemoteDriverConfigUpdate(nc, id, config, existing) {
+  const driverType = config.type;
+  log.info({ connectionId: id, driverType }, 'Handling installable driver config update');
+
+  try {
+    const entry = DriverManager.get(driverType);
+    if (!entry) {
+      log.warn({ connectionId: id, driverType }, 'Driver type no longer registered - ignoring config update');
+      await publishStatus(nc, id, 'error', `driver type "${driverType}" is not installed/enabled`);
+      return;
+    }
+
+    if (existing) {
+      log.info({ connectionId: id, driverType }, 'Updating existing installable driver connection');
+      await existing.driver.updateConfig(config);
+      connections.set(id, { driver: existing.driver, config });
+      await publishStatus(nc, id, 'connected');
+      return;
+    }
+
+    const driver = new RemoteSidecarDriver({
+      baseUrl: entry.sidecarBaseUrl,
+      connectionId: id,
+      driverType
+    });
+
+    await driver.init(config);
+    await driver.start();
+
+    connections.set(id, { driver, config });
+    await publishStatus(nc, id, 'connected');
+  } catch (err) {
+    log.error({ connectionId: id, driverType, err: String(err?.message || err) }, 'Installable driver config update failed');
     await publishStatus(nc, id, 'error', err.message);
   }
 }
@@ -939,6 +986,9 @@ async function main() {
   await initDatabase();
   log.info('Database initialization completed - proceeding to NATS');
 
+  // Load the installable driver type registry (installable-drivers framework, Phase 0)
+  await DriverManager.refresh(dbHelper);
+
   // NATS connection
   const nc = await connect({ servers: [NATS_URL] });
   natsConnected = true;
@@ -1026,6 +1076,35 @@ async function main() {
       }
     }
   })();
+
+  // Generic RPC forwarding for installable drivers (installable-drivers framework, Phase 0):
+  // df.connectivity.<driverType>.rpc.v1.<connectionId> -> forwarded to the connection's
+  // RemoteSidecarDriver, which POSTs to the sidecar's /rpc endpoint.
+  const subDriverRpc = nc.subscribe('df.connectivity.*.rpc.v1.*');
+  log.info({ subject: 'df.connectivity.*.rpc.v1.*' }, 'Subscribed to installable driver RPC NATS subject');
+  (async () => {
+    for await (const m of subDriverRpc) {
+      const tokens = m.subject.split('.');
+      const connId = tokens[tokens.length - 1];
+      try {
+        const entry = connections.get(connId);
+        if (!entry?.driver?.rpc) {
+          m.respond(sc.encode(JSON.stringify({ error: 'not_found' })));
+          continue;
+        }
+        const { method, params } = JSON.parse(sc.decode(m.data));
+        const result = await entry.driver.rpc(method, params);
+        m.respond(sc.encode(JSON.stringify(result)));
+      } catch (err) {
+        log.warn({ connId, subject: m.subject, err: String(err?.message || err) }, 'Driver RPC forwarding failed');
+        m.respond(sc.encode(JSON.stringify({ error: String(err?.message || err) })));
+      }
+    }
+  })();
+
+  // Periodic refresh of the installable driver type registry, so newly installed/enabled/
+  // disabled driver extensions are picked up without a connectivity restart.
+  setInterval(() => { DriverManager.refresh(dbHelper).catch(() => {}); }, DRIVER_TYPES_REFRESH_INTERVAL_MS);
 
   // Lightweight periodic reconciliation loop (best-effort) to ensure drivers drop deleted/unsubscribed tags.
   setInterval(async () => {

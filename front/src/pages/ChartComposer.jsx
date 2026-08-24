@@ -57,6 +57,10 @@ const ChartComposerContent = () => {
     addReferenceLine,
     updateReferenceLine,
     removeReferenceLine,
+    addOverlay,
+    updateOverlay,
+    removeOverlay,
+    moveOverlay,
     updateGridConfig,
     updateBackgroundConfig,
     updateDisplayConfig,
@@ -623,6 +627,7 @@ const ChartComposerContent = () => {
                   tagConfigs={chartConfig.tagConfigs}
                   axes={chartConfig.axes}
                   referenceLines={chartConfig.referenceLines}
+                  overlays={chartConfig.overlays}
                   grid={chartConfig.grid}
                   background={chartConfig.background}
                   display={chartConfig.display}
@@ -649,6 +654,10 @@ const ChartComposerContent = () => {
                   addReferenceLine={addReferenceLine}
                   updateReferenceLine={updateReferenceLine}
                   removeReferenceLine={removeReferenceLine}
+                  addOverlay={addOverlay}
+                  updateOverlay={updateOverlay}
+                  removeOverlay={removeOverlay}
+                  moveOverlay={moveOverlay}
                   updateGridConfig={updateGridConfig}
                   updateBackgroundConfig={updateBackgroundConfig}
                   updateDisplayConfig={updateDisplayConfig}

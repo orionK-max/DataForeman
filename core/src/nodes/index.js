@@ -23,6 +23,7 @@ import { BooleanLogicNode } from './logic/BooleanLogicNode.js';
 import { SwitchNode } from './logic/SwitchNode.js';
 import { RangeCheckNode } from './logic/RangeCheckNode.js';
 import { MergeNode } from './logic/MergeNode.js';
+import { OneShotNode } from './logic/OneShotNode.js';
 
 // Comparison nodes
 import { ComparisonNode } from './comparison/ComparisonNode.js';
@@ -90,6 +91,7 @@ export async function registerAllNodes(options = {}) {
   NodeRegistry.register('switch', SwitchNode);
   NodeRegistry.register('range-check', RangeCheckNode);
   NodeRegistry.register('merge', MergeNode);
+  NodeRegistry.register('one-shot', OneShotNode);
   
   // Comparison operations
   NodeRegistry.register('comparison', ComparisonNode);

@@ -206,9 +206,9 @@ const BrowserTable = ({
       case 'execution_mode':
         return item.execution_mode ? (
           <Chip 
-            label={item.execution_mode === 'auto' ? 'Auto' : 'Manual'} 
+            label={item.execution_mode === 'continuous' ? 'Continuous' : 'Manual'} 
             size="small"
-            color={item.execution_mode === 'auto' ? 'success' : 'default'}
+            color={item.execution_mode === 'continuous' ? 'success' : 'default'}
             sx={{ height: 20 }}
           />
         ) : null;

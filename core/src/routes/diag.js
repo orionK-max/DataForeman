@@ -210,8 +210,14 @@ export async function diagRoutes(app) {
     try {
       const nanoMqUrl = process.env.NANOMQ_HTTP_URL || 'http://broker:8001';
       const ac = new AbortController();
-      const to = setTimeout(() => ac.abort(), 1500);
-      const res = await fetch(`${nanoMqUrl}/api/v4/clients?page=1&limit=1`, {
+      // 4s — was 1.5s, which was too tight: a single briefly-slow response
+      // (e.g. core's event loop momentarily busy with job execution) would
+      // abort and report the broker as down, only to recover on the very
+      // next poll 15s later, causing the "Broker Unavailable" banner to
+      // flap on/off. mqtt.js's equivalent broker probe already uses a much
+      // more generous 10s timeout for the same underlying call.
+      const to = setTimeout(() => ac.abort(), 4000);
+      const res = await fetch(`${nanoMqUrl}/api/v4/brokers`, {
         signal: ac.signal,
         headers: {
           'Authorization': 'Basic ' + Buffer.from(`${process.env.MQTT_BROKER_HTTP_USER || 'nmqadmin'}:${process.env.MQTT_BROKER_HTTP_PASSWORD || 'nMQ_Adm1n_Ch4ng3_M3_N0w_3f7a9b2c'}`).toString('base64'),

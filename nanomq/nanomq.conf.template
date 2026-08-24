@@ -1,4 +1,9 @@
 # nanoMQ Configuration File
+#
+# This is a TEMPLATE, not the final config. `docker-entrypoint.sh` renders it into
+# /etc/nanomq/nanomq.conf at container start, substituting the placeholders below with
+# values from the MQTT_BROKER_HTTP_PASSWORD / MQTT_WEBHOOK_SECRET environment variables
+# (sourced from .env). Do not put real secrets in this file — it is committed to git.
 
 # MQTT TCP Listener
 mqtt {
@@ -32,28 +37,30 @@ http_server {
     port = 8001
     limit_conn = 32
     username = "nmqadmin"
-    password = "nMQ_Adm1n_Ch4ng3_M3_N0w_3f7a9b2c"
+    password = "__MQTT_BROKER_HTTP_PASSWORD__"
 }
 
-# Async webhook — fires on client connect.
-# NOTE: on_message_publish has been intentionally removed.
-# NanoMQ leaks one internal NNG socket FD per on_message_publish dispatch
-# (webhook_inproc.c). At normal MQTT message rates this exhausts the
-# 65536-FD limit in ~45 hours, causing the HTTP API to become unresponsive
-# and triggering spurious "MQTT Broker Unavailable" banners in the UI.
-# Device last_seen is still updated via on_client_connected below.
-# Per-message topic tracking will be handled via the NATS telemetry stream.
+# Async webhook — fires on client connect and message publish.
+# NanoMQ 0.24.14 fixed the webhook memory (FD) leak that previously caused the
+# HTTP API to become unresponsive after ~45h under load (webhook_inproc.c).
+# Both events are now safe to enable.
+#
+# on_client_connected: last_seen is also updated in /api/mqtt/auth (belt-and-suspenders).
+# on_message_publish: populates mqtt_device_topics for the topic autocomplete UI.
 webhook {
     url = "http://core:3000/api/mqtt/webhook"
     headers.content-type = "application/json"
     headers.connection = "close"
+    # Shared secret so core can verify this call actually came from the broker and not
+    # from an internet client hitting the endpoint directly through front's /api/* proxy.
+    # Must match MQTT_WEBHOOK_SECRET in core's environment (docker-compose.yml / .env).
+    headers.x-nanomq-secret = "__MQTT_WEBHOOK_SECRET__"
     body.encoding = plain
     pool_size = 4
 
     events = [
         {
-            # Fires on successful CONNECT — updates device last_seen
-            event = "on_client_connected"
+            event = "on_message_publish"
         }
     ]
 }

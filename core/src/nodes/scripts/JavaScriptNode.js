@@ -49,6 +49,14 @@ export class JavaScriptNode extends BaseNode {
           canRemove: true,
           type: 'main',
           required: false
+        },
+        outputs: {
+          min: 1,
+          max: 10,
+          default: 1,
+          canAdd: true,
+          canRemove: true,
+          type: 'main'
         }
       }
     ],
@@ -97,9 +105,7 @@ export class JavaScriptNode extends BaseNode {
       ],
       handles: {
         inputs: [],
-        outputs: [
-          { index: 0, position: 'auto', color: 'auto', label: null, visible: true }
-        ],
+        outputs: [], // Dynamic - populated from outputCount (see ioRules)
         size: 12,
         borderWidth: 2,
         borderColor: '#ffffff'
@@ -130,10 +136,10 @@ export class JavaScriptNode extends BaseNode {
         name: 'code',
         displayName: 'JavaScript Code',
         type: 'code',
-        default: '// Write your code here\n// Access first input via $input or $inputs[0]\n// Access all inputs via $inputs (array)\n// Use console.log() for debugging\n\nreturn $input;',
+        default: '// Write your code here\n// Access first input via $input or $inputs[0]\n// Access all inputs via $inputs (array)\n// Use console.log() for debugging\n//\n// Single Output: return a single value, e.g. return $input;\n// Multiple Outputs: return an ARRAY - each item maps to Output 1, Output 2, etc.\n//   return [value1, value2, value3];\n// (returning a plain object instead of an array sends everything to Output 1\n// and leaves the other outputs null)\n\nreturn $input;',
         required: true,
         language: 'javascript',
-        description: 'JavaScript code to execute'
+        description: 'JavaScript code to execute. With a single Output configured, return a single value. With multiple Outputs configured, return an array whose items map to Output 1, Output 2, etc. (e.g. return [voltage, current, power];). Returning a plain object/value when multiple outputs exist sends it all to Output 1 and leaves the rest null.'
       },
       {
         name: 'timeout',
@@ -167,7 +173,7 @@ export class JavaScriptNode extends BaseNode {
           label: 'JavaScript Code',
           language: 'javascript',
           height: 300,
-          defaultValue: '// Write your code here\n// Access first input via $input or $inputs[0]\n// Access all inputs via $inputs (array)\n// Use console.log() for debugging\n\nreturn $input;',
+          defaultValue: '// Write your code here\n// Access first input via $input or $inputs[0]\n// Access all inputs via $inputs (array)\n// Use console.log() for debugging\n//\n// Single Output: return a single value, e.g. return $input;\n// Multiple Outputs: return an ARRAY - each item maps to Output 1, Output 2, etc.\n//   return [value1, value2, value3];\n// (returning a plain object instead of an array sends everything to Output 1\n// and leaves the other outputs null)\n\nreturn $input;',
           autocomplete: [
             {
               label: '$input',
@@ -255,6 +261,13 @@ export class JavaScriptNode extends BaseNode {
   getLogMessages() {
     return {
       info: (result) => {
+        // Multiple outputs: result is an array of { value, quality } aligned to each output port
+        if (Array.isArray(result)) {
+          const preview = result
+            .map((r, i) => `[${i}]=${typeof r?.value === 'object' && r?.value !== null ? JSON.stringify(r.value) : String(r?.value)}`)
+            .join(', ');
+          return `Script returned ${result.length} outputs: ${preview}${result.logs?.length > 0 ? ` (${result.logs.length} console logs)` : ''}`;
+        }
         const resultPreview = typeof result.value === 'object' 
           ? JSON.stringify(result.value).substring(0, 100) 
           : String(result.value);
@@ -307,6 +320,36 @@ export class JavaScriptNode extends BaseNode {
     const { code, timeout = 10000, onError = 'stop' } = node.data || {};
 
     const desiredInputCount = Math.max(1, Math.min(10, Number(node.data?.inputCount ?? 1) || 1));
+    const desiredOutputCount = Math.max(1, Math.min(10, Number(node.data?.outputCount ?? 1) || 1));
+
+    // Build the node's output(s), honoring the configured Output count.
+    // With a single output (the default), this preserves the original { value, quality, ... } shape.
+    // With multiple outputs, the script is expected to `return [value1, value2, ...]` and this produces
+    // an array of { value, quality } objects aligned to output-0, output-1, etc. (routed by flow-executor).
+    const buildOutput = (rawResult, quality, extra = {}) => {
+      if (desiredOutputCount <= 1) {
+        return { value: rawResult, quality, ...extra };
+      }
+
+      const values = Array.isArray(rawResult) ? rawResult : null;
+      if (rawResult !== null && rawResult !== undefined && !values) {
+        log.warn(
+          { outputCount: desiredOutputCount },
+          'Script returned a single value but multiple outputs are configured - wrap values in an array (e.g. return [a, b, c]) to populate all outputs'
+        );
+      }
+
+      const outputArray = Array.from({ length: desiredOutputCount }, (_, i) => {
+        if (values) {
+          return i < values.length ? { value: values[i], quality } : { value: null, quality: 0 };
+        }
+        // Non-array result with multiple outputs configured: route it to output-0 only
+        return i === 0 ? { value: rawResult, quality } : { value: null, quality: 0 };
+      });
+
+      Object.assign(outputArray, extra);
+      return outputArray;
+    };
 
     const resolveInputByHandle = (portName) => {
       // Continuous execution mode: read by portName from InputStateManager
@@ -355,12 +398,7 @@ export class JavaScriptNode extends BaseNode {
     // Check if we have code
     if (!code || code.trim() === '') {
       log.warn('JavaScript node has no code to execute');
-      return {
-        value: null,
-        quality: 0,
-        logs: [],
-        error: 'No code provided'
-      };
+      return buildOutput(null, 0, { logs: [], error: 'No code provided' });
     }
 
     // Get allowed filesystem paths
@@ -393,12 +431,7 @@ export class JavaScriptNode extends BaseNode {
         }
 
         // Continue with null result
-        return {
-          value: null,
-          quality: 0,
-          logs: scriptResult.logs,
-          error: scriptResult.error.message
-        };
+        return buildOutput(null, 0, { logs: scriptResult.logs, error: scriptResult.error.message });
       }
 
       // Success
@@ -407,13 +440,11 @@ export class JavaScriptNode extends BaseNode {
         logs: scriptResult.logs
       }, 'Script executed successfully');
 
-      return {
-        value: scriptResult.result,
-        quality: inputQuality, // Inherit input quality
+      return buildOutput(scriptResult.result, inputQuality, {
         logs: scriptResult.logs,
         executionTime: Date.now() - startTime,
         timestamp: new Date().toISOString()
-      };
+      });
 
     } catch (error) {
       log.error({ error: error.message }, 'Script node execution error');
@@ -424,12 +455,7 @@ export class JavaScriptNode extends BaseNode {
       }
 
       // Return null result if continuing
-      return {
-        value: null,
-        quality: 0,
-        logs: [],
-        error: error.message
-      };
+      return buildOutput(null, 0, { logs: [], error: error.message });
     }
   }
 
@@ -460,15 +486,27 @@ export class JavaScriptNode extends BaseNode {
           config: { code: "const sum = $input.reduce((a,b) => a+b, 0);\nreturn sum / $input.length;" },
           input: { value: [10, 20, 30] },
           output: { value: 20, logs: [] }
+        },
+        {
+          title: "Multiple Outputs (Outputs = 3)",
+          config: { code: "return [voltage, current, power];" },
+          input: { value: null },
+          output: [
+            { value: 242.3, quality: 192 },
+            { value: 0, quality: 192 },
+            { value: 0, quality: 192 }
+          ]
         }
       ],
       tips: [
         "Use $input to access the input value from the connected node",
+        "Use $inputs[i] to access a specific input when multiple Inputs are configured",
         "Access flow context with $flow.getVariable('name') and $flow.setVariable('name', value)",
         "Read tags using $tags.read('connectionName', 'tagPath')",
         "Console.log() output appears in execution logs for debugging",
         "Set timeout to prevent infinite loops (default: 5000ms)",
-        "Return value becomes the node output - can be any JSON-serializable type",
+        "With a single Output configured, the return value becomes the node output - can be any JSON-serializable type",
+        "With multiple Outputs configured, return an ARRAY - e.g. return [value1, value2, value3] - so each item routes to Output 1, Output 2, etc. Returning a plain object/value instead sends it all to Output 1 and leaves the rest null",
         "Use async/await for asynchronous operations",
         "Error handling: 'stop' halts flow, 'continue' passes null and continues"
       ],

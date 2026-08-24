@@ -225,7 +225,7 @@ These are the ports exposed by DataForeman on your host machine:
 
 - **Frontend (Web UI)**: TCP **8080** - Access the web interface
 - **Core API**: TCP **3000** - REST API (localhost only — not exposed externally)
-- **MQTT Broker**: TCP **1883** (MQTT), **8883** (MQTT over TLS), **8081** (WebSocket)
+- **MQTT Broker**: TCP **1883** (MQTT), **8081** (WebSocket)
 - **PostgreSQL**: TCP **5432** - Main database (localhost only)
 - **TimescaleDB**: TCP **5433** - Time-series database (localhost only)
 - **NATS**: TCP **4222** - Message bus (localhost only)
@@ -608,6 +608,8 @@ See `.env.example` for all variables. Key settings:
 - **nats** (nats:2-alpine): Message bus, exposes 4222 (client)
 - **core** (dataforeman-core): API service with integrated telemetry ingestion, exposes 3000
 - **connectivity** (node:22-alpine): Protocol drivers
+- **front** (dataforeman-front): Nginx-served React UI, exposes 8080
+- **broker** (emqx/nanomq): MQTT broker, exposes 1883/8081
 - **rotator** (node:22-alpine): Log rotation daemon
 - **caddy** (caddy:2-alpine): Optional TLS reverse proxy
 
@@ -620,6 +622,8 @@ All components write logs to `./logs/<component>/<component>.current` symlinks. 
 - NATS: `logs/nats/nats.current`
 - Postgres/TSDB: `logs/postgres/*.csv`
 - Connectivity: `logs/connectivity/connectivity.current`
+- Broker: `logs/broker/broker.current`
+- Front: `logs/front/access.log`, `logs/front/error.log`
 - Ops/Rotator: `logs/ops/ops.current`
 
 **View Logs:**

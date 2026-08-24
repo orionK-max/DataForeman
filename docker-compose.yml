@@ -46,14 +46,22 @@ services:
     restart: always
     environment:
       NANOMQ_ALLOW_ANONYMOUS: "false"
+      # Rendered into nanomq.conf by docker-entrypoint.sh at container start — keeps the
+      # real secrets out of the file committed to git. Must match core's env below.
+      MQTT_BROKER_HTTP_PASSWORD: ${MQTT_BROKER_HTTP_PASSWORD:-a51e59fffc618902a60a7fffa729e2037663c31934905ff0}
+      MQTT_WEBHOOK_SECRET: ${MQTT_WEBHOOK_SECRET:-ed81bf13c2455c5f7106582d070449b2bf91baa36fdbcd01}
     ports:
       - "${NANOMQ_MQTT_PORT:-1883}:1883"        # MQTT
-      - "${NANOMQ_MQTTS_PORT:-8883}:8883"       # MQTT over TLS
       - "${NANOMQ_WS_PORT:-8081}:8081"          # WebSocket
       - "127.0.0.1:${NANOMQ_HTTP_PORT:-8001}:8001"  # HTTP API — localhost only
+      # 8883 (MQTT over TLS) intentionally not published — the TLS listener is
+      # disabled in nanomq/nanomq.conf.template, so nothing was ever listening behind
+      # this port; publishing it was dead/misleading attack surface (Finding #5).
     volumes:
       - ./logs/broker:/var/log/broker
-      - ./nanomq/nanomq.conf:/etc/nanomq.conf:ro
+      - ./nanomq/nanomq.conf.template:/etc/nanomq/nanomq.conf.template:ro
+      - ./nanomq/docker-entrypoint.sh:/docker-entrypoint.sh:ro
+    entrypoint: ["sh", "/docker-entrypoint.sh"]
     ulimits:
       nofile:
         soft: 65536
@@ -127,10 +135,18 @@ services:
       MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-20}
       # NanoMQ HTTP API credentials
       MQTT_BROKER_HTTP_USER: ${MQTT_BROKER_HTTP_USER:-nmqadmin}
-      MQTT_BROKER_HTTP_PASSWORD: ${MQTT_BROKER_HTTP_PASSWORD:-nMQ_Adm1n_Ch4ng3_M3_N0w_3f7a9b2c}
+      MQTT_BROKER_HTTP_PASSWORD: ${MQTT_BROKER_HTTP_PASSWORD:-a51e59fffc618902a60a7fffa729e2037663c31934905ff0}
+      # Shared secret for the internal system MQTT connection's superuser bypass in
+      # /api/mqtt/auth — change this in .env for production (do not rely on the default).
+      MQTT_INTERNAL_PASSWORD: ${MQTT_INTERNAL_PASSWORD:-mQi_1nt3rn4l_Ch4ng3_M3_N0w_5f8a2b91c3d4}
+      # Shared secret nanomq.conf sends as the x-nanomq-secret header on /api/mqtt/webhook
+      # and /api/mqtt/acl calls, so core can verify these broker-only endpoints are actually
+      # being called by the broker and not directly from the internet. Must match the
+      # broker's MQTT_WEBHOOK_SECRET below (rendered into nanomq.conf at container start).
+      MQTT_WEBHOOK_SECRET: ${MQTT_WEBHOOK_SECRET:-ed81bf13c2455c5f7106582d070449b2bf91baa36fdbcd01}
       # Forecast service
       FORECAST_SERVICE_URL: ${FORECAST_SERVICE_URL:-http://forecast:8100}
-      APP_VERSION: ${APP_VERSION:-0.7.0}
+      APP_VERSION: ${APP_VERSION:-0.8.0}
       # Compose project file path — used by the library manager to start/stop extension services
       COMPOSE_PROJECT_FILE: ${COMPOSE_PROJECT_FILE:-/app/docker-compose.yml}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-dataforeman}
@@ -161,13 +177,15 @@ services:
       - ./logs/postgres:/var/log/postgresql
       - ./logs/ops:/var/log/ops
       - ./logs/connectivity:/var/log/connectivity
-      - ./logs/front:/var/log/front:ro
+      - ./logs/broker:/var/log/broker
+      - ./logs/front:/var/log/front
       - ./var:/app/var
       - ./ops/logging.components.json:/app/ops/logging.components.json:ro
       - ./logs:/app/logs:ro
       - ./spec/connectivity/schemas:/app/spec/connectivity/schemas:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./.env:/app/.env:ro
 
   connectivity:
     image: ghcr.io/orionk-max/dataforeman-connectivity:latest
@@ -269,6 +287,31 @@ services:
     # Internal only — only core needs to reach it.
     expose:
       - "8100"
+
+  # Tuya smart-device driver sidecar (installable-drivers framework, Phase 1 pilot).
+  # Off by default; enabled via the Library Manager when the "tuya" extension is installed.
+  tuya-driver:
+    image: ghcr.io/orionk-max/dataforeman-tuya-driver:${TUYA_DRIVER_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    profiles: ["tuya"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
+    environment:
+      NATS_URL: "${NATS_URL:-nats://nats:4222}"
+      PGHOST: "${PGHOST:-db}"
+      PGPORT: 5432
+      PGDATABASE: dataforeman
+      PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-dF_Pr0d_P@ssw0rd_Ch4ng3_M3_N0w_7a8f9b2c1d4e5f6a}
+    depends_on:
+      - nats
+      - db
+    # Internal only — only connectivity needs to reach it.
+    expose:
+      - "8200"
 
 volumes:
   db-data:

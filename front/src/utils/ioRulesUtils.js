@@ -120,14 +120,17 @@ export function parseInputConfig(inputsConfig, nodeData) {
     };
   }
   
-  // Handle min/max range
+  // Handle min/max range.
+  // For hybrid format (definitions + dynamic), the range/canAdd values live inside
+  // inputsConfig.dynamic rather than at the top level — fall back to them.
+  const dyn = inputsConfig.dynamic;
   return {
-    min: inputsConfig.min ?? 1,
-    max: inputsConfig.max ?? 10,
-    default: inputsConfig.default ?? (inputsConfig.min || 1),
-    canAdd: inputsConfig.canAdd ?? (inputsConfig.max > inputsConfig.min),
-    canRemove: inputsConfig.canRemove ?? (inputsConfig.max > inputsConfig.min),
-    type: inputsConfig.type || 'main',
+    min: inputsConfig.min ?? dyn?.min ?? 1,
+    max: inputsConfig.max ?? dyn?.max ?? 10,
+    default: inputsConfig.default ?? dyn?.default ?? (inputsConfig.min || 1),
+    canAdd: inputsConfig.canAdd ?? dyn?.canAdd ?? (inputsConfig.max > inputsConfig.min),
+    canRemove: inputsConfig.canRemove ?? dyn?.canRemove ?? (inputsConfig.max > inputsConfig.min),
+    type: inputsConfig.type || dyn?.type || 'main',
     types: inputsConfig.types, // Pass through types array for dynamic typing
     typeFixed: inputsConfig.typeFixed ?? false,
     required: inputsConfig.required ?? true,
@@ -206,8 +209,9 @@ export function generateInputs(metadata, nodeData) {
     })));
   }
   
-  // Mode 2: Homogeneous (or no definitions)
-  if (!config.definitions || config.dynamic) {
+  // Mode 2: Pure homogeneous — no fixed definitions AND no dynamic section.
+  // Hybrid nodes (definitions + dynamic) are handled exclusively by Mode 1 + Mode 3.
+  if (!config.definitions && !config.dynamic) {
     const count = nodeData.inputCount ?? config.default;
     const startIndex = config.definitions ? config.definitions.length : 0;
     
@@ -322,6 +326,27 @@ export function getRequiredInputAdjustment(metadata, nodeData) {
   }
   if (currentCount > config.max) {
     return { inputCount: config.max };
+  }
+  
+  return null;
+}
+
+/**
+ * Check if output count needs adjustment based on ioRule
+ * @param {Object} metadata - Node type metadata
+ * @param {Object} nodeData - Node data
+ * @returns {Object|null} { outputCount: number } if adjustment needed, null otherwise
+ */
+export function getRequiredOutputAdjustment(metadata, nodeData) {
+  const config = getOutputConfig(metadata, nodeData);
+  const currentCount = nodeData.outputCount ?? config.count;
+  
+  // Check if current count is outside allowed range
+  if (config.min !== undefined && currentCount < config.min) {
+    return { outputCount: config.min };
+  }
+  if (config.max !== undefined && currentCount > config.max) {
+    return { outputCount: config.max };
   }
   
   return null;

@@ -8,6 +8,7 @@
     "start": "node src/index.mjs"
   },
   "dependencies": {
+    "acorn": "^8.14.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "nats": "^2.19.0",

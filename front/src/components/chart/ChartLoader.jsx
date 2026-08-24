@@ -71,12 +71,26 @@ const ChartLoader = ({
   const queryDataRef = useRef(null); // Stable reference to queryData function
   const prevOverrideRef = useRef(null); // Track previous override value (start with null to detect initial override)
   const tagMetaCacheRef = useRef(null); // Cache tag metadata — static data, only fetch once per chart load
+
+  // Live/auto-refresh delta state (see temp/mqtt-broker-flapping-fixes-plan.md item #4).
+  // Mirrors the same mechanism in ChartComposerContext.jsx: instead of recomputing the full
+  // min/max envelope every background-refresh tick, keep a per-tag map of bucket_id -> point
+  // that's incrementally updated from small server "delta" responses. Only used for background
+  // (auto-refresh) queries — the initial/manual load keeps the original full query untouched.
+  const liveBucketMapRef = useRef(new Map()); // tag_id -> Map(bucket_id -> point)
+  const liveBucketWidthRef = useRef(new Map()); // tag_id -> bucketWidthMs
+  const liveSinceTsRef = useRef(null); // cursor for next delta request
+  const liveSessionKeyRef = useRef(null); // detects when tag selection / time basis changed
   
   // Load chart configuration
   useEffect(() => {
     let alive = true;
     hasQueriedRef.current = false; // Reset query flag when loading new chart
     tagMetaCacheRef.current = null; // Invalidate tag metadata cache when chart changes
+    liveBucketMapRef.current = new Map(); // Reset live delta state when loading new chart
+    liveBucketWidthRef.current = new Map();
+    liveSinceTsRef.current = null;
+    liveSessionKeyRef.current = null;
 
     (async () => {
       setLoadingChart(true);
@@ -259,24 +273,64 @@ const ChartLoader = ({
         tagsByConnection.get(connId).push(tagId);
       });
 
+      // Reset live delta state whenever the tag selection or time-window basis changes
+      // (same session-key guard as ChartComposerContext.jsx - must NOT reset every tick).
+      if (isBackgroundRefresh) {
+        const sessionKey = JSON.stringify([tagIds.slice().sort((a, b) => a - b), timeMode, timeOffset, timeDuration]);
+        if (liveSessionKeyRef.current !== sessionKey) {
+          liveBucketMapRef.current = new Map();
+          liveBucketWidthRef.current = new Map();
+          liveSinceTsRef.current = null;
+          liveSessionKeyRef.current = sessionKey;
+        }
+        // Defensive guard: if the cursor is at/after the new window's end (e.g. a fast
+        // mode/offset change), sending it would ask for an empty/invalid range.
+        const effectiveToIso = typeof effectiveTimeRange.to === 'string' ? effectiveTimeRange.to : effectiveTimeRange.to.toISOString();
+        if (liveSinceTsRef.current && liveSinceTsRef.current >= effectiveToIso) {
+          liveBucketMapRef.current = new Map();
+          liveBucketWidthRef.current = new Map();
+          liveSinceTsRef.current = null;
+        }
+      }
+
       // Query each connection
       const results = [];
       const lastValsBeforeObj = {};
+      let usedDelta = false;
       
       for (const [connId, tagIds] of tagsByConnection.entries()) {
+        const fromIso = typeof effectiveTimeRange.from === 'string' ? effectiveTimeRange.from : effectiveTimeRange.from.toISOString();
+        const toIso = typeof effectiveTimeRange.to === 'string' ? effectiveTimeRange.to : effectiveTimeRange.to.toISOString();
         const response = await chartComposerService.queryData({
           conn_id: connId,
           tag_ids: tagIds,
-          from: typeof effectiveTimeRange.from === 'string' 
-            ? effectiveTimeRange.from 
-            : effectiveTimeRange.from.toISOString(),
-          to: typeof effectiveTimeRange.to === 'string' 
-            ? effectiveTimeRange.to 
-            : effectiveTimeRange.to.toISOString(),
+          from: fromIso,
+          to: toIso,
           limit: 10000,
+          // Live delta mode: only for background (auto-refresh) queries - the expensive,
+          // reshuffle-prone full envelope recompute is what we're avoiding here.
+          ...(isBackgroundRefresh ? { since_ts: liveSinceTsRef.current || fromIso } : {}),
         });
-        
-        if (response.items) {
+
+        if (isBackgroundRefresh && response?.delta) {
+          usedDelta = true;
+          const deltaItems = Array.isArray(response.items) ? response.items : [];
+          for (const item of deltaItems) {
+            if (!item.bucket_id) continue;
+            if (!liveBucketMapRef.current.has(item.tag_id)) {
+              liveBucketMapRef.current.set(item.tag_id, new Map());
+            }
+            liveBucketMapRef.current.get(item.tag_id).set(item.bucket_id, item);
+          }
+          if (response.bucket_width_ms && typeof response.bucket_width_ms === 'object') {
+            for (const [tagId, width] of Object.entries(response.bucket_width_ms)) {
+              if (Number.isFinite(width) && width > 0) {
+                liveBucketWidthRef.current.set(Number(tagId), width);
+              }
+            }
+          }
+          liveSinceTsRef.current = response.since_ts || toIso;
+        } else if (response.items) {
           results.push(...response.items);
         }
         
@@ -288,6 +342,27 @@ const ChartLoader = ({
         if (response.compression_error) {
           setCompressionError(true);
         }
+      }
+
+      // Flatten merged bucket maps (evicting anything that aged out of the visible window)
+      // into the results array - plain filter/merge, not recomputation.
+      if (usedDelta) {
+        const fromMs = (typeof effectiveTimeRange.from === 'string' ? new Date(effectiveTimeRange.from) : effectiveTimeRange.from).getTime();
+        for (const [tagId, bucketMap] of liveBucketMapRef.current.entries()) {
+          const width = liveBucketWidthRef.current.get(tagId);
+          for (const [bucketId, point] of bucketMap.entries()) {
+            if (Number.isFinite(width) && width > 0) {
+              const bucketIdx = Number(String(bucketId).split(':')[1]);
+              const bucketEndMs = (bucketIdx + 1) * width;
+              if (bucketEndMs <= fromMs) {
+                bucketMap.delete(bucketId);
+                continue;
+              }
+            }
+            results.push(point);
+          }
+        }
+        results.sort((a, b) => new Date(a.ts) - new Date(b.ts));
       }
       
       setLastValuesBefore(lastValsBeforeObj);
@@ -455,6 +530,7 @@ const ChartLoader = ({
       tagConfigs={mappedTagConfigs}
       axes={chartConfig.axes || []}
       referenceLines={chartConfig.referenceLines || []}
+      overlays={chartConfig.overlays || []}
       grid={chartConfig.grid}
       background={chartConfig.background || { color: 'transparent', opacity: 1 }}
       display={chartConfig.display}

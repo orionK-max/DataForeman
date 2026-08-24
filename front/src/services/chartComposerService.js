@@ -67,6 +67,13 @@ export const chartComposerService = {
       queryParams.set('limit', params.limit);
     }
     
+    // Live/auto-refresh delta mode: when set, server only re-queries buckets that
+    // could have changed since this timestamp instead of the full envelope (see
+    // temp/mqtt-broker-flapping-fixes-plan.md item #4).
+    if (params.since_ts) {
+      queryParams.set('since_ts', params.since_ts);
+    }
+    
     // Always send no_aggregation parameter (true or false)
     queryParams.set('no_aggregation', params.no_aggregation ? 'true' : 'false');
     

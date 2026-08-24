@@ -4,6 +4,7 @@
  */
 import mqtt from 'mqtt';
 import sparkplugPayload from 'sparkplug-payload';
+import { evaluateSafeExpression } from '../safe-expression.mjs';
 const { spPayload } = sparkplugPayload;
 
 export class MQTTDriver {
@@ -288,9 +289,7 @@ export class MQTTDriver {
    * Handle raw MQTT message
    */
   handleRawMqttMessage(topic, message) {
-    const sub = this.subscriptions.get(topic) || 
-                Array.from(this.subscriptions.entries())
-                  .find(([pattern]) => this.matchTopic(topic, pattern))?.[1];
+    const sub = this.findMatchingSubscription(topic);
 
     if (!sub) {
       return; // No subscription handler for this topic
@@ -341,11 +340,13 @@ export class MQTTDriver {
             }, 'Extracted field value');
           }
 
-          // For raw (non-JSON) payloads, evaluate value_expression if provided
+          // For raw (non-JSON) payloads, evaluate value_expression if provided.
+          // Uses a restricted, whitelist-based AST evaluator (no access to
+          // globals/require/Function) since this runs unattended on every
+          // matching message — see src/safe-expression.mjs.
           if (mapping.value_expression && typeof payload === 'string') {
             try {
-              // eslint-disable-next-line no-new-func
-              value = new Function('payload', `"use strict"; return (${mapping.value_expression});`)(payload);
+              value = evaluateSafeExpression(mapping.value_expression, { payload });
             } catch (err) {
               this.log.warn({ err, expression: mapping.value_expression, tag_name: mapping.tag_name }, 'Expression evaluation failed');
               value = null;
@@ -714,6 +715,49 @@ export class MQTTDriver {
 
     const encoded = spPayload.encodePayload(payload);
     await this.publish(topic, encoded, { qos: 0, retain: false });
+  }
+
+  /**
+   * Find the subscription whose topic filter best matches the given topic.
+   *
+   * A connection can have multiple overlapping subscriptions (e.g. a broad
+   * catch-all "#" alongside a more specific "turbro/manifold/#"). Picking the
+   * first matching entry in Map iteration (load/insertion) order is unreliable
+   * because a catch-all subscription created earlier would always shadow a
+   * more specific subscription created later - silently dropping its field
+   * mappings/tag routing. Instead, prefer the most specific matching filter.
+   */
+  findMatchingSubscription(topic) {
+    const exact = this.subscriptions.get(topic);
+    if (exact) return exact;
+
+    let best = null;
+    let bestScore = -1;
+    for (const [pattern, sub] of this.subscriptions.entries()) {
+      if (!this.matchTopic(topic, pattern)) continue;
+      const score = this.topicSpecificityScore(pattern);
+      if (score > bestScore) {
+        bestScore = score;
+        best = sub;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Score a topic filter's specificity. Literal segments score highest,
+   * single-level wildcards ('+') score lower, and the multi-level wildcard
+   * ('#') scores lowest - so more specific filters always outrank broader
+   * catch-all filters regardless of subscription order.
+   */
+  topicSpecificityScore(pattern) {
+    let score = 0;
+    for (const seg of pattern.split('/')) {
+      if (seg === '#') score += 1;
+      else if (seg === '+') score += 10;
+      else score += 100;
+    }
+    return score;
   }
 
   /**

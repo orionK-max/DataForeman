@@ -30,7 +30,7 @@ import { useJobsPolling } from '../../hooks/useJobsPolling';
 import { apiClient } from '../../services/api';
 
 export default function JobsTab() {
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [confirmDialog, setConfirmDialog] = useState({ open: false, action: null, jobId: null });
@@ -211,6 +211,11 @@ export default function JobsTab() {
                     </TableCell>
                     <TableCell sx={{ fontSize: '0.75rem' }}>
                       {job.type}
+                      {job.type === 'flow_execution' && job.flow_name && (
+                        <Typography component="span" sx={{ display: 'block', fontSize: '0.6875rem', color: 'text.secondary' }}>
+                          {job.flow_name}
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Chip
@@ -285,6 +290,13 @@ export default function JobsTab() {
                             
                             <Typography fontWeight={600} color="text.primary">Type:</Typography>
                             <Typography color="text.secondary">{job.type}</Typography>
+
+                            {job.type === 'flow_execution' && job.flow_name && (
+                              <>
+                                <Typography fontWeight={600} color="text.primary">Flow:</Typography>
+                                <Typography color="text.secondary">{job.flow_name}</Typography>
+                              </>
+                            )}
                             
                             <Typography fontWeight={600} color="text.primary">Status:</Typography>
                             <Typography color="text.secondary">{job.status}</Typography>

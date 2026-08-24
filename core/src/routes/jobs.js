@@ -23,6 +23,30 @@ export async function jobsRoutes(app) {
     app.log.info({ route: 'GET /jobs', limit }, 'jobs route start');
     try {
       const rows = await app.jobs.list({ limit });
+
+      // Enrich flow_execution jobs with the flow's name so the UI doesn't just show a raw UUID.
+      const flowIds = [...new Set(
+        rows
+          .filter(r => r.type === 'flow_execution' && r.params?.flow_id)
+          .map(r => r.params.flow_id)
+      )];
+      if (flowIds.length > 0) {
+        try {
+          const { rows: flowRows } = await app.db.query(
+            `SELECT id, name FROM flows WHERE id = ANY($1::uuid[])`,
+            [flowIds]
+          );
+          const nameById = new Map(flowRows.map(f => [f.id, f.name]));
+          for (const row of rows) {
+            if (row.type === 'flow_execution' && row.params?.flow_id) {
+              row.flow_name = nameById.get(row.params.flow_id) || null;
+            }
+          }
+        } catch (err) {
+          app.log.warn({ err }, 'Failed to enrich flow_execution jobs with flow names');
+        }
+      }
+
       app.log.debug({ route: 'GET /jobs', count: rows.length }, 'jobs route success');
       return { items: rows };
     } catch (e) {

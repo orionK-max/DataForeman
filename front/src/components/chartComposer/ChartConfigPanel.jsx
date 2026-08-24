@@ -9,6 +9,7 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  InputAdornment,
   Button,
   IconButton,
   Checkbox,
@@ -18,10 +19,19 @@ import {
   Switch,
   Divider,
   ButtonGroup,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Add,
   Delete,
+  KeyboardArrowUp,
+  KeyboardArrowDown,
+  ExpandMore,
+  ExpandLess,
+  InfoOutlined,
 } from '@mui/icons-material';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
 import ConnectionSelector from './ConnectionSelector';
@@ -29,7 +39,12 @@ import QueryControls from './QueryControls';
 import PluginRegistry from '../../utils/PluginRegistry.js';
 import { loadExtensionComponent } from '../../utils/ExtensionLoader.js';
 
-const CORE_TABS = ['Query List', 'Series', 'Display', 'Axes & Scaling', 'References'];
+const CORE_TABS = ['Query List', 'Series', 'States & Events', 'Display', 'Axes & Scaling', 'References'];
+
+// Rising/Falling Edge event triggers are only meaningful for booleans (0↔nonzero transition) —
+// driver-reported data_type strings vary ('BOOL', 'Boolean', 'boolean'), so match loosely.
+// See temp/States and Events.md.
+const isBooleanDataType = (dataType) => typeof dataType === 'string' && /^bool/i.test(dataType.trim());
 
 const ChartConfigPanel = ({ 
   compact = false,
@@ -44,6 +59,10 @@ const ChartConfigPanel = ({
   onAddReferenceLine: propAddReferenceLine = null,
   onUpdateReferenceLine: propUpdateReferenceLine = null,
   onRemoveReferenceLine: propRemoveReferenceLine = null,
+  onAddOverlay: propAddOverlay = null,
+  onUpdateOverlay: propUpdateOverlay = null,
+  onRemoveOverlay: propRemoveOverlay = null,
+  onMoveOverlay: propMoveOverlay = null,
   onUpdateGridConfig: propUpdateGridConfig = null,
   onUpdateBackgroundConfig: propUpdateBackgroundConfig = null,
   onUpdateDisplayConfig: propUpdateDisplayConfig = null,
@@ -67,6 +86,10 @@ const ChartConfigPanel = ({
   const addReferenceLine = propAddReferenceLine || contextValues?.addReferenceLine;
   const updateReferenceLine = propUpdateReferenceLine || contextValues?.updateReferenceLine;
   const removeReferenceLine = propRemoveReferenceLine || contextValues?.removeReferenceLine;
+  const addOverlay = propAddOverlay || contextValues?.addOverlay;
+  const updateOverlay = propUpdateOverlay || contextValues?.updateOverlay;
+  const removeOverlay = propRemoveOverlay || contextValues?.removeOverlay;
+  const moveOverlay = propMoveOverlay || contextValues?.moveOverlay;
   const updateGridConfig = propUpdateGridConfig || contextValues?.updateGridConfig;
   const updateBackgroundConfig = propUpdateBackgroundConfig || contextValues?.updateBackgroundConfig;
   const updateDisplayConfig = propUpdateDisplayConfig || contextValues?.updateDisplayConfig;
@@ -134,6 +157,13 @@ const ChartConfigPanel = ({
   // Generate a unique ID
   const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+  // Normalize any legacy/free-form dash pattern down to one of the three supported grid-line styles
+  const normalizeGridDashStyle = (dash) => {
+    if (dash === 'dashed' || dash === '4 4' || dash === '8 4') return 'dashed';
+    if (dash === 'dotted' || dash === '2 2') return 'dotted';
+    return 'solid';
+  };
+
   const handleAddAxis = () => {
     const newId = generateId();
     const axesCount = chartConfig.axes.length;
@@ -157,6 +187,62 @@ const ChartConfigPanel = ({
       lineStyle: '8 4',
       yAxisId: firstAxisId,
     });
+  };
+
+  // States & Events overlays (see temp/States and Events.md) — type is fixed at creation
+  // since state/event fields don't overlap; row 0 tag is used as a sensible default source.
+  const [expandedOverlayId, setExpandedOverlayId] = useState(null);
+  const [statesEventsHelpOpen, setStatesEventsHelpOpen] = useState(false);
+  const overlayColorPalette = ['#ff9800', '#2196f3', '#4caf50', '#e91e63', '#9c27b0', '#00bcd4'];
+
+  const handleAddStateOverlay = () => {
+    const newId = generateId();
+    const overlaysCount = (chartConfig.overlays || []).length;
+    const defaultTagId = chartConfig.tagConfigs?.[0]?.tag_id ?? null;
+    addOverlay({
+      id: newId,
+      name: `State ${overlaysCount + 1}`,
+      enabled: true,
+      type: 'state',
+      sourceTagId: defaultTagId,
+      showInLegend: true,
+      activeValue: 1,
+      displayPreset: 'fullBand',
+      color: overlayColorPalette[overlaysCount % overlayColorPalette.length],
+      opacity: 0.25,
+      verticalPosition: 0,
+      height: 100,
+      unknownStyle: { enabled: false, color: '#666666', opacity: 0.1 },
+    });
+    setExpandedOverlayId(newId);
+  };
+
+  const handleAddEventOverlay = () => {
+    const newId = generateId();
+    const overlaysCount = (chartConfig.overlays || []).length;
+    const defaultTag = chartConfig.tagConfigs?.[0] ?? null;
+    const defaultTagId = defaultTag?.tag_id ?? null;
+    // Rising Edge only makes sense for a boolean source — default to Specific Value otherwise
+    // so a freshly-added event overlay doesn't start on a trigger that will never fire.
+    const isBool = isBooleanDataType(defaultTag?.data_type);
+    addOverlay({
+      id: newId,
+      name: `Event ${overlaysCount + 1}`,
+      enabled: true,
+      type: 'event',
+      sourceTagId: defaultTagId,
+      showInLegend: true,
+      trigger: isBool ? 'risingEdge' : 'specificValue',
+      ...(isBool ? {} : { triggerValue: 1 }),
+      displayPreset: 'fullHeight',
+      color: overlayColorPalette[overlaysCount % overlayColorPalette.length],
+      opacity: 1,
+      alignment: 'left',
+      widthPx: 6,
+      heightPct: 100,
+      verticalPosition: 0,
+    });
+    setExpandedOverlayId(newId);
   };
 
   const interpolationOptions = [
@@ -451,7 +537,738 @@ const ChartConfigPanel = ({
           </Box>
         );
 
-      case 2: // Display
+      case 2: { // States & Events
+        // Small percentage entry field (replaces sliders for opacity/position/height —
+        // saves vertical space in the Advanced panel; see temp/States and Events.md).
+        const renderPercentField = (label, value, onChange, opts = {}) => (
+          <Box>
+            {label && <Typography variant="caption" sx={{ fontSize: '0.6875rem', display: 'block' }}>{label}</Typography>}
+            <TextField
+              value={value}
+              onChange={(e) => {
+                const n = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                onChange(n);
+              }}
+              size="small"
+              type="number"
+              disabled={opts.disabled}
+              title={opts.title}
+              InputProps={{
+                endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                inputProps: { min: 0, max: 100 }
+              }}
+              sx={{ width: opts.width || 100, '& .MuiInputBase-root': { fontSize: '0.75rem', height: 28 } }}
+            />
+          </Box>
+        );
+
+        // Same label-above visual rhythm as renderPercentField, for non-percent fields (Active
+        // Value, Trigger Value, Width px, Border Width) — keeps every field in the Advanced
+        // panel the same height so rows line up instead of drifting (MUI's built-in floating
+        // `label` prop renders at a different height than the Typography-above pattern).
+        const renderTextField = (label, value, onChange, opts = {}) => (
+          <Box>
+            {label && <Typography variant="caption" sx={{ fontSize: '0.6875rem', display: 'block' }}>{label}</Typography>}
+            <TextField
+              value={value}
+              onChange={onChange}
+              size="small"
+              disabled={opts.disabled}
+              title={opts.title}
+              InputProps={opts.suffix ? { endAdornment: <InputAdornment position="end">{opts.suffix}</InputAdornment> } : undefined}
+              sx={{ width: opts.width || 100, '& .MuiInputBase-root': { fontSize: '0.75rem', height: 28 } }}
+            />
+          </Box>
+        );
+
+        // Top/Bottom anchor selector for customBand (state) / customBar (event) positioning —
+        // avoids having to recompute "Vertical Position" whenever "Height" changes just to keep
+        // a bar flush against the bottom axis (see temp/States and Events.md).
+        const renderAnchorSelect = (value, onChange) => (
+          <Box>
+            <Typography variant="caption" sx={{ fontSize: '0.6875rem', display: 'block' }}>Anchor</Typography>
+            <Select
+              value={value || 'top'}
+              onChange={(e) => onChange(e.target.value)}
+              size="small"
+              sx={{ width: 90, fontSize: '0.75rem', height: 28, '& .MuiSelect-select': { fontSize: '0.75rem', py: 0.5, px: 1 } }}
+            >
+              <MenuItem value="top" sx={{ fontSize: '0.75rem' }}>Top</MenuItem>
+              <MenuItem value="bottom" sx={{ fontSize: '0.75rem' }}>Bottom</MenuItem>
+            </Select>
+          </Box>
+        );
+
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Button
+                onClick={handleAddStateOverlay}
+                variant="contained"
+                size="small"
+                startIcon={<Add />}
+                title="For a value that stays active over a time interval (e.g. AC On, Heating, a process stage) — draws a filled band spanning the real start/end duration."
+                sx={{ alignSelf: 'flex-start', mb: 0.5 }}
+              >
+                Add State
+              </Button>
+              <Button
+                onClick={handleAddEventOverlay}
+                variant="outlined"
+                size="small"
+                startIcon={<Add />}
+                title="For an instantaneous occurrence (e.g. Motion Detected, an alarm, a command) — draws a marker pinned to the exact timestamp, not a duration."
+                sx={{ alignSelf: 'flex-start', mb: 0.5 }}
+              >
+                Add Event
+              </Button>
+              <IconButton
+                size="small"
+                onClick={() => setStatesEventsHelpOpen(true)}
+                title="What's the difference between States and Events?"
+                sx={{ mb: 0.5 }}
+              >
+                <InfoOutlined fontSize="small" />
+              </IconButton>
+            </Box>
+
+            <Dialog open={statesEventsHelpOpen} onClose={() => setStatesEventsHelpOpen(false)} maxWidth="sm" fullWidth>
+              <DialogTitle sx={{ fontSize: '1rem' }}>States & Events</DialogTitle>
+              <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>State vs. Event</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>State</strong> is for a value that stays active over a time interval (e.g. AC On,
+                    Heating) — it draws a continuous filled band spanning the real start/end duration.{' '}
+                    <strong>Event</strong> is for an instantaneous occurrence (e.g. Motion Detected, an alarm) —
+                    it draws a marker pinned to one exact timestamp, never a filled duration.
+                  </Typography>
+                </Box>
+
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>Exact match only</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Both State and Event match values exactly (=) — there's no {'>'}, {'<'}, {'>='}, or {'<='}
+                    {' '}comparator here. If you need a state or event derived from crossing a threshold on an
+                    analog value, build that logic in a Flow (e.g. a Compare/Threshold node) and map the
+                    resulting tag here instead.
+                  </Typography>
+                </Box>
+
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>Multi-state mapping (State only)</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Instead of one "Active Value", map several discrete values to their own label and color —
+                    e.g. a process-stage code: 1=Heating, 2=Cooling, 3=Idle.
+                  </Typography>
+                </Box>
+
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>Event triggers</Typography>
+                  <Typography variant="body2" color="text.secondary" component="div">
+                    <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                      <li><strong>Every Sample</strong> — a marker at every sample, any value.</li>
+                      <li><strong>Rising Edge</strong> / <strong>Falling Edge</strong> — a marker only at the
+                        false→true / true→false transition. Boolean tags only.</li>
+                      <li><strong>Either Edge</strong> — a marker whenever the value changes at all.</li>
+                      <li><strong>Specific Value</strong> — a marker at every sample matching one exact value
+                        (a filtered subset of Every Sample — e.g. only the "true" samples).</li>
+                    </Box>
+                    None of these merge consecutive matches into a continuous highlight — that's what State
+                    is for.
+                  </Typography>
+                </Box>
+
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>"Show no-data period" (State only)</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Off by default. A known-inactive stretch (a real sample says the state was off) always
+                    renders as nothing. This toggle instead distinguishes "no data yet" (before this tag's
+                    first known reading) from "known inactive" — useful mainly for compliance/incident-review
+                    contexts; most charts don't need it.
+                  </Typography>
+                </Box>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setStatesEventsHelpOpen(false)} size="small">Close</Button>
+              </DialogActions>
+            </Dialog>
+
+            {(!chartConfig.overlays || chartConfig.overlays.length === 0) ? (
+              <Box sx={{
+                p: 4,
+                textAlign: 'center',
+                bgcolor: 'action.hover',
+                borderRadius: 1,
+                border: '1px dashed',
+                borderColor: 'divider'
+              }}>
+                <Typography variant="body2" color="text.secondary">
+                  No state or event overlays configured
+                </Typography>
+              </Box>
+            ) : (
+              <>
+                {/* Table Header */}
+                <Box sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '36px 28px 120px 56px 140px 44px 32px',
+                  gap: 1,
+                  alignItems: 'center',
+                  px: 1.5,
+                  py: 0.75,
+                  bgcolor: 'action.hover',
+                  borderRadius: 1
+                }}>
+                  <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.6875rem', color: 'text.secondary' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.6875rem', color: 'text.secondary' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.6875rem', color: 'text.secondary' }}>
+                    Name
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.6875rem', color: 'text.secondary', textAlign: 'center' }}>
+                    Type
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.6875rem', color: 'text.secondary' }}>
+                    Source Tag
+                  </Typography>
+                  <Typography variant="caption" />
+                  <Typography variant="caption" />
+                </Box>
+
+                {chartConfig.overlays.map((overlay, idx) => {
+                  const isState = overlay.type === 'state';
+                  const isExpanded = expandedOverlayId === overlay.id;
+                  const presetOptions = isState
+                    ? [{ value: 'fullBand', label: 'Full Band' }, { value: 'customBand', label: 'Custom Band' }]
+                    : [
+                      { value: 'fullHeight', label: 'Full Height' },
+                      { value: 'bottomBar', label: 'Bottom Bar' },
+                      { value: 'customBar', label: 'Custom Bar' },
+                    ];
+                  const sourceTag = (chartConfig.tagConfigs || []).find(t => t.tag_id === overlay.sourceTagId);
+                  const sourceTagMissing = overlay.sourceTagId != null && !sourceTag;
+                  const isBooleanSourceTag = isBooleanDataType(sourceTag?.data_type);
+
+                  return (
+                    <Box
+                      key={overlay.id}
+                      sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        bgcolor: 'background.paper',
+                        borderRadius: 1,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderLeft: isExpanded ? `3px solid ${overlay.color || '#3b82f6'}` : '1px solid',
+                        borderLeftColor: isExpanded ? (overlay.color || '#3b82f6') : 'divider',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <Box sx={{
+                        display: 'grid',
+                        gridTemplateColumns: '36px 28px 120px 56px 140px 44px 32px',
+                        gap: 1,
+                        alignItems: 'center',
+                        px: 1.5,
+                        py: 1,
+                      }}>
+                        {/* Expand — leftmost and first thing you see, most discoverable spot */}
+                        <IconButton
+                          size="small"
+                          onClick={() => setExpandedOverlayId(isExpanded ? null : overlay.id)}
+                          title={isExpanded ? 'Collapse' : 'Advanced settings'}
+                          sx={{ p: 0.5 }}
+                        >
+                          {isExpanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                        </IconButton>
+
+                        {/* Enabled */}
+                        <Checkbox
+                          checked={overlay.enabled !== false}
+                          onChange={(e) => updateOverlay(overlay.id, 'enabled', e.target.checked)}
+                          size="small"
+                          sx={{ p: 0.5 }}
+                        />
+
+                        {/* Name */}
+                        <TextField
+                          value={overlay.name || ''}
+                          onChange={(e) => updateOverlay(overlay.id, 'name', e.target.value)}
+                          size="small"
+                          placeholder="Name"
+                          sx={{ '& .MuiInputBase-root': { fontSize: '0.75rem', height: 28, px: 0.75 } }}
+                        />
+
+                        {/* Type (fixed at creation) */}
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontSize: '0.6875rem',
+                            fontWeight: 600,
+                            textAlign: 'center',
+                            color: isState ? 'warning.main' : 'info.main',
+                          }}
+                        >
+                          {isState ? 'STATE' : 'EVENT'}
+                        </Typography>
+
+                        {/* Source Tag */}
+                        <Select
+                          value={overlay.sourceTagId ?? ''}
+                          onChange={(e) => {
+                            const newTagId = Number(e.target.value);
+                            updateOverlay(overlay.id, 'sourceTagId', newTagId);
+                            // Reassigning an event overlay off a boolean tag while Rising/Falling
+                            // Edge is selected would leave it on a trigger that never fires again.
+                            if (!isState && (overlay.trigger === 'risingEdge' || overlay.trigger === 'fallingEdge')) {
+                              const newTag = (chartConfig.tagConfigs || []).find(t => t.tag_id === newTagId);
+                              if (!isBooleanDataType(newTag?.data_type)) {
+                                updateOverlay(overlay.id, 'trigger', 'specificValue');
+                                if (overlay.triggerValue === undefined || overlay.triggerValue === null || overlay.triggerValue === '') {
+                                  updateOverlay(overlay.id, 'triggerValue', 1);
+                                }
+                              }
+                            }
+                          }}
+                          size="small"
+                          displayEmpty
+                          error={sourceTagMissing}
+                          title={sourceTag ? (sourceTag.alias || sourceTag.tag_name) : ''}
+                          sx={{ fontSize: '0.75rem', height: 28, '& .MuiSelect-select': { fontSize: '0.75rem', py: 0.5, px: 1 } }}
+                        >
+                          {(chartConfig.tagConfigs || []).length === 0 && (
+                            <MenuItem value="" disabled sx={{ fontSize: '0.75rem' }}>No tags in chart</MenuItem>
+                          )}
+                          {(chartConfig.tagConfigs || []).map(tag => (
+                            <MenuItem key={tag.tag_id} value={tag.tag_id} sx={{ fontSize: '0.75rem' }} title={tag.alias || tag.tag_name}>
+                              {tag.alias || tag.tag_name || `Tag ${tag.tag_id}`}{tag.hidden ? ' (hidden)' : ''}
+                            </MenuItem>
+                          ))}
+                        </Select>
+
+                        {/* Reorder */}
+                        <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                          <IconButton size="small" disabled={idx === 0} onClick={() => moveOverlay(overlay.id, 'up')} sx={{ p: 0 }}>
+                            <KeyboardArrowUp fontSize="small" />
+                          </IconButton>
+                          <IconButton size="small" disabled={idx === chartConfig.overlays.length - 1} onClick={() => moveOverlay(overlay.id, 'down')} sx={{ p: 0 }}>
+                            <KeyboardArrowDown fontSize="small" />
+                          </IconButton>
+                        </Box>
+
+                        {/* Remove */}
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => {
+                            if (expandedOverlayId === overlay.id) setExpandedOverlayId(null);
+                            removeOverlay(overlay.id);
+                          }}
+                          title="Remove overlay"
+                          sx={{ p: 0.5 }}
+                        >
+                          <Delete fontSize="small" />
+                        </IconButton>
+                      </Box>
+
+                      {sourceTagMissing && (
+                        <Typography variant="caption" color="error" sx={{ fontSize: '0.6875rem', px: 1.5, pb: 0.5 }}>
+                          Source tag was removed from the chart — this overlay won't render until reassigned.
+                        </Typography>
+                      )}
+
+                      {isExpanded && (
+                        <Box sx={{
+                          px: 1.5,
+                          py: 1.5,
+                          bgcolor: 'action.hover',
+                          borderTop: '1px solid',
+                          borderColor: 'divider',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 1.5,
+                        }}>
+                          {/* Live preview — larger, separated from the controls, and shaped like the
+                              real overlay (two-segment strip for states, a positioned marker for events) */}
+                          <Box>
+                            <Typography variant="caption" sx={{ fontSize: '0.6875rem', color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                              Preview
+                            </Typography>
+                            {isState ? (
+                              <Box sx={{
+                                display: 'flex',
+                                width: '100%',
+                                height: 36,
+                                borderRadius: 1,
+                                overflow: 'hidden',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                              }}>
+                                {overlay.unknownStyle?.enabled && (
+                                  <Box sx={{
+                                    width: '20%',
+                                    bgcolor: overlay.unknownStyle?.color || '#666666',
+                                    opacity: overlay.unknownStyle?.opacity ?? 0.1,
+                                  }} />
+                                )}
+                                {Array.isArray(overlay.valueMap) && overlay.valueMap.length > 0 ? (
+                                  overlay.valueMap.filter(e => e.enabled !== false).map((entry, mIdx) => (
+                                    <Box key={mIdx} sx={{ flex: 1, bgcolor: entry.color || '#3b82f6', opacity: overlay.opacity ?? 0.25 }} />
+                                  ))
+                                ) : (
+                                  <Box sx={{
+                                    flex: 1,
+                                    bgcolor: overlay.color || '#3b82f6',
+                                    opacity: overlay.opacity ?? 0.25,
+                                    borderLeft: overlay.border?.enabled
+                                      ? `${overlay.border.width || 1}px solid ${overlay.border.color || overlay.color}`
+                                      : 'none',
+                                  }} />
+                                )}
+                              </Box>
+                            ) : (
+                              <Box sx={{
+                                display: 'flex',
+                                justifyContent: overlay.alignment === 'right' ? 'flex-end' : overlay.alignment === 'center' ? 'center' : 'flex-start',
+                                width: '100%',
+                                height: 36,
+                                borderRadius: 1,
+                                bgcolor: 'action.selected',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                px: 0.5,
+                              }}>
+                                <Box sx={{
+                                  width: Math.min(overlay.widthPx ?? 6, 40),
+                                  height: `${overlay.displayPreset === 'bottomBar' ? 30 : (overlay.displayPreset === 'customBar' ? (overlay.heightPct ?? 100) : 100)}%`,
+                                  alignSelf: overlay.displayPreset === 'bottomBar' ? 'flex-end' : 'stretch',
+                                  bgcolor: overlay.color || '#3b82f6',
+                                  opacity: overlay.opacity ?? 1,
+                                }} />
+                              </Box>
+                            )}
+                          </Box>
+
+                          {/* Style — preset + color, moved here from the compact row to reduce clutter there */}
+                          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
+                            <Box>
+                              <Typography variant="caption" sx={{ fontSize: '0.6875rem', display: 'block' }}>Preset</Typography>
+                              <Select
+                                value={overlay.displayPreset || presetOptions[0].value}
+                                onChange={(e) => updateOverlay(overlay.id, 'displayPreset', e.target.value)}
+                                size="small"
+                                sx={{ width: 140, fontSize: '0.75rem', height: 28, '& .MuiSelect-select': { fontSize: '0.75rem', py: 0.5, px: 1 } }}
+                              >
+                                {presetOptions.map(opt => (
+                                  <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.75rem' }}>{opt.label}</MenuItem>
+                                ))}
+                              </Select>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" sx={{ fontSize: '0.6875rem', display: 'block' }}>Color</Typography>
+                              <input
+                                type="color"
+                                value={overlay.color || '#3b82f6'}
+                                onChange={(e) => updateOverlay(overlay.id, 'color', e.target.value)}
+                                style={{ width: 40, height: 28, border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
+                              />
+                            </Box>
+                          </Box>
+
+                          {isState ? (
+                            <>
+                              <FormControlLabel
+                                control={
+                                  <Checkbox
+                                    checked={Array.isArray(overlay.valueMap)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        updateOverlay(overlay.id, 'valueMap', (overlay.valueMap && overlay.valueMap.length > 0)
+                                          ? overlay.valueMap
+                                          : [{ value: 1, label: 'State 1', color: overlay.color || '#3b82f6', enabled: true }]);
+                                      } else {
+                                        updateOverlay(overlay.id, 'valueMap', undefined);
+                                      }
+                                    }}
+                                    size="small"
+                                  />
+                                }
+                                label={<Typography variant="caption" sx={{ fontSize: '0.6875rem' }}>Multi-state mapping</Typography>}
+                                title="Map several discrete values to their own label/color instead of one active value — e.g. a process-stage code: 1=Heating, 2=Cooling, 3=Idle. Values match exactly (=) only; if you need >, <, >=, or <= comparisons, build that logic in a Flow and map the resulting tag here instead."
+                              />
+
+                              {Array.isArray(overlay.valueMap) ? (
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                                  {overlay.valueMap.map((entry, mIdx) => (
+                                    <Box key={mIdx} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                                      <Checkbox
+                                        checked={entry.enabled !== false}
+                                        onChange={(e) => {
+                                          const next = [...overlay.valueMap];
+                                          next[mIdx] = { ...entry, enabled: e.target.checked };
+                                          updateOverlay(overlay.id, 'valueMap', next);
+                                        }}
+                                        size="small"
+                                        sx={{ p: 0.5 }}
+                                      />
+                                      <TextField
+                                        label="Value"
+                                        value={entry.value ?? ''}
+                                        onChange={(e) => {
+                                          const next = [...overlay.valueMap];
+                                          next[mIdx] = { ...entry, value: e.target.value === '' ? '' : (Number(e.target.value) || e.target.value) };
+                                          updateOverlay(overlay.id, 'valueMap', next);
+                                        }}
+                                        size="small"
+                                        sx={{ width: 80, '& .MuiInputBase-root': { fontSize: '0.75rem', height: 28 } }}
+                                      />
+                                      <TextField
+                                        label="Label"
+                                        value={entry.label ?? ''}
+                                        onChange={(e) => {
+                                          const next = [...overlay.valueMap];
+                                          next[mIdx] = { ...entry, label: e.target.value };
+                                          updateOverlay(overlay.id, 'valueMap', next);
+                                        }}
+                                        size="small"
+                                        sx={{ flex: 1, minWidth: 100, '& .MuiInputBase-root': { fontSize: '0.75rem', height: 28 } }}
+                                      />
+                                      <input
+                                        type="color"
+                                        value={entry.color || '#3b82f6'}
+                                        onChange={(e) => {
+                                          const next = [...overlay.valueMap];
+                                          next[mIdx] = { ...entry, color: e.target.value };
+                                          updateOverlay(overlay.id, 'valueMap', next);
+                                        }}
+                                        style={{ width: 32, height: 28, border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
+                                      />
+                                      <IconButton
+                                        size="small"
+                                        color="error"
+                                        onClick={() => {
+                                          const next = overlay.valueMap.filter((_, i) => i !== mIdx);
+                                          updateOverlay(overlay.id, 'valueMap', next.length > 0 ? next : undefined);
+                                        }}
+                                        sx={{ p: 0.5 }}
+                                      >
+                                        <Delete fontSize="small" />
+                                      </IconButton>
+                                    </Box>
+                                  ))}
+                                  <Button
+                                    onClick={() => {
+                                      const nextValue = Math.max(0, ...overlay.valueMap.map(e => Number(e.value) || 0)) + 1;
+                                      updateOverlay(overlay.id, 'valueMap', [
+                                        ...overlay.valueMap,
+                                        { value: nextValue, label: `State ${nextValue}`, color: overlayColorPalette[overlay.valueMap.length % overlayColorPalette.length], enabled: true }
+                                      ]);
+                                    }}
+                                    size="small"
+                                    startIcon={<Add />}
+                                    sx={{ alignSelf: 'flex-start' }}
+                                  >
+                                    Add Value
+                                  </Button>
+                                </Box>
+                              ) : (
+                                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                                  {renderTextField('Active Value', overlay.activeValue ?? '', (e) => updateOverlay(overlay.id, 'activeValue', e.target.value === '' ? '' : Number(e.target.value) || e.target.value), { width: 130, title: "Exact-match value considered 'active' (bool/int/real)." })}
+                                </Box>
+                              )}
+
+                              {overlay.displayPreset === 'customBand' && (
+                                <Box sx={{ display: 'flex', gap: 2 }}>
+                                  {renderAnchorSelect(overlay.positionAnchor, (v) => updateOverlay(overlay.id, 'positionAnchor', v))}
+                                  {renderPercentField(`Vertical Position (from ${overlay.positionAnchor === 'bottom' ? 'bottom' : 'top'})`, overlay.verticalPosition ?? 0, (v) => updateOverlay(overlay.id, 'verticalPosition', v))}
+                                  {renderPercentField('Height', overlay.height ?? 100, (v) => updateOverlay(overlay.id, 'height', v))}
+                                </Box>
+                              )}
+
+                              {renderPercentField('Opacity', Math.round((overlay.opacity ?? 0.25) * 100), (v) => updateOverlay(overlay.id, 'opacity', v / 100))}
+
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox
+                                      checked={overlay.border?.enabled || false}
+                                      onChange={(e) => updateOverlay(overlay.id, 'border', { ...(overlay.border || {}), enabled: e.target.checked })}
+                                      size="small"
+                                    />
+                                  }
+                                  label={<Typography variant="caption" sx={{ fontSize: '0.6875rem' }}>Border</Typography>}
+                                />
+                                {overlay.border?.enabled && (
+                                  <>
+                                    <input
+                                      type="color"
+                                      value={overlay.border?.color || overlay.color || '#3b82f6'}
+                                      onChange={(e) => updateOverlay(overlay.id, 'border', { ...(overlay.border || {}), color: e.target.value })}
+                                      style={{ width: 32, height: 24, border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
+                                    />
+                                    {renderTextField(null, overlay.border?.width ?? 1, (e) => updateOverlay(overlay.id, 'border', { ...(overlay.border || {}), width: Number(e.target.value) || 1 }), { width: 60 })}
+                                  </>
+                                )}
+                              </Box>
+
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox
+                                      checked={overlay.label?.show || false}
+                                      onChange={(e) => updateOverlay(overlay.id, 'label', { ...(overlay.label || {}), show: e.target.checked })}
+                                      size="small"
+                                    />
+                                  }
+                                  label={<Typography variant="caption" sx={{ fontSize: '0.6875rem' }}>Show label on chart</Typography>}
+                                  title="Caption the band with its state name. Clamped to stay on-screen as the band scrolls, and hidden when the band is too narrow to fit it."
+                                />
+                                {overlay.label?.show && (
+                                  <>
+                                    {renderTextField('Text (optional override)', overlay.label?.text ?? '', (e) => updateOverlay(overlay.id, 'label', { ...(overlay.label || {}), text: e.target.value }), { width: 160, title: 'Leave blank to use the state name.' })}
+                                    {renderPercentField('Vertical Position', overlay.label?.verticalPosition ?? 50, (v) => updateOverlay(overlay.id, 'label', { ...(overlay.label || {}), verticalPosition: v }), { title: "% from the top of this band's own rect — use to separate labels of different/overlapping bands." })}
+                                    <FormControlLabel
+                                      control={
+                                        <Checkbox
+                                          checked={!!overlay.label?.textColor}
+                                          onChange={(e) => updateOverlay(overlay.id, 'label', {
+                                            ...(overlay.label || {}),
+                                            textColor: e.target.checked ? (overlay.label?.textColor || '#ffffff') : undefined,
+                                          })}
+                                          size="small"
+                                        />
+                                      }
+                                      label={<Typography variant="caption" sx={{ fontSize: '0.6875rem' }}>Custom text color</Typography>}
+                                      title="Auto black/white contrast is used when off."
+                                    />
+                                    {overlay.label?.textColor && (
+                                      <input
+                                        type="color"
+                                        value={overlay.label.textColor}
+                                        onChange={(e) => updateOverlay(overlay.id, 'label', { ...(overlay.label || {}), textColor: e.target.value })}
+                                        style={{ width: 32, height: 24, border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
+                                      />
+                                    )}
+                                  </>
+                                )}
+                              </Box>
+
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox
+                                      checked={overlay.unknownStyle?.enabled || false}
+                                      onChange={(e) => updateOverlay(overlay.id, 'unknownStyle', { ...(overlay.unknownStyle || {}), enabled: e.target.checked })}
+                                      size="small"
+                                    />
+                                  }
+                                  label={<Typography variant="caption" sx={{ fontSize: '0.6875rem' }}>Show no-data period</Typography>}
+                                  title="Distinguish 'no data yet' from 'known inactive' for the stretch before this tag's first reading. Off by default — most charts don't need this distinction."
+                                />
+                                {overlay.unknownStyle?.enabled && (
+                                  <>
+                                    <input
+                                      type="color"
+                                      value={overlay.unknownStyle?.color || '#666666'}
+                                      onChange={(e) => updateOverlay(overlay.id, 'unknownStyle', { ...(overlay.unknownStyle || {}), color: e.target.value })}
+                                      style={{ width: 32, height: 24, border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
+                                    />
+                                    {renderPercentField(null, Math.round((overlay.unknownStyle?.opacity ?? 0.1) * 100), (v) => updateOverlay(overlay.id, 'unknownStyle', { ...(overlay.unknownStyle || {}), opacity: v / 100 }), { width: 90 })}
+                                  </>
+                                )}
+                              </Box>
+                              {overlay.unknownStyle?.enabled && (
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6875rem', fontStyle: 'italic', mt: -1 }}>
+                                  Used for the period before this tag's first known reading in the chart's time range.
+                                </Typography>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                <Box>
+                                  <Typography variant="caption" sx={{ fontSize: '0.6875rem', display: 'block' }}>Trigger</Typography>
+                                  <Select
+                                    value={overlay.trigger || 'risingEdge'}
+                                    onChange={(e) => updateOverlay(overlay.id, 'trigger', e.target.value)}
+                                    size="small"
+                                    sx={{ width: 150, fontSize: '0.75rem', height: 28, '& .MuiSelect-select': { fontSize: '0.75rem', py: 0.5, px: 1 } }}
+                                  >
+                                    <MenuItem value="everySample" sx={{ fontSize: '0.75rem' }}>Every Sample</MenuItem>
+                                    {/* Rising/Falling Edge are a bool-native 0↔nonzero transition check — hidden for
+                                        int/real tags where they'd almost never fire (see temp/States and Events.md).
+                                        Still rendered if already selected, so reassigning the source tag doesn't
+                                        silently blank the Select. */}
+                                    {(isBooleanSourceTag || overlay.trigger === 'risingEdge') && (
+                                      <MenuItem value="risingEdge" sx={{ fontSize: '0.75rem' }}>Rising Edge</MenuItem>
+                                    )}
+                                    {(isBooleanSourceTag || overlay.trigger === 'fallingEdge') && (
+                                      <MenuItem value="fallingEdge" sx={{ fontSize: '0.75rem' }}>Falling Edge</MenuItem>
+                                    )}
+                                    <MenuItem value="eitherEdge" sx={{ fontSize: '0.75rem' }}>Either Edge</MenuItem>
+                                    <MenuItem value="specificValue" sx={{ fontSize: '0.75rem' }}>Specific Value</MenuItem>
+                                  </Select>
+                                </Box>
+                                {overlay.trigger === 'specificValue' && (
+                                  renderTextField('Trigger Value', overlay.triggerValue ?? '', (e) => updateOverlay(overlay.id, 'triggerValue', e.target.value === '' ? '' : Number(e.target.value) || e.target.value), { width: 120 })
+                                )}
+                                <Box>
+                                  <Typography variant="caption" sx={{ fontSize: '0.6875rem', display: 'block' }}>Alignment</Typography>
+                                  <Select
+                                    value={overlay.alignment || 'left'}
+                                    onChange={(e) => updateOverlay(overlay.id, 'alignment', e.target.value)}
+                                    size="small"
+                                    sx={{ width: 120, fontSize: '0.75rem', height: 28, '& .MuiSelect-select': { fontSize: '0.75rem', py: 0.5, px: 1 } }}
+                                  >
+                                    <MenuItem value="left" sx={{ fontSize: '0.75rem' }}>Left Edge</MenuItem>
+                                    <MenuItem value="center" sx={{ fontSize: '0.75rem' }}>Center</MenuItem>
+                                    <MenuItem value="right" sx={{ fontSize: '0.75rem' }}>Right Edge</MenuItem>
+                                  </Select>
+                                </Box>
+                              </Box>
+                              {!isBooleanSourceTag && (
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6875rem', fontStyle: 'italic', mt: -1 }}>
+                                  Rising/Falling Edge need a boolean tag — not offered for this tag's data type.
+                                </Typography>
+                              )}
+
+                              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                                {renderTextField('Width (px)', overlay.widthPx ?? 6, (e) => updateOverlay(overlay.id, 'widthPx', Math.min(200, Math.max(1, Number(e.target.value) || 1))), { width: 110, title: 'Visual marker width in pixels — not a duration; stays constant while zooming.' })}
+                                {renderPercentField('Height', overlay.heightPct ?? 100, (v) => updateOverlay(overlay.id, 'heightPct', v), { disabled: overlay.displayPreset !== 'customBar' })}
+                                {overlay.displayPreset === 'customBar' && (
+                                  <>
+                                    {renderAnchorSelect(overlay.positionAnchor, (v) => updateOverlay(overlay.id, 'positionAnchor', v))}
+                                    {renderPercentField(`Vertical Position (from ${overlay.positionAnchor === 'bottom' ? 'bottom' : 'top'})`, overlay.verticalPosition ?? 0, (v) => updateOverlay(overlay.id, 'verticalPosition', v))}
+                                  </>
+                                )}
+                              </Box>
+
+                              {renderPercentField('Opacity', Math.round((overlay.opacity ?? 1) * 100), (v) => updateOverlay(overlay.id, 'opacity', v / 100))}
+                            </>
+                          )}
+
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={overlay.showInLegend !== false}
+                                onChange={(e) => updateOverlay(overlay.id, 'showInLegend', e.target.checked)}
+                                size="small"
+                              />
+                            }
+                            label={<Typography variant="caption" sx={{ fontSize: '0.6875rem' }}>Show in legend</Typography>}
+                          />
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                })}
+              </>
+            )}
+          </Box>
+        );
+      }
+
+      case 3: // Display
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             {/* Legend and Tooltip - Outside Table */}
@@ -636,10 +1453,12 @@ const ChartConfigPanel = ({
               />
             </Box>
 
-            {/* Grid Row */}
+            {/* Grid Opacity Row */}
+            {/* Color, thickness and style (dashed/dotted) are configured per-axis and for the
+                X-axis (time) in the "Axes & Scaling" tab. Opacity applies to all grid lines. */}
             <Box sx={{ 
               display: 'grid', 
-              gridTemplateColumns: '150px 60px 60px 140px 120px', 
+              gridTemplateColumns: '150px 1fr', 
               gap: 1, 
               alignItems: 'center',
               px: 1.5,
@@ -654,44 +1473,8 @@ const ChartConfigPanel = ({
               }
             }}>
               <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>
-                Grid
+                Grid Opacity
               </Typography>
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <input
-                  type="color"
-                  value={chartConfig.grid?.color || '#cccccc'}
-                  onChange={(e) => updateGridConfig('color', e.target.value)}
-                  style={{ 
-                    width: 40, 
-                    height: 28, 
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    padding: 0
-                  }}
-                />
-              </Box>
-              <TextField
-                value={chartConfig.grid?.thickness ?? 1}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/[^0-9.]/g, '');
-                  if (val === '') {
-                    updateGridConfig('thickness', 1);
-                  } else {
-                    const num = parseFloat(val);
-                    updateGridConfig('thickness', Math.min(5, Math.max(0.5, num)));
-                  }
-                }}
-                size="small"
-                sx={{ 
-                  '& .MuiInputBase-root': { 
-                    fontSize: '0.75rem',
-                    height: 28,
-                    px: 0.75
-                  },
-                  '& input': { textAlign: 'center' }
-                }}
-              />
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                 <Slider
                   value={chartConfig.grid?.opacity ?? 0.3}
@@ -706,30 +1489,6 @@ const ChartConfigPanel = ({
                   {Math.round((chartConfig.grid?.opacity ?? 0.3) * 100)}%
                 </Typography>
               </Box>
-              <TextField
-                value={chartConfig.grid?.dash || '4 4'}
-                onChange={(e) => updateGridConfig('dash', e.target.value)}
-                onBlur={(e) => {
-                  const val = e.target.value;
-                  const validation = validateDashPattern(val);
-                  if (validation.valid) {
-                    updateGridConfig('dash', validation.value);
-                  } else {
-                    updateGridConfig('dash', chartConfig.grid?.dash || '4 4');
-                  }
-                }}
-                placeholder="e.g., 10 5 or 0 for solid"
-                title="Space-separated numbers 1-100. e.g., '4 4'"
-                size="small"
-                sx={{ 
-                  '& .MuiInputBase-root': { 
-                    fontSize: '0.75rem',
-                    height: 28,
-                    px: 0.75
-                  },
-                  '& input': { textAlign: 'center' }
-                }}
-              />
             </Box>
 
             {/* Background Row */}
@@ -772,11 +1531,12 @@ const ChartConfigPanel = ({
           </Box>
         );
 
-      case 3: // Axes & Scaling
+      case 4: // Axes & Scaling
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ px: 1.5 }}>
               Configure Y axes with custom scaling. Tags are assigned to axes in the Series tab.
+              Grid line color/thickness/style are set per-axis below; overall grid opacity is in the Display tab.
             </Typography>
             
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.5, mb: 0.5 }}>
@@ -830,12 +1590,6 @@ const ChartConfigPanel = ({
               <Box 
                 key={axis.id}
                 sx={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: '180px 100px 160px 70px 100px 80px 60px', 
-                  gap: 1, 
-                  alignItems: 'center',
-                  px: 1.5,
-                  py: 1,
                   bgcolor: 'background.paper',
                   borderRadius: 1,
                   border: '1px solid',
@@ -845,6 +1599,16 @@ const ChartConfigPanel = ({
                     bgcolor: 'action.hover',
                     boxShadow: 1
                   }
+                }}
+              >
+              <Box 
+                sx={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '180px 100px 160px 70px 100px 80px 60px', 
+                  gap: 1, 
+                  alignItems: 'center',
+                  px: 1.5,
+                  py: 1,
                 }}
               >
                 {/* Label */}
@@ -1020,7 +1784,80 @@ const ChartConfigPanel = ({
                   )}
                 </Box>
               </Box>
+
+              <Divider />
+
+              {/* Horizontal Grid Line styling for this axis */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '110px 60px 90px 120px',
+                  gap: 1,
+                  alignItems: 'center',
+                  px: 1.5,
+                  py: 0.75,
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6875rem' }}>
+                  Grid Line (horizontal)
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                  <input
+                    type="color"
+                    value={axis.gridLine?.color || chartConfig.grid?.color || '#cccccc'}
+                    onChange={(e) => updateAxis(axis.id, 'gridLine', { ...(axis.gridLine || {}), color: e.target.value })}
+                    style={{
+                      width: 40,
+                      height: 28,
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  />
+                </Box>
+                <TextField
+                  size="small"
+                  value={axis.gridLine?.thickness ?? chartConfig.grid?.thickness ?? 1}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^0-9.]/g, '');
+                    if (val === '') return;
+                    const num = Math.min(5, Math.max(0, parseFloat(val)));
+                    updateAxis(axis.id, 'gridLine', { ...(axis.gridLine || {}), thickness: num });
+                  }}
+                  placeholder="1"
+                  title="Line thickness (0 - 5). Use 0 to hide this axis's grid line."
+                  sx={{
+                    '& .MuiInputBase-root': {
+                      fontSize: '0.75rem',
+                      height: 28,
+                      px: 0.75
+                    },
+                    '& input': { textAlign: 'center' }
+                  }}
+                />
+                <Select
+                  value={axis.gridLine?.dash || normalizeGridDashStyle(chartConfig.grid?.dash)}
+                  onChange={(e) => updateAxis(axis.id, 'gridLine', { ...(axis.gridLine || {}), dash: e.target.value })}
+                  size="small"
+                  sx={{
+                    fontSize: '0.75rem',
+                    height: 28,
+                    '& .MuiSelect-select': {
+                      fontSize: '0.75rem',
+                      py: 0.5,
+                      px: 1
+                    }
+                  }}
+                >
+                  <MenuItem value="solid" sx={{ fontSize: '0.75rem' }}>Solid</MenuItem>
+                  <MenuItem value="dashed" sx={{ fontSize: '0.75rem' }}>Dashed</MenuItem>
+                  <MenuItem value="dotted" sx={{ fontSize: '0.75rem' }}>Dotted</MenuItem>
+                </Select>
+              </Box>
+              </Box>
             ))}
+
 
             {/* X-Axis Configuration */}
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.5, mt: 3, mb: 0.5 }}>
@@ -1065,11 +1902,83 @@ const ChartConfigPanel = ({
                   Adjust the number of time labels shown on the X-axis
                 </Typography>
               </Box>
+
+              <Divider sx={{ my: 1.5 }} />
+
+              {/* Vertical grid line styling for the time axis */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                  Grid Line (vertical)
+                </Typography>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '60px 90px 120px',
+                    gap: 1,
+                    alignItems: 'center',
+                    px: 1,
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <input
+                      type="color"
+                      value={chartConfig.xAxisGrid?.color || chartConfig.grid?.color || '#cccccc'}
+                      onChange={(e) => updateChartConfig({ xAxisGrid: { ...(chartConfig.xAxisGrid || {}), color: e.target.value } })}
+                      style={{
+                        width: 40,
+                        height: 28,
+                        border: '1px solid #ddd',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        padding: 0
+                      }}
+                    />
+                  </Box>
+                  <TextField
+                    size="small"
+                    value={chartConfig.xAxisGrid?.thickness ?? chartConfig.grid?.thickness ?? 1}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9.]/g, '');
+                      if (val === '') return;
+                      const num = Math.min(5, Math.max(0, parseFloat(val)));
+                      updateChartConfig({ xAxisGrid: { ...(chartConfig.xAxisGrid || {}), thickness: num } });
+                    }}
+                    placeholder="1"
+                    title="Line thickness (0 - 5). Use 0 to hide the vertical grid lines."
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        fontSize: '0.75rem',
+                        height: 28,
+                        px: 0.75
+                      },
+                      '& input': { textAlign: 'center' }
+                    }}
+                  />
+                  <Select
+                    value={chartConfig.xAxisGrid?.dash || normalizeGridDashStyle(chartConfig.grid?.dash)}
+                    onChange={(e) => updateChartConfig({ xAxisGrid: { ...(chartConfig.xAxisGrid || {}), dash: e.target.value } })}
+                    size="small"
+                    sx={{
+                      fontSize: '0.75rem',
+                      height: 28,
+                      '& .MuiSelect-select': {
+                        fontSize: '0.75rem',
+                        py: 0.5,
+                        px: 1
+                      }
+                    }}
+                  >
+                    <MenuItem value="solid" sx={{ fontSize: '0.75rem' }}>Solid</MenuItem>
+                    <MenuItem value="dashed" sx={{ fontSize: '0.75rem' }}>Dashed</MenuItem>
+                    <MenuItem value="dotted" sx={{ fontSize: '0.75rem' }}>Dotted</MenuItem>
+                  </Select>
+                </Box>
+              </Box>
             </Box>
           </Box>
         );
 
-      case 4: // References
+      case 5: // References
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Button 

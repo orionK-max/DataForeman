@@ -8,6 +8,7 @@ class PluginRegistryClass {
   constructor() {
     this._extensions = [];
     this._chartPlugins = new Map(); // id → chart plugin descriptor
+    this._connectivityDriverForms = new Map(); // driverType → connection form descriptor
     this._listeners = new Set();
   }
 
@@ -60,6 +61,31 @@ class PluginRegistryClass {
       }
     }
 
+    // Auto-register connectivity driver connection-forms from uiExtensions
+    // (installable-drivers framework, Phase 0 — see docs/library-system.md)
+    this._connectivityDriverForms.clear();
+    for (const lib of libraries) {
+      if (lib.enabled === false || lib.loaded !== true) continue;
+      for (const ext of (lib.uiExtensions || [])) {
+        if (ext.type !== 'connectivity-driver-form') continue;
+        const cacheParams = new URLSearchParams();
+        if (lib.version) cacheParams.set('v', lib.version);
+        if (lib.updatedAt) cacheParams.set('cb', String(new Date(lib.updatedAt).getTime()));
+        const cacheBuster = cacheParams.size ? `?${cacheParams.toString()}` : '';
+        const formComponentUrl = ext.formComponentUrl
+          ? `/api/extensions/${lib.libraryId}/assets/${ext.formComponentUrl}${cacheBuster}`
+          : null;
+
+        this._connectivityDriverForms.set(ext.driverType, {
+          driverType: ext.driverType,
+          label: ext.label || ext.driverType,
+          formComponentUrl,
+          libraryId: lib.libraryId,
+          libraryVersion: lib.version || null,
+        });
+      }
+    }
+
     this._notify();
   }
 
@@ -69,6 +95,14 @@ class PluginRegistryClass {
    */
   getChartPlugins() {
     return [...this._chartPlugins.values()];
+  }
+
+  /**
+   * Get all registered connectivity driver connection-forms (installable drivers).
+   * @returns {Array<{driverType, label, formComponentUrl, libraryId, libraryVersion}>}
+   */
+  getConnectivityDriverForms() {
+    return [...this._connectivityDriverForms.values()];
   }
 
   /**

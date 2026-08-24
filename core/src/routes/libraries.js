@@ -19,6 +19,11 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const COMPOSE_FILE = process.env.COMPOSE_PROJECT_FILE || path.join(PROJECT_ROOT, 'docker-compose.yml');
 const COMPOSE_PROJECT_NAME = process.env.COMPOSE_PROJECT_NAME || 'dataforeman';
 const EXTENSIONS_ENV_FILE = path.join(PROJECT_ROOT, 'var', 'extensions.env');
+// Main stack .env (DB credentials, ports, etc.). Must be passed alongside
+// EXTENSIONS_ENV_FILE — a lone --env-file replaces (not merges with) Compose's
+// default .env lookup, which would blank out vars like PGPASSWORD for every
+// service and cause Compose to think shared services (db, nats) need recreating.
+const ROOT_ENV_FILE = path.join(PROJECT_ROOT, '.env');
 
 async function readExtensionsEnv() {
   try {
@@ -54,14 +59,27 @@ function getServiceImageTagKey(serviceName) {
   return `${serviceName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_IMAGE_TAG`;
 }
 
+// Defense in depth: LibraryManager.validateManifest() already rejects manifests whose
+// requires.services[].name/.profile contain anything but this charset, but re-check
+// here too since these values end up as command arguments to docker/docker compose.
+const SAFE_IDENTIFIER_RE = /^[a-z0-9-]+$/;
+function assertSafeIdentifier(value, label) {
+  if (typeof value !== 'string' || !SAFE_IDENTIFIER_RE.test(value)) {
+    throw new Error(`Invalid ${label}: must contain only lowercase letters, numbers, and hyphens`);
+  }
+}
+
 async function resolveServiceImageTag(serviceName, preferredTag) {
-  const { exec } = await import('child_process');
+  assertSafeIdentifier(serviceName, 'service name');
+  const { execFile } = await import('child_process');
   const { promisify } = await import('util');
-  const execAsync = promisify(exec);
+  const execFileAsync = promisify(execFile);
   const imageRef = `ghcr.io/orionk-max/dataforeman-${serviceName}:${preferredTag}`;
 
   try {
-    await execAsync(`docker manifest inspect ${imageRef}`);
+    // No shell involved — args are passed directly to the docker binary, so imageRef
+    // cannot be used to inject additional shell commands even if it contained metacharacters.
+    await execFileAsync('docker', ['manifest', 'inspect', imageRef]);
     return preferredTag;
   } catch {
     return 'latest';
@@ -103,28 +121,43 @@ function satisfiesVersion(version, range) {
  * Uses shell-out (same as Diagnostics page service restart).
  */
 async function manageExtensionService(profile, serviceName, action = 'up') {
-  const { exec } = await import('child_process');
-  const { promisify } = await import('util');
-  const execAsync = promisify(exec);
-  // Use docker compose plugin if available, fall back to docker-compose v1
-  const composeCmd = await (async () => {
-    try { await execAsync('docker compose version'); return 'docker compose'; } catch {}
-    try { await execAsync('docker-compose version'); return 'docker-compose'; } catch {}
-    return null;
-  })();
+  assertSafeIdentifier(profile, 'profile');
+  assertSafeIdentifier(serviceName, 'service name');
 
-  if (!composeCmd) {
-    throw new Error('Neither "docker compose" nor "docker-compose" is available');
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const execFileAsync = promisify(execFile);
+
+  // Use docker compose plugin if available, fall back to docker-compose v1.
+  // No shell involved in any of the calls below — all arguments are passed as an
+  // array directly to the binary, so manifest-derived values cannot inject shell commands.
+  let composeBin;
+  let composeBaseArgs;
+  try {
+    await execFileAsync('docker', ['compose', 'version']);
+    composeBin = 'docker';
+    composeBaseArgs = ['compose'];
+  } catch {
+    try {
+      await execFileAsync('docker-compose', ['version']);
+      composeBin = 'docker-compose';
+      composeBaseArgs = [];
+    } catch {
+      throw new Error('Neither "docker compose" nor "docker-compose" is available');
+    }
   }
 
-  const envFileArg = `--env-file ${EXTENSIONS_ENV_FILE}`;
+  // Order matters: later --env-file values win on key conflicts, so load the main
+  // stack .env first and let extensions.env only add/override extension-specific keys.
+  const envFileArgs = ['--env-file', ROOT_ENV_FILE, '--env-file', EXTENSIONS_ENV_FILE];
 
-  let cmd;
   if (action === 'up') {
-    const pullCmd = `${composeCmd} --env-file ${EXTENSIONS_ENV_FILE} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} pull ${serviceName}`;
-    const upCmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} up -d --force-recreate ${serviceName}`;
-    const pullResult = await execAsync(pullCmd);
-    const upResult = await execAsync(upCmd);
+    const baseArgs = [...composeBaseArgs, ...envFileArgs, '-f', COMPOSE_FILE, '-p', COMPOSE_PROJECT_NAME, '--profile', profile];
+    // --no-deps: this only manages the extension's own sidecar container — shared
+    // services like db/nats are already running under the main stack and must not
+    // be touched (recreating them here previously caused a full outage).
+    const pullResult = await execFileAsync(composeBin, [...baseArgs, 'pull', serviceName]);
+    const upResult = await execFileAsync(composeBin, [...baseArgs, 'up', '-d', '--no-deps', '--force-recreate', serviceName]);
     return {
       stdout: [pullResult.stdout, upResult.stdout].filter(Boolean).join('\n'),
       stderr: [pullResult.stderr, upResult.stderr].filter(Boolean).join('\n')
@@ -132,12 +165,17 @@ async function manageExtensionService(profile, serviceName, action = 'up') {
   } else if (action === 'remove') {
     // Stop and remove the container directly — avoids compose dependency resolution errors
     const containerName = `${COMPOSE_PROJECT_NAME}-${serviceName}-1`;
-    cmd = `docker stop ${containerName} && docker rm ${containerName}`;
+    const stopResult = await execFileAsync('docker', ['stop', containerName]);
+    const rmResult = await execFileAsync('docker', ['rm', containerName]);
+    return {
+      stdout: [stopResult.stdout, rmResult.stdout].filter(Boolean).join('\n'),
+      stderr: [stopResult.stderr, rmResult.stderr].filter(Boolean).join('\n')
+    };
   } else {
-    cmd = `${composeCmd} ${envFileArg} -f ${COMPOSE_FILE} -p ${COMPOSE_PROJECT_NAME} --profile ${profile} stop ${serviceName}`;
+    const args = [...composeBaseArgs, ...envFileArgs, '-f', COMPOSE_FILE, '-p', COMPOSE_PROJECT_NAME, '--profile', profile, 'stop', serviceName];
+    const { stdout, stderr } = await execFileAsync(composeBin, args);
+    return { stdout, stderr };
   }
-  const { stdout, stderr } = await execAsync(cmd);
-  return { stdout, stderr };
 }
 
 /**
@@ -150,6 +188,39 @@ async function checkServiceHealth(healthUrl) {
   } catch {
     return { healthy: false, status: null };
   }
+}
+
+/**
+ * Sync the connectivity_driver_types registry row for an extension that declares
+ * provides.connectivityDriver (installable-drivers framework, Phase 0).
+ * No-op for extensions/libraries that don't declare a connectivity driver.
+ * Upserts on install/enable/update, flips enabled=false on disable.
+ * Deletion is handled automatically via ON DELETE CASCADE from node_libraries.
+ */
+async function syncConnectivityDriverType(db, libraryId, manifest, enabled) {
+  const cd = manifest?.provides?.connectivityDriver;
+  if (!cd) return;
+
+  const svc = (manifest.requires?.services || []).find(s => s.name === cd.sidecarServiceName);
+  if (!svc) return; // manifest failed validation elsewhere; nothing sane to store
+
+  let baseUrl;
+  try {
+    baseUrl = new URL(svc.healthUrl).origin;
+  } catch {
+    return; // malformed healthUrl — skip rather than store garbage
+  }
+
+  await db.query(
+    `INSERT INTO connectivity_driver_types
+       (driver_type, library_id, rpc_subject_prefix, sidecar_service_name, sidecar_health_url, sidecar_base_url, config_schema, enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (driver_type)
+     DO UPDATE SET library_id = $2, rpc_subject_prefix = $3, sidecar_service_name = $4,
+                   sidecar_health_url = $5, sidecar_base_url = $6, config_schema = $7,
+                   enabled = $8, updated_at = now()`,
+    [cd.driverType, libraryId, cd.rpcSubjectPrefix, cd.sidecarServiceName, svc.healthUrl, baseUrl, cd.configSchema || {}, enabled]
+  );
 }
 
 export default async function libraryRoutes(app) {
@@ -458,6 +529,8 @@ export default async function libraryRoutes(app) {
             }
           }
 
+          try { await syncConnectivityDriverType(db, libraryId, manifest, true); } catch (err) { req.log.warn({ err, libraryId }, 'Failed to sync connectivity driver type'); }
+
           req.log.info({ libraryId, version: manifest.version }, 'Extension installed; restart required to activate routes');
           return reply.code(201).send({
             message: 'Extension installed. Restart the app to activate API routes and job workers.',
@@ -603,6 +676,8 @@ export default async function libraryRoutes(app) {
           'UPDATE node_libraries SET last_loaded_at = NOW() WHERE library_id = $1',
           [libraryId]
         );
+
+        try { await syncConnectivityDriverType(db, libraryId, metaRows?.[0]?.manifest, true); } catch (err) { req.log.warn({ err, libraryId }, 'Failed to sync connectivity driver type'); }
       } catch (err) {
         req.log.error({ err, libraryId }, 'Failed to hot-load library');
         return reply.code(500).send({ 
@@ -653,6 +728,8 @@ export default async function libraryRoutes(app) {
           [libraryId]
         );
         const manifest = metaRows?.[0]?.manifest;
+        try { await syncConnectivityDriverType(db, libraryId, manifest, false); } catch (err) { req.log.warn({ err, libraryId }, 'Failed to sync connectivity driver type'); }
+
         if (manifest?.type === 'extension') {
           return reply.send({
             message: 'Extension disabled. Restart core to fully unload it.',
@@ -786,6 +863,8 @@ export default async function libraryRoutes(app) {
            WHERE library_id = $4`,
           [manifest.name, manifest.version, manifest, libraryId]
         );
+
+        try { await syncConnectivityDriverType(db, libraryId, manifest, true); } catch (err) { req.log.warn({ err, libraryId }, 'Failed to sync connectivity driver type'); }
 
         // Extensions require a restart to re-register Fastify routes — skip hot-reload
         if (manifest.type === 'extension') {
@@ -933,6 +1012,8 @@ export default async function libraryRoutes(app) {
 
       // Delete library files
       await db.query('DELETE FROM node_libraries WHERE library_id = $1', [libraryId]);
+      // Note: any connectivity_driver_types row for this extension is removed automatically
+      // via ON DELETE CASCADE (installable-drivers framework, Phase 0).
 
       // Delete from filesystem
       const libraryDir = path.join(__dirname, '../nodes/libraries', libraryId);

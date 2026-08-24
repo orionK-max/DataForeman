@@ -5,11 +5,17 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-# Ensure nanomq.conf is present before starting (broker mounts ./nanomq/ directory)
-if [[ ! -f nanomq/nanomq.conf ]]; then
-  echo "Downloading nanomq/nanomq.conf..."
-  mkdir -p nanomq
-  curl -fsSL -o nanomq/nanomq.conf https://raw.githubusercontent.com/orionK-max/DataForeman/main/nanomq/nanomq.conf
+# Ensure nanomq config template + entrypoint are present before starting
+# (broker mounts ./nanomq/ files directly; see docker-compose.yml)
+mkdir -p nanomq
+if [[ ! -f nanomq/nanomq.conf.template ]]; then
+  echo "Downloading nanomq/nanomq.conf.template..."
+  curl -fsSL -o nanomq/nanomq.conf.template https://raw.githubusercontent.com/orionK-max/DataForeman/main/nanomq/nanomq.conf.template
+fi
+if [[ ! -f nanomq/docker-entrypoint.sh ]]; then
+  echo "Downloading nanomq/docker-entrypoint.sh..."
+  curl -fsSL -o nanomq/docker-entrypoint.sh https://raw.githubusercontent.com/orionK-max/DataForeman/main/nanomq/docker-entrypoint.sh
+  chmod +x nanomq/docker-entrypoint.sh
 fi
 
 # Fix directory permissions so containers can write logs

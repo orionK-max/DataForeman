@@ -37,6 +37,7 @@ export const ChartComposerProvider = ({ children }) => {
     tagConfigs: [], // [{ tag_id, name, alias, color, thickness, strokeType, axisId, interpolation, hidden }]
     axes: [defaultAxis],
     referenceLines: [], // [{ id, value, label, color, lineWidth, lineStyle, yAxisId }]
+    overlays: [], // [{ id, name, type: 'state'|'event', sourceTagId, ... }] — see temp/States and Events.md
     grid: { color: '#cccccc', opacity: 0.3, thickness: 1, dash: 'solid' },
     background: { color: '#000000', opacity: 1 },
     display: { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
@@ -61,7 +62,20 @@ export const ChartComposerProvider = ({ children }) => {
   const [chartHeight, setChartHeight] = useState(720);
   const [originalTimeWindow, setOriginalTimeWindow] = useState(null); // For sliding window in auto-refresh
   const [forecastLiveShiftMs, setForecastLiveShiftMs] = useState(0); // Right-shift for forecast zone in live mode
-  
+
+  // Live/auto-refresh delta state (see temp/mqtt-broker-flapping-fixes-plan.md item #4).
+  // Instead of re-fetching and recomputing the full min/max envelope every tick, we keep a
+  // per-tag map of bucket_id -> point that's incrementally updated from small server "delta"
+  // responses (only the buckets that could still change). This is plain merge/filter bookkeeping,
+  // not recomputation - the server remains the source of truth for bucket assignment.
+  const liveBucketMapRef = React.useRef(new Map()); // tag_id -> Map(bucket_id -> point)
+  const liveBucketWidthRef = React.useRef(new Map()); // tag_id -> bucketWidthMs
+  const liveSinceTsRef = React.useRef(null); // cursor for next delta request
+  // Raw/no-aggregation live delta state: simpler than the bucketed version above - just a flat
+  // set of already-seen points (keyed by "tag_id:ts") that we append to and evict from.
+  const liveRawItemsRef = React.useRef(new Map()); // key `${tag_id}:${ts}` -> point
+  const liveRawSinceTsRef = React.useRef(null);
+
   // Time mode state
   const [timeMode, setTimeMode] = useState('fixed');
   const [timeDuration, setTimeDuration] = useState(3600000); // 1 hour in ms
@@ -132,6 +146,47 @@ export const ChartComposerProvider = ({ children }) => {
         line.id === lineId ? { ...line, [field]: value } : line
       ),
     }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // States & Events overlays (see temp/States and Events.md) — mirrors referenceLines pattern.
+  const addOverlay = useCallback((overlay) => {
+    setChartConfig(prev => ({
+      ...prev,
+      overlays: [...(prev.overlays || []), overlay],
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const removeOverlay = useCallback((overlayId) => {
+    setChartConfig(prev => ({
+      ...prev,
+      overlays: (prev.overlays || []).filter(o => o.id !== overlayId),
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const updateOverlay = useCallback((overlayId, field, fieldValue) => {
+    setChartConfig(prev => ({
+      ...prev,
+      overlays: (prev.overlays || []).map(o =>
+        o.id === overlayId ? { ...o, [field]: fieldValue } : o
+      ),
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // Reorder only affects z-order (later overlay draws on top) — simple up/down swap, no drag-and-drop.
+  const moveOverlay = useCallback((overlayId, direction) => {
+    setChartConfig(prev => {
+      const list = [...(prev.overlays || [])];
+      const idx = list.findIndex(o => o.id === overlayId);
+      if (idx === -1) return prev;
+      const swapWith = direction === 'up' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= list.length) return prev;
+      [list[idx], list[swapWith]] = [list[swapWith], list[idx]];
+      return { ...prev, overlays: list };
+    });
     setHasUnsavedChanges(true);
   }, []);
 
@@ -272,6 +327,7 @@ export const ChartComposerProvider = ({ children }) => {
               offset: axis.offset ?? 0,
               nameLocation: axis.nameLocation || 'inside',
               nameGap: axis.nameGap ?? 25,
+              gridLine: axis.gridLine && typeof axis.gridLine === 'object' ? { ...axis.gridLine } : undefined,
             }));
           
           if (validAxes.length > 0) {
@@ -340,6 +396,8 @@ export const ChartComposerProvider = ({ children }) => {
                   ...tagWithoutYAxisId,
                   axisId, // Use validated axis ID (mapped from yAxisId in DB)
                   name: meta?.tag_name || tagConfig.name || `Tag ${tagConfig.tag_id}`,
+                  tag_name: meta?.tag_name || tagConfig.tag_name || tagConfig.name || `Tag ${tagConfig.tag_id}`,
+                  tag_path: meta?.tag_path || tagConfig.tag_path || '',
                   connection_id: connectionId,
                   connection_name: connectionName,
                   data_type: meta?.data_type || tagConfig.data_type,
@@ -431,6 +489,16 @@ export const ChartComposerProvider = ({ children }) => {
           }));
         }
         
+        // Update overlays if present (States & Events — see temp/States and Events.md).
+        // No axis-reference fixup needed: overlays reference a tag_id, not an axis, and a
+        // dangling sourceTagId is intentionally not hard-validated on load (see plan doc).
+        if (opts.overlays && Array.isArray(opts.overlays)) {
+          setChartConfig(prev => ({
+            ...prev,
+            overlays: opts.overlays,
+          }));
+        }
+        
         // Update grid settings if present and normalize dash pattern
         if (opts.grid) {
           const normalizedGrid = { ...opts.grid };
@@ -464,6 +532,14 @@ export const ChartComposerProvider = ({ children }) => {
           setChartConfig(prev => ({
             ...prev,
             background: opts.background,
+          }));
+        }
+        
+        // Update X-axis (time) vertical grid line style override if present
+        if (opts.xAxisGrid && typeof opts.xAxisGrid === 'object') {
+          setChartConfig(prev => ({
+            ...prev,
+            xAxisGrid: { ...opts.xAxisGrid },
           }));
         }
         
@@ -508,7 +584,7 @@ export const ChartComposerProvider = ({ children }) => {
         // Load extension-namespaced configs (non-core plain object keys, e.g. opts.forecast)
         const CORE_OPTS = new Set([
           'axes', 'referenceLines', 'tags', 'grid', 'background', 'display',
-          'interpolation', 'xAxisTickCount', 'extendCurveEdges',
+          'interpolation', 'xAxisTickCount', 'xAxisGrid', 'extendCurveEdges',
           'smartCompression', 'maxDataPoints', 'refreshIntervalValue', 'customRefreshInterval',
         ]);
         const extConfigs = Object.fromEntries(
@@ -612,6 +688,7 @@ export const ChartComposerProvider = ({ children }) => {
       tagConfigs: [],
       axes: [defaultAxis],
       referenceLines: [],
+      overlays: [],
       grid: { color: '#cccccc', opacity: 0.3, thickness: 1, dash: 'solid' },
       background: { color: '#000000', opacity: 1 },
       display: { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
@@ -781,6 +858,23 @@ export const ChartComposerProvider = ({ children }) => {
       if (chartConfig.tagConfigs.length === 0) {
         return;
       }
+
+      // Reset live delta state (bucket maps + since_ts cursor) whenever something that affects
+      // bucket assignment changes - tag selection, compression mode, point budget, or the time
+      // window basis (mode/offset/duration). NOTE: this effect body re-runs every tick (timeRange
+      // is a dependency and is updated each tick for rolling/shifted modes), so we can't just
+      // reset unconditionally at the top - only reset when the actual "session" signature changes,
+      // otherwise every tick would wipe the buckets we're trying to preserve.
+      const allTagIds = chartConfig.tagConfigs.map(tag => tag.tag_id);
+      const liveSessionKey = JSON.stringify([allTagIds, smartCompression, maxDataPoints, timeMode, timeOffset, originalTimeWindow]);
+      if (liveBucketMapRef.current.__sessionKey !== liveSessionKey) {
+        liveBucketMapRef.current = new Map();
+        liveBucketMapRef.current.__sessionKey = liveSessionKey;
+        liveBucketWidthRef.current = new Map();
+        liveSinceTsRef.current = null;
+        liveRawItemsRef.current = new Map();
+        liveRawSinceTsRef.current = null;
+      }
       
       try {
         // For auto-refresh, use sliding window if originalTimeWindow is set
@@ -808,20 +902,126 @@ export const ChartComposerProvider = ({ children }) => {
           }
           // Fixed mode: don't slide the window — time range is intentionally static
         }
-        
-        // Collect all tag IDs - use same approach as regular query
-        const allTagIds = chartConfig.tagConfigs.map(tag => tag.tag_id);
 
-        // Single API call for all tags - same as regular query
-        // Backend will auto-detect System tags vs regular tags based on tag_id
-        // and handle multi-connection queries internally
+        // Live delta mode only applies to Smart Compression (envelope) queries - that's the
+        // expensive, reshuffle-prone path. Raw/no-aggregation mode keeps the existing full query.
+        if (smartCompression) {
+          // Defensive guard: if the cursor from a previous tick is somehow at/after the new
+          // window's end (e.g. a fast offset/mode change slipped in before the session-key reset
+          // above took effect), sending it would ask the server for an empty/invalid range and
+          // the chart would go blank. Treat it as a fresh session instead.
+          if (liveSinceTsRef.current && liveSinceTsRef.current >= effectiveTo.toISOString()) {
+            liveBucketMapRef.current = new Map();
+            liveBucketMapRef.current.__sessionKey = liveSessionKey;
+            liveBucketWidthRef.current = new Map();
+            liveSinceTsRef.current = null;
+          }
+
+          const response = await chartComposerService.queryData({
+            tag_ids: allTagIds,
+            from: effectiveFrom.toISOString(),
+            to: effectiveTo.toISOString(),
+            limit: maxDataPoints,
+            no_aggregation: false,
+            since_ts: (liveSinceTsRef.current || effectiveFrom.toISOString()),
+          });
+
+          if (response?.delta) {
+            // Merge the small set of updated buckets into our per-tag bucket maps.
+            const deltaItems = Array.isArray(response.items) ? response.items : [];
+            for (const item of deltaItems) {
+              if (!item.bucket_id) continue;
+              if (!liveBucketMapRef.current.has(item.tag_id)) {
+                liveBucketMapRef.current.set(item.tag_id, new Map());
+              }
+              liveBucketMapRef.current.get(item.tag_id).set(item.bucket_id, item);
+            }
+            if (response.bucket_width_ms && typeof response.bucket_width_ms === 'object') {
+              for (const [tagId, width] of Object.entries(response.bucket_width_ms)) {
+                if (Number.isFinite(width) && width > 0) {
+                  liveBucketWidthRef.current.set(Number(tagId), width);
+                }
+              }
+            }
+            liveSinceTsRef.current = response.since_ts || effectiveTo.toISOString();
+
+            // Evict buckets that have aged out of the visible window (rolling/shifted modes).
+            // This is a plain arithmetic filter (bucket end <= new "from"), not recomputation.
+            const fromMs = effectiveFrom.getTime();
+            const merged = [];
+            for (const [tagId, bucketMap] of liveBucketMapRef.current.entries()) {
+              const width = liveBucketWidthRef.current.get(tagId);
+              for (const [bucketId, point] of bucketMap.entries()) {
+                if (Number.isFinite(width) && width > 0) {
+                  const bucketIdx = Number(String(bucketId).split(':')[1]);
+                  const bucketEndMs = (bucketIdx + 1) * width;
+                  if (bucketEndMs <= fromMs) {
+                    bucketMap.delete(bucketId);
+                    continue;
+                  }
+                }
+                merged.push(point);
+              }
+            }
+            merged.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+            setItems(merged);
+            return;
+          }
+
+          // Server didn't return a delta response (e.g. fell back to non-envelope path) -
+          // fall through to treat it like a regular full response below.
+          const items = Array.isArray(response?.items) ? response.items : [];
+          if (response?.tag_metadata && typeof response.tag_metadata === 'object') {
+            setTagMetadata(response.tag_metadata);
+          } else {
+            setTagMetadata({});
+          }
+          if (response?.last_values_before && typeof response.last_values_before === 'object') {
+            setLastValuesBefore(response.last_values_before);
+          } else {
+            setLastValuesBefore({});
+          }
+          setItems(items);
+          return;
+        }
+
+        // Raw/no-aggregation live delta: simpler than the bucketed Smart Compression version -
+        // just fetch rows newer than since_ts, append them, and evict anything that aged out of
+        // the visible window. No bucket anchoring needed since there's no envelope to keep stable.
+        if (liveRawSinceTsRef.current && liveRawSinceTsRef.current >= effectiveTo.toISOString()) {
+          liveRawItemsRef.current = new Map();
+          liveRawSinceTsRef.current = null;
+        }
+
         const response = await chartComposerService.queryData({
           tag_ids: allTagIds,
           from: effectiveFrom.toISOString(),
           to: effectiveTo.toISOString(),
           limit: maxDataPoints,
-          no_aggregation: !smartCompression,
+          no_aggregation: true,
+          since_ts: (liveRawSinceTsRef.current || effectiveFrom.toISOString()),
         });
+
+        if (response?.delta) {
+          const deltaItems = Array.isArray(response.items) ? response.items : [];
+          for (const item of deltaItems) {
+            liveRawItemsRef.current.set(`${item.tag_id}:${item.ts}`, item);
+          }
+          liveRawSinceTsRef.current = response.since_ts || effectiveTo.toISOString();
+
+          const fromMs = effectiveFrom.getTime();
+          const merged = [];
+          for (const [key, point] of liveRawItemsRef.current.entries()) {
+            if (new Date(point.ts).getTime() < fromMs) {
+              liveRawItemsRef.current.delete(key);
+              continue;
+            }
+            merged.push(point);
+          }
+          merged.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+          setItems(merged);
+          return;
+        }
 
         // Handle response - same as regular query
         const items = Array.isArray(response?.items) ? response.items : [];
@@ -939,6 +1139,10 @@ export const ChartComposerProvider = ({ children }) => {
     addReferenceLine,
     updateReferenceLine,
     removeReferenceLine,
+    addOverlay,
+    updateOverlay,
+    removeOverlay,
+    moveOverlay,
     updateGridConfig,
     updateBackgroundConfig,
     updateDisplayConfig,

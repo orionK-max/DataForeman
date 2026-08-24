@@ -42,6 +42,7 @@ import { startFlowLogCleanupScheduler } from './services/flow-log-cleanup.js';
 import { ensureAdminPassword } from './services/bootstrap.js';
 import { connectivityBootstrap } from './services/connectivity-bootstrap.js';
 import { flowBootstrap } from './services/flow-bootstrap.js';
+import { flowExecutorManagerPlugin } from './services/flow-executor-manager.js';
 import { initDemoMode } from './services/demo-mode.js';
 import { ensureInternalMqttConnection } from './services/mqtt-bootstrap.js';
 import { systemMetricsSampler } from './services/system-metrics-sampler.js';
@@ -143,6 +144,10 @@ export async function buildServer() {
   await app.register(jobsPlugin); // services.jobs
   await app.register(jobsRoutes, { prefix: '/api' }); // /api/jobs endpoints (admin)
   try { app.jobs.start(); } catch (e) { app.log.error({ err: e }, 'failed to start jobs dispatcher'); }
+
+  // Spawns/supervises the dedicated flow-execution process (see temp/mqtt-broker-flapping-fixes-plan.md
+  // item #5) - isolates continuous-mode flow scans from this process's HTTP-serving event loop.
+  await app.register(flowExecutorManagerPlugin);
 
   // Register all flow node types (including external libraries/extensions)
   // Must be after dbPlugin and jobsPlugin so extensions can register job handlers

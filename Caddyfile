@@ -1,4 +1,8 @@
 :80 {
+  log {
+    output stdout
+    format json
+  }
   handle /api/* {
     reverse_proxy core:3000
   }

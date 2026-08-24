@@ -127,7 +127,12 @@ The `options` field is a JSONB object with the following structure:
       domain: [min, max],        // ['auto', 'auto'] or [number, number]
       offset: number,            // Axis offset (pixels)
       namePosition: 'start' | 'middle' | 'end',
-      nameOffset: number         // Name offset (pixels)
+      nameOffset: number,        // Name offset (pixels)
+      gridLine: {                // Optional per-axis horizontal grid line override
+        color: string,           // Hex color; falls back to chart-wide `grid.color`
+        thickness: number,       // Line width (0.5-5); falls back to `grid.thickness`
+        dash: 'solid' | 'dashed' | 'dotted' // falls back to `grid.dash`
+      }
     }
     // ... max 10 axes, min 1
   ],
@@ -198,7 +203,14 @@ The `options` field is a JSONB object with the following structure:
   
   // Global settings
   interpolation: string,         // Default interpolation
-  xAxisTickCount: integer        // X-axis tick marks (2-20)
+  xAxisTickCount: integer,       // X-axis tick marks (2-20)
+
+  // Optional X-axis (time) vertical grid line override; falls back to `grid` when absent
+  xAxisGrid: {
+    color: string,               // Hex color
+    thickness: number,           // Line width (0.5-5)
+    dash: 'solid' | 'dashed' | 'dotted'
+  }
 }
 ```
 

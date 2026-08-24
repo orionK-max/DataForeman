@@ -740,13 +740,13 @@ const QueryControls = () => {
                         value={maxDataPoints}
                         onChange={(e) => {
                           const val = Number(e.target.value);
-                          if (val > 0 && val <= 50000) {
+                          if (val > 0) {
                             setMaxDataPoints(val);
                             setHasUnsavedChanges(true);
                           }
                         }}
-                        inputProps={{ min: 100, max: 50000, step: 100 }}
-                        title="Total data points across all tags (100-50,000). With Smart Compression ON, points are distributed proportionally based on poll rates - faster tags get more points. With Smart Compression OFF, points are distributed evenly."
+                        inputProps={{ min: 100, step: 100 }}
+                        title="Total data points across all tags. With Smart Compression ON, points are distributed proportionally based on poll rates - faster tags get more points. With Smart Compression OFF, points are distributed evenly."
                         sx={{ width: 140 }}
                       />
                     </Box>
@@ -809,13 +809,13 @@ const QueryControls = () => {
                         value={maxDataPoints}
                         onChange={(e) => {
                           const val = Number(e.target.value);
-                          if (val > 0 && val <= 50000) {
+                          if (val > 0) {
                             setMaxDataPoints(val);
                             setHasUnsavedChanges(true);
                           }
                         }}
-                        inputProps={{ min: 100, max: 50000, step: 100 }}
-                        title="Total data points across all tags (100-50,000). With Smart Compression ON, points are distributed proportionally based on poll rates - faster tags get more points. With Smart Compression OFF, points are distributed evenly."
+                        inputProps={{ min: 100, step: 100 }}
+                        title="Total data points across all tags. With Smart Compression ON, points are distributed proportionally based on poll rates - faster tags get more points. With Smart Compression OFF, points are distributed evenly."
                         sx={{ width: 140 }}
                       />
                     </Box>
@@ -880,13 +880,13 @@ const QueryControls = () => {
                         value={maxDataPoints}
                         onChange={(e) => {
                           const val = Number(e.target.value);
-                          if (val > 0 && val <= 50000) {
+                          if (val > 0) {
                             setMaxDataPoints(val);
                             setHasUnsavedChanges(true);
                           }
                         }}
-                        inputProps={{ min: 100, max: 50000, step: 100 }}
-                        title="Total data points across all tags (100-50,000). With Smart Compression ON, points are distributed proportionally based on poll rates - faster tags get more points. With Smart Compression OFF, points are distributed evenly."
+                        inputProps={{ min: 100, step: 100 }}
+                        title="Total data points across all tags. With Smart Compression ON, points are distributed proportionally based on poll rates - faster tags get more points. With Smart Compression OFF, points are distributed evenly."
                         sx={{ width: 140 }}
                       />
                     </Box>

@@ -8,11 +8,169 @@ import ChartConfigPanel from './ChartConfigPanel';
 import { useChartComposer } from '../../contexts/ChartComposerContext';
 import chartComposerService from '../../services/chartComposerService';
 
+/**
+ * Derive filled-band intervals for a "state" overlay (see temp/States and Events.md).
+ * Pure function, exported for unit testing — no ECharts/DOM dependency.
+ *
+ * Only exact-match is supported (valueMap lookup or activeValue equality) — no
+ * threshold/range logic here by design; that decision belongs in a Flow upstream.
+ *
+ * @param {Map<number, number>} tagData - sorted-by-key Map<timestampMs, value> for the overlay's sourceTagId
+ * @param {Object} overlay - overlay config { activeValue, valueMap, color, opacity, unknownStyle, border }
+ * @param {{ ts: string|number, v: any } | null | undefined} lastValueBefore - last known value before queryStartTime
+ * @param {number} queryStartTime - ms epoch
+ * @param {number} queryEndTime - ms epoch
+ * @returns {Array<{ start: number, end: number, isUnknown: boolean, color: string, opacity: number, label?: string }>}
+ */
+export function deriveStateBands(tagData, overlay, lastValueBefore, queryStartTime, queryEndTime) {
+  if (!(tagData instanceof Map) || queryEndTime <= queryStartTime) return [];
+
+  const timestamps = Array.from(tagData.keys()).sort((a, b) => a - b);
+
+  // Build the ordered [{ t, v }] timeline. v === undefined marks "unknown" (no known value yet).
+  const points = [];
+  if (lastValueBefore != null && lastValueBefore.v !== undefined && lastValueBefore.v !== null) {
+    points.push({ t: queryStartTime, v: Number(lastValueBefore.v) });
+  } else {
+    points.push({ t: queryStartTime, v: undefined }); // unknown until first real sample
+  }
+  timestamps.forEach(t => points.push({ t, v: tagData.get(t) }));
+
+  // Resolve a single point's value into a display style, or null if it should render as
+  // a "gap" (known value, but not matching any active/mapped state — nothing drawn there).
+  const resolveStyle = (v) => {
+    if (v === undefined) {
+      // Opt-in only (default off): most users don't need to distinguish "no data yet" from
+      // "known inactive" — both render as nothing unless explicitly enabled. See
+      // temp/States and Events.md for the reasoning (absence of evidence vs evidence of absence).
+      if (!overlay.unknownStyle?.enabled) return null;
+      const u = overlay.unknownStyle;
+      return { isUnknown: true, color: u.color || '#666666', opacity: u.opacity ?? 0.1, label: undefined };
+    }
+    if (Array.isArray(overlay.valueMap) && overlay.valueMap.length > 0) {
+      const entry = overlay.valueMap.find(e => e.enabled !== false && Number(e.value) === Number(v));
+      if (!entry) return null;
+      return { isUnknown: false, color: entry.color, opacity: overlay.opacity ?? 0.25, label: entry.label };
+    }
+    if ('activeValue' in overlay && overlay.activeValue !== undefined) {
+      const match = Number(v) === Number(overlay.activeValue) || v === overlay.activeValue;
+      if (!match) return null;
+      return { isUnknown: false, color: overlay.color, opacity: overlay.opacity ?? 0.25, label: overlay.name };
+    }
+    return null;
+  };
+
+  const bands = [];
+  for (let i = 0; i < points.length; i++) {
+    const start = points[i].t;
+    const end = (i + 1 < points.length) ? points[i + 1].t : queryEndTime;
+    if (end <= start) continue;
+    const style = resolveStyle(points[i].v);
+    if (!style) continue; // known-but-inactive: no band drawn, base chart shows through
+
+    const prev = bands[bands.length - 1];
+    if (prev && prev.end === start && prev.isUnknown === style.isUnknown &&
+        prev.color === style.color && prev.label === style.label) {
+      prev.end = end; // merge adjacent identical segments
+    } else {
+      bands.push({ start, end, ...style });
+    }
+  }
+  return bands;
+}
+
+/**
+ * Derive instant occurrences for an "event" overlay (see temp/States and Events.md).
+ * Pure function, exported for unit testing — no ECharts/DOM dependency.
+ *
+ * risingEdge/fallingEdge/eitherEdge are bool-native (0/nonzero transitions). specificValue
+ * and everySample also work for int/real tags — exact match only, no threshold crossing.
+ *
+ * @param {Map<number, number>} tagData - Map<timestampMs, value> for the overlay's sourceTagId
+ * @param {Object} overlay - overlay config { trigger, triggerValue, color, opacity, name }
+ * @param {{ ts: string|number, v: any } | null | undefined} lastValueBefore - last known value before queryStartTime
+ * @param {number} queryStartTime - ms epoch
+ * @param {number} queryEndTime - ms epoch
+ * @returns {Array<{ timestamp: number, color: string, opacity: number, label?: string }>}
+ */
+export function deriveEventMarkers(tagData, overlay, lastValueBefore, queryStartTime, queryEndTime) {
+  if (!(tagData instanceof Map)) return [];
+
+  const timestamps = Array.from(tagData.keys()).sort((a, b) => a - b);
+  const events = [];
+  let prevValue = (lastValueBefore != null && lastValueBefore.v !== undefined && lastValueBefore.v !== null)
+    ? Number(lastValueBefore.v)
+    : undefined;
+
+  for (const t of timestamps) {
+    if (t < queryStartTime || t > queryEndTime) { prevValue = tagData.get(t); continue; }
+    const v = tagData.get(t);
+    let fire = false;
+
+    switch (overlay.trigger) {
+      case 'everySample':
+        fire = true;
+        break;
+      case 'specificValue':
+        fire = Number(v) === Number(overlay.triggerValue) || v === overlay.triggerValue;
+        break;
+      case 'risingEdge':
+        fire = prevValue !== undefined && Number(prevValue) === 0 && Number(v) !== 0;
+        break;
+      case 'fallingEdge':
+        fire = prevValue !== undefined && Number(prevValue) !== 0 && Number(v) === 0;
+        break;
+      case 'eitherEdge':
+        fire = prevValue !== undefined && Number(prevValue) !== Number(v);
+        break;
+      default:
+        fire = false;
+    }
+
+    if (fire) {
+      events.push({ timestamp: t, color: overlay.color, opacity: overlay.opacity ?? 1, label: overlay.name });
+    }
+    prevValue = v;
+  }
+  return events;
+}
+
+/**
+ * Human-readable duration for state-overlay tooltips (Section 7 — see temp/States and Events.md).
+ * e.g. 90000 -> "1m 30s", 7200000 -> "2h 0m".
+ */
+function formatOverlayDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const totalSec = Math.round(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/**
+ * Pick black or white text so a state-band caption stays readable against its fill color
+ * (see temp/States and Events.md, on-chart label positioning). Standard relative-luminance
+ * threshold, not color-accuracy-critical so a cheap approximation is fine.
+ */
+function getContrastingTextColor(hexColor) {
+  const hex = (hexColor || '').replace('#', '');
+  if (hex.length !== 6) return '#000000';
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? '#000000' : '#ffffff';
+}
+
 const ChartRenderer = React.forwardRef(({ 
   data = [], 
   tagConfigs = [], 
   axes = [],
   referenceLines = [],
+  overlays = [], // States & Events overlays (see temp/States and Events.md)
   grid = { color: '#cccccc', opacity: 0.3, thickness: 1, dash: 'solid' },
   background = { color: '#000000', opacity: 1 },
   display = { showLegend: true, showTooltip: true, legendPosition: 'bottom' },
@@ -44,6 +202,10 @@ const ChartRenderer = React.forwardRef(({
   addReferenceLine = null,
   updateReferenceLine = null,
   removeReferenceLine = null,
+  addOverlay = null,
+  updateOverlay = null,
+  removeOverlay = null,
+  moveOverlay = null,
   updateGridConfig = null,
   updateBackgroundConfig = null,
   updateDisplayConfig = null,
@@ -356,7 +518,7 @@ const ChartRenderer = React.forwardRef(({
   // Transform data to ECharts format
   const echartsData = React.useMemo(() => {
     if (!data || data.length === 0) {
-      return { series: [], axisIndexMap: new Map() };
+      return { series: [], axisIndexMap: new Map(), stateOverlayBands: [], eventOverlayMarkers: [] };
     }
     
     // Build axis index map from axes config
@@ -406,8 +568,13 @@ const ChartRenderer = React.forwardRef(({
 
     // Helper: Fill gaps for write-on-change tags (updated 2025-10-23)
     // Persists last heartbeat and keeps it anchored at query start (left edge)
-    const fillWriteOnChangeGaps = (tagId, tagData) => {
+    // `interpolation` (updated 2026-07-25): for step-type series (used for bools/discrete
+    // values), the left-edge anchor must HOLD the previous value flat instead of linearly
+    // interpolating toward the first real point — linear interpolation of a 0/1 value
+    // produces a fractional "half up" plateau which is meaningless for step-rendered data.
+    const fillWriteOnChangeGaps = (tagId, tagData, interpolation) => {
       const meta = tagMetadata?.[tagId];
+      const isStepType = interpolation === 'step' || interpolation === 'stepBefore' || interpolation === 'stepAfter';
       
       if (!meta?.on_change_enabled) {
         // Not a write-on-change tag - anchor line to left/right edges of the chart window
@@ -430,9 +597,11 @@ const ChartRenderer = React.forwardRef(({
             const vPrev = Number(lvb.v);
             const [t0, v0] = result[0];
             const span = t0 - tPrev;
-            const edgeValue = span > 0
-              ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span) // interpolate
-              : v0;
+            const edgeValue = isStepType
+              ? vPrev // hold flat — step series should not show an interpolated in-between value
+              : (span > 0
+                ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span) // interpolate
+                : v0);
             result.unshift([queryStartTime, edgeValue]);           // visible anchor at left edge
             result.unshift([queryStartTime - edgeExt, edgeValue]); // ghost beyond left edge
           }
@@ -510,9 +679,11 @@ const ChartRenderer = React.forwardRef(({
             const vPrev = Number(lvb.v);
             const t0 = timestamps[0], v0 = tagData.get(t0);
             const span = t0 - tPrev;
-            const edgeValue = span > 0
-              ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span)
-              : v0;
+            const edgeValue = isStepType
+              ? vPrev // hold flat — step series should not show an interpolated in-between value
+              : (span > 0
+                ? vPrev + (v0 - vPrev) * ((queryStartTime - tPrev) / span)
+                : v0);
             result.push([queryStartTime - edgeExt, edgeValue]); // ghost
             result.push([queryStartTime, edgeValue]);            // visible anchor
           }
@@ -555,7 +726,7 @@ const ChartRenderer = React.forwardRef(({
         const tagData = tagDataMap.get(tagId) || new Map();
         
         // Apply write-on-change gap filling
-        const values = fillWriteOnChangeGaps(tagId, tagData);
+        const values = fillWriteOnChangeGaps(tagId, tagData, tagConfig.interpolation);
         
         // Get axis index for this tag
         const axisId = tagConfig.axisId || 'default';
@@ -593,8 +764,72 @@ const ChartRenderer = React.forwardRef(({
         };
       });
     
-    return { series, axisIndexMap };
-  }, [data, tagConfigs, axes, tagMetadata, lastValuesBefore, requestedTimeRange, options]);
+    // Derive state-overlay filled bands and event-overlay markers. Built here (not in the
+    // `option` memo) since tagDataMap/lastValuesBefore are already in scope. Both are returned
+    // as raw descriptors (timestamps + % position) — the `option` memo turns them into a
+    // pixel-accurate custom-series rect (see Phase 4: percentage-of-plot-area positioning
+    // can't be expressed through markArea's axis-value coordinates, so both overlay types
+    // share the same renderItem technique, using api.coord() for the true time-accurate
+    // x-extent and coordSys's pixel rect for the %-based y-extent).
+    const stateOverlayBands = [];
+    const eventOverlayMarkers = [];
+    if (Array.isArray(overlays)) {
+      const nowTs = Date.now();
+      const qStart = requestedTimeRange ? new Date(requestedTimeRange.from).getTime() : (nowTs - 3600000);
+      const qEnd = requestedTimeRange ? new Date(requestedTimeRange.to).getTime() : nowTs;
+
+      overlays
+        .filter(o => o?.type === 'state' && o.enabled !== false)
+        .forEach(overlay => {
+          const tagData = tagDataMap.get(String(overlay.sourceTagId)) || new Map();
+          const lvb = lastValuesBefore?.[String(overlay.sourceTagId)];
+          const bands = deriveStateBands(tagData, overlay, lvb, qStart, qEnd);
+          bands.forEach(band => {
+            stateOverlayBands.push({
+              start: band.start,
+              end: band.end,
+              color: band.color,
+              opacity: band.opacity,
+              label: band.label,
+              isUnknown: band.isUnknown,
+              displayPreset: overlay.displayPreset || 'fullBand',
+              verticalPosition: overlay.verticalPosition ?? 0,
+              positionAnchor: overlay.positionAnchor === 'bottom' ? 'bottom' : 'top',
+              height: overlay.height ?? 100,
+              border: overlay.border,
+              showLabel: !!overlay.label?.show,
+              labelText: overlay.label?.text || undefined, // falls back to band.label at render time
+              labelVerticalPosition: overlay.label?.verticalPosition ?? 50,
+              labelTextColor: overlay.label?.textColor || undefined, // falls back to auto-contrast at render time
+            });
+          });
+        });
+
+      overlays
+        .filter(o => o?.type === 'event' && o.enabled !== false)
+        .forEach(overlay => {
+          const tagData = tagDataMap.get(String(overlay.sourceTagId)) || new Map();
+          const lvb = lastValuesBefore?.[String(overlay.sourceTagId)];
+          const markers = deriveEventMarkers(tagData, overlay, lvb, qStart, qEnd);
+          markers.forEach(marker => {
+            eventOverlayMarkers.push({
+              timestamp: marker.timestamp,
+              color: marker.color,
+              opacity: marker.opacity,
+              label: marker.label,
+              alignment: overlay.alignment || 'left',
+              widthPx: overlay.widthPx ?? 6,
+              heightPct: overlay.heightPct ?? 100,
+              verticalPosition: overlay.verticalPosition ?? 0,
+              positionAnchor: overlay.positionAnchor === 'bottom' ? 'bottom' : 'top',
+              displayPreset: overlay.displayPreset || 'fullHeight',
+            });
+          });
+        });
+    }
+
+    return { series, axisIndexMap, stateOverlayBands, eventOverlayMarkers };
+  }, [data, tagConfigs, axes, tagMetadata, lastValuesBefore, requestedTimeRange, options, overlays]);
 
   // Build ECharts option
   const option = React.useMemo(() => {
@@ -656,6 +891,9 @@ const ChartRenderer = React.forwardRef(({
         effectiveNameGap = Math.abs(nameGap);
       }
       
+      // Resolve this axis's grid line thickness (0 = hidden)
+      const yGridThickness = axis.gridLine?.thickness ?? grid.thickness ?? 1;
+      
       const axisConfig = {
         type: 'value',
         name: compactMode ? '' : labelText,
@@ -693,11 +931,12 @@ const ChartRenderer = React.forwardRef(({
           },
         },
         splitLine: {
+          show: yGridThickness > 0,
           lineStyle: {
-            color: grid.color || '#333',
+            color: axis.gridLine?.color || grid.color || '#333',
             opacity: grid.opacity ?? 0.3,
-            width: grid.thickness || 1,
-            type: getDashType(grid.dash),
+            width: yGridThickness,
+            type: getDashType(axis.gridLine?.dash || grid.dash),
           },
         },
       };
@@ -894,6 +1133,194 @@ const ChartRenderer = React.forwardRef(({
       return ordered;
     })();
 
+    // Attach state-overlay bands as a single custom series of pixel-accurate filled rects.
+    // Phase 4: "customBand" needs a %-of-plot-area vertical position/height, which markArea's
+    // axis-value coordinates can't express without knowing the axis's resolved min/max — so
+    // state bands use the same renderItem/coordSys.height technique as event markers (Phase 3),
+    // just with a real time-accurate x-extent (two api.coord() calls) instead of a fixed pixel
+    // width anchored to one timestamp.
+    const stateOverlayBands = echartsData.stateOverlayBands || [];
+    if (stateOverlayBands.length > 0) {
+      reorderedSeries.push({
+        name: '_state_overlay_bands_',
+        type: 'custom',
+        renderItem: (params, api) => {
+          const b = stateOverlayBands[params.dataIndex];
+          if (!b) return null;
+          const coordSys = params.coordSys;
+          const [xStart] = api.coord([b.start, 0]);
+          const [xEnd] = api.coord([b.end, 0]);
+
+          let top, height;
+          if (b.displayPreset === 'customBand') {
+            height = coordSys.height * (Math.min(Math.max(b.height, 0), 100) / 100);
+            const posPct = Math.min(Math.max(b.verticalPosition, 0), 100) / 100;
+            top = b.positionAnchor === 'bottom'
+              ? coordSys.y + coordSys.height * (1 - posPct) - height
+              : coordSys.y + coordSys.height * posPct;
+          } else {
+            // fullBand (default): spans the full plot height, matches old markArea behavior
+            top = coordSys.y;
+            height = coordSys.height;
+          }
+
+          const rectShape = { x: xStart, y: top, width: Math.max(xEnd - xStart, 0), height };
+          const rect = {
+            type: 'rect',
+            shape: rectShape,
+            style: {
+              fill: b.color,
+              opacity: b.opacity,
+              ...(b.border?.enabled && !b.isUnknown
+                ? { stroke: b.border.color || b.color, lineWidth: b.border.width || 1 }
+                : {})
+            },
+            silent: true,
+          };
+
+          // On-chart caption (Section 7 label positioning — see temp/States and Events.md,
+          // "option 1: clamp to visible edge"). Skipped for unknown/no-data bands, which have
+          // no meaningful label anyway.
+          const labelText = b.showLabel && !b.isUnknown ? (b.labelText || b.label) : null;
+          if (!labelText) return rect;
+
+          const viewLeft = coordSys.x;
+          const viewRight = coordSys.x + coordSys.width;
+          const visibleLeft = Math.max(xStart, viewLeft);
+          const visibleRight = Math.min(xEnd, viewRight);
+          const visibleWidth = visibleRight - visibleLeft;
+
+          const PADDING = 6;
+          const FONT_SIZE = 12;
+          const MIN_WIDTH_FOR_LABEL = 24; // px — hide the caption on very narrow/just-started bands
+          // Rough width estimate (avoids an expensive text-measure call every frame); if it's
+          // wrong we simply hide the label rather than risk it overflowing the band.
+          const estTextWidth = labelText.length * FONT_SIZE * 0.6;
+
+          if (visibleWidth < MIN_WIDTH_FOR_LABEL || estTextWidth + PADDING * 2 > visibleWidth) {
+            return rect;
+          }
+
+          // Anchored to the visible left edge (clamped), so the caption stays on-screen while
+          // the band's true start has scrolled off — this math keeps it within [xStart, xEnd]
+          // AND within the current viewport without needing canvas-level clipping.
+          const textX = visibleLeft + PADDING;
+          const textY = top + height * (Math.min(Math.max(b.labelVerticalPosition, 0), 100) / 100);
+
+          return {
+            type: 'group',
+            children: [
+              rect,
+              {
+                type: 'text',
+                silent: true,
+                style: {
+                  text: labelText,
+                  x: textX,
+                  y: textY,
+                  fill: b.labelTextColor || getContrastingTextColor(b.color),
+                  fontSize: FONT_SIZE,
+                  fontWeight: 500,
+                  textVerticalAlign: 'middle',
+                  textAlign: 'left',
+                },
+              },
+            ],
+          };
+        },
+        data: stateOverlayBands.map((_, i) => i), // dummy indices; real data read via closure above
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        z: 5, // below event markers (z:10), above the base line series
+      });
+    }
+
+    // Attach event-overlay markers as a single custom series of pixel-accurate filled rects
+    // (a "bar", not a stroked markLine — see temp/States and Events.md discussion). Anchored
+    // to the exact timestamp via api.coord, which ECharts re-evaluates on every zoom/pan, so
+    // no manual dataZoom listener is needed to keep the marker aligned.
+    const eventOverlayMarkers = echartsData.eventOverlayMarkers || [];
+    if (eventOverlayMarkers.length > 0) {
+      reorderedSeries.push({
+        name: '_event_overlay_markers_',
+        type: 'custom',
+        renderItem: (params, api) => {
+          const m = eventOverlayMarkers[params.dataIndex];
+          if (!m) return null;
+          const coordSys = params.coordSys;
+          const [px] = api.coord([m.timestamp, 0]);
+
+          let top, height;
+          if (m.displayPreset === 'fullHeight') {
+            top = coordSys.y;
+            height = coordSys.height;
+          } else if (m.displayPreset === 'bottomBar') {
+            height = coordSys.height * 0.08; // small fixed height, anchored to bottom
+            top = coordSys.y + coordSys.height - height;
+          } else {
+            // customBar: fully respects configured verticalPosition/heightPct/positionAnchor
+            height = coordSys.height * (Math.min(Math.max(m.heightPct, 0), 100) / 100);
+            const posPct = Math.min(Math.max(m.verticalPosition, 0), 100) / 100;
+            top = m.positionAnchor === 'bottom'
+              ? coordSys.y + coordSys.height * (1 - posPct) - height
+              : coordSys.y + coordSys.height * posPct;
+          }
+
+          let x;
+          if (m.alignment === 'center') x = px - m.widthPx / 2;
+          else if (m.alignment === 'right') x = px - m.widthPx;
+          else x = px; // left (default)
+
+          return {
+            type: 'rect',
+            shape: { x, y: top, width: m.widthPx, height },
+            style: { fill: m.color, opacity: m.opacity },
+            silent: true,
+          };
+        },
+        data: eventOverlayMarkers.map((_, i) => i), // dummy indices; real data read via closure above
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        z: 10, // draw above state-overlay bands and lines
+      });
+    }
+
+    // Overlay legend proxies. State/event overlays render as ONE combined custom series per
+    // type, so per-overlay names have no real series ECharts can match in legend.data — using
+    // legend.data objects with an itemStyle override doesn't work (ECharts still needs a
+    // series with that name to source the icon color, otherwise it warns "series not exists"
+    // and renders nothing). So add tiny invisible dummy series instead, one per legend entry,
+    // named to match (state overlays with a valueMap get one proxy per enabled mapped value).
+    const overlayLegendIcons = new Map(); // name -> icon shape, used by legend.data below
+    (Array.isArray(overlays) ? overlays : []).forEach(overlay => {
+      if (!overlay || overlay.enabled === false || overlay.showInLegend === false) return;
+      const addProxy = (name, color, icon) => {
+        if (!name) return;
+        overlayLegendIcons.set(name, icon);
+        reorderedSeries.push({
+          name,
+          type: 'line',
+          data: [],
+          showSymbol: false,
+          symbol: 'none',
+          lineStyle: { opacity: 0 },
+          itemStyle: { color },
+          silent: true,
+          legendHoverLink: false,
+          tooltip: { show: false },
+          z: -10,
+        });
+      };
+      if (overlay.type === 'state' && Array.isArray(overlay.valueMap) && overlay.valueMap.length > 0) {
+        overlay.valueMap.forEach(entry => {
+          if (entry.enabled === false) return;
+          addProxy(entry.label, entry.color, 'roundRect');
+        });
+      } else if (overlay.type === 'state' || overlay.type === 'event') {
+        addProxy(overlay.name, overlay.color, overlay.type === 'state' ? 'roundRect' : 'rect');
+      }
+    });
+
     // Calculate grid margins based on axes with offsets
     const leftAxes = yAxisConfig.filter(axis => axis.position === 'left');
     const rightAxes = yAxisConfig.filter(axis => axis.position === 'right');
@@ -943,11 +1370,12 @@ const ChartRenderer = React.forwardRef(({
 
           const date = new Date(time);
           if (Number.isNaN(date.getTime())) return '';
+          const dateStr = date.toLocaleDateString();
           const timeStr = date.toLocaleTimeString();
           const ms = date.getMilliseconds().toString().padStart(3, '0');
           
           // Display time header
-          let html = `<div style="font-weight: 600; margin-bottom: 4px;">${timeStr}.${ms}</div>`;
+          let html = `<div style="font-weight: 600; margin-bottom: 4px;">${dateStr} ${timeStr}.${ms}</div>`;
           
           // For ALL visible series, compute the value at cursor time matching the series
           // interpolation mode so the tooltip agrees with the drawn line:
@@ -1018,12 +1446,67 @@ const ChartRenderer = React.forwardRef(({
               </div>
             `;
           });
+
+          // States & Events (Section 7 tooltip integration — see temp/States and Events.md).
+          // Independent of the curve loop above since overlays render via combined custom
+          // series with dummy data, not real per-timestamp series data.
+          const activeStateBands = (echartsData.stateOverlayBands || []).filter(
+            b => !b.isUnknown && b.label && b.start <= time && time < b.end
+          );
+          if (activeStateBands.length > 0) {
+            html += `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.15);"></div>`;
+            activeStateBands.forEach(b => {
+              const startStr = new Date(b.start).toLocaleTimeString();
+              const endStr = new Date(b.end).toLocaleTimeString();
+              html += `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: ${b.color}; opacity: ${b.opacity};"></span>
+                  <span><strong>${b.label}</strong> (${startStr}–${endStr}, ${formatOverlayDuration(b.end - b.start)})</span>
+                </div>
+              `;
+            });
+          }
+
+          // Events are instantaneous, so "at the cursor" needs a small tolerance rather than
+          // an exact match — sized relative to the visible time range.
+          const rangeMs = requestedTimeRange
+            ? (new Date(requestedTimeRange.to).getTime() - new Date(requestedTimeRange.from).getTime())
+            : null;
+          const eventTolerance = rangeMs ? Math.max(rangeMs * 0.004, 1000) : 5000;
+          const nearbyEvents = (echartsData.eventOverlayMarkers || [])
+            .filter(m => Math.abs(m.timestamp - time) <= eventTolerance)
+            .sort((a, b) => Math.abs(a.timestamp - time) - Math.abs(b.timestamp - time));
+          if (nearbyEvents.length > 0) {
+            if (activeStateBands.length === 0) {
+              html += `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.15);"></div>`;
+            }
+            nearbyEvents.forEach(m => {
+              const d = new Date(m.timestamp);
+              const tStr = d.toLocaleTimeString();
+              const ms2 = d.getMilliseconds().toString().padStart(3, '0');
+              html += `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="display: inline-block; width: 8px; height: 8px; background: ${m.color}; opacity: ${m.opacity};"></span>
+                  <span><strong>${m.label || 'Event'}</strong> at ${tStr}.${ms2}</span>
+                </div>
+              `;
+            });
+          }
           
           return html;
         }
       },
       legend: {
         show: display.showLegend !== false && !compactMode,
+        // Exclude internal helper series (reference-line dummy series, combined states/events
+        // overlay render series) from the legend — ECharts otherwise auto-populates it from
+        // every series' name, which would surface raw internal names like
+        // "_state_overlay_bands_". Overlay entries themselves come from the invisible proxy
+        // series added above (one per overlay/mapped-value with "Show in legend" enabled),
+        // matched by name so ECharts can source the icon color from itemStyle.
+        data: reorderedSeries
+          .filter(s => !s.name?.startsWith('_'))
+          .map(s => overlayLegendIcons.has(s.name) ? { name: s.name, icon: overlayLegendIcons.get(s.name) } : s.name),
         bottom: 0,
         type: 'scroll',
         formatter: (name) => name,
@@ -1054,6 +1537,8 @@ const ChartRenderer = React.forwardRef(({
             : new Date(requestedTimeRange.to).getTime())
           : 'dataMax';
 
+        // Resolve the X-axis (time) grid line thickness (0 = hidden)
+        const xGridThickness = options?.xAxisGrid?.thickness ?? grid.thickness ?? 1;
 
         return {
           type: 'time',
@@ -1084,12 +1569,12 @@ const ChartRenderer = React.forwardRef(({
             },
           },
           splitLine: {
-            show: true,
+            show: xGridThickness > 0,
             lineStyle: {
-              color: grid.color || '#333',
+              color: options?.xAxisGrid?.color || grid.color || '#333',
               opacity: grid.opacity ?? 0.3,
-              width: grid.thickness || 1,
-              type: getDashType(grid.dash),
+              width: xGridThickness,
+              type: getDashType(options?.xAxisGrid?.dash || grid.dash),
             },
           },
         };
@@ -1361,6 +1846,7 @@ const ChartRenderer = React.forwardRef(({
                   tagConfigs,
                   axes,
                   referenceLines,
+                  overlays,
                   grid,
                   background,
                   display,
@@ -1380,6 +1866,10 @@ const ChartRenderer = React.forwardRef(({
                 onAddReferenceLine={addReferenceLine}
                 onUpdateReferenceLine={updateReferenceLine}
                 onRemoveReferenceLine={removeReferenceLine}
+                onAddOverlay={addOverlay}
+                onUpdateOverlay={updateOverlay}
+                onRemoveOverlay={removeOverlay}
+                onMoveOverlay={moveOverlay}
                 onUpdateGridConfig={updateGridConfig}
                 onUpdateBackgroundConfig={updateBackgroundConfig}
                 onUpdateDisplayConfig={updateDisplayConfig}
@@ -1491,7 +1981,7 @@ const ChartRenderer = React.forwardRef(({
                       fontSize: '0.75rem',
                       whiteSpace: 'nowrap'
                     }}>
-                      {new Date(crosshairPosition.time).toLocaleTimeString()}.{new Date(crosshairPosition.time).getMilliseconds().toString().padStart(3, '0')}
+                      {new Date(crosshairPosition.time).toLocaleDateString()} {new Date(crosshairPosition.time).toLocaleTimeString()}.{new Date(crosshairPosition.time).getMilliseconds().toString().padStart(3, '0')}
                     </Box>
                     
                     {/* Y-axis values labels */}

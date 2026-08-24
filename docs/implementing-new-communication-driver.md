@@ -2,6 +2,18 @@
 
 This guide covers everything needed to add a new communication driver to DataForeman and ensure data flows correctly from devices to the database.
 
+> **Two ways to add a driver:**
+> 1. **Built into `connectivity`** (this guide) — the driver is a `.mjs` module baked
+>    permanently into the shared `connectivity` image, statically wired in
+>    `index-multirate.mjs`. Use this for core, always-available protocols
+>    (this is how OPC UA, S7, EIP, and MQTT work today).
+> 2. **Installable driver extension** — the driver ships as its own sidecar
+>    container (any language) and is installed/enabled per-user via the Library
+>    Manager, with zero footprint until installed. Use this for optional,
+>    device-specific protocols (e.g. the `tuya` extension). See
+>    [Connectivity Driver Extensions](./library-system.md#connectivity-driver-extensions)
+>    in `docs/library-system.md` instead of this guide if that's what you're building.
+
 ## Overview
 
 The data flow for a communication driver is:

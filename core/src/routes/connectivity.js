@@ -1,8 +1,27 @@
 import { randomUUID } from 'crypto';
 import net from 'net';
 
+// Driver types built into the connectivity service (statically wired, never rows in
+// connectivity_driver_types). Anything else must be a currently-enabled installable
+// driver type (installable-drivers framework, Phase 0).
+const BUILTIN_DRIVER_TYPES = ['opcua-client', 'opcua-server', 's7', 'eip', 'mqtt', 'system'];
+
 export async function connectivityRoutes(app) {
   // Viewer-level access; permission-gated features
+
+  // Returns true if `type` is a built-in driver or an enabled installable driver type.
+  const isValidConnectionType = async (type) => {
+    if (BUILTIN_DRIVER_TYPES.includes(type)) return true;
+    try {
+      const { rows } = await app.db.query(
+        `SELECT 1 FROM connectivity_driver_types WHERE driver_type = $1 AND enabled = true`,
+        [type]
+      );
+      return rows.length > 0;
+    } catch {
+      return false;
+    }
+  };
 
   // Helper: Clean connection config for NATS publishing (remove database-specific fields)
   const cleanConnForNats = (conn) => {
@@ -460,6 +479,38 @@ export async function connectivityRoutes(app) {
     }
   });
 
+  // Generic RPC passthrough for installable drivers (installable-drivers framework, Phase 0).
+  // Built-in drivers (opcua-client, opcua-server, s7, eip, mqtt) keep their existing
+  // dedicated endpoints (e.g. /eip/tags/:id) and are not routed through here.
+  app.post('/drivers/:id/rpc', async (req, reply) => {
+    const id = req.params?.id;
+    const { method, params } = req.body || {};
+    if (!id) return reply.code(400).send({ error: 'missing id' });
+    if (!method || typeof method !== 'string') return reply.code(400).send({ error: 'missing method' });
+    try {
+      const saved = await loadConnectionConfig(app.db, id);
+      if (!saved) return reply.code(404).send({ error: 'connection_not_found' });
+      if (BUILTIN_DRIVER_TYPES.includes(saved.type)) {
+        return reply.code(400).send({ error: 'unsupported_for_builtin', message: 'Built-in drivers use their own dedicated endpoints, not the generic RPC route' });
+      }
+      const { rows } = await app.db.query(
+        `SELECT rpc_subject_prefix FROM connectivity_driver_types WHERE driver_type = $1 AND enabled = true`,
+        [saved.type]
+      );
+      if (rows.length === 0) return reply.code(400).send({ error: 'driver_not_installed' });
+      if (!app.nats?.healthy()) return reply.code(503).send({ error: 'nats_unavailable' });
+
+      const subject = `${rows[0].rpc_subject_prefix}.rpc.v1.${id}`;
+      const result = await app.nats.request(subject, { method, params: params || {} }, 10000);
+      try { await app.audit('connectivity.driver.rpc', { outcome: 'success', actor_user_id: req.user?.sub, metadata: { id, type: saved.type, method } }); } catch {}
+      return result;
+    } catch (e) {
+      req.log.error({ err: e, id, method }, 'driver rpc failed');
+      try { await app.audit('connectivity.driver.rpc', { outcome: 'failure', actor_user_id: req.user?.sub, metadata: { id, method, error: e?.message } }); } catch {}
+      return reply.code(500).send({ error: 'rpc_failed', message: e?.message });
+    }
+  });
+
   // Browse a connection (simple request-reply via NATS)
   app.get('/browse/:id', async (req, reply) => {
     const userId = req.user?.sub;    const id = req.params?.id;
@@ -909,6 +960,9 @@ export async function connectivityRoutes(app) {
       }
       if (!type || typeof type !== 'string') {
         return reply.code(400).send({ error: 'missing conn.type' });
+      }
+      if (!(await isValidConnectionType(type))) {
+        return reply.code(400).send({ error: 'invalid_type', message: `"${type}" is not a built-in driver or an installed/enabled driver extension` });
       }
 
       // Prevent using reserved internal names

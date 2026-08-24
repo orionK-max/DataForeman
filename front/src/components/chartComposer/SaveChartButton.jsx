@@ -124,6 +124,7 @@ const SaveChartButton = () => {
             offset: axis.offset ?? 0,
             nameLocation: axis.nameLocation || 'inside',
             nameGap: axis.nameGap ?? 25,
+            ...(axis.gridLine ? { gridLine: axis.gridLine } : {}),
           })),
           // Reference lines
           referenceLines: (chartConfig.referenceLines || []).map(line => ({
@@ -135,13 +136,46 @@ const SaveChartButton = () => {
             lineStyle: line.lineStyle || 'solid',
             yAxisId: line.yAxisId || 'default',
           })),
+          // States & Events overlays (see temp/States and Events.md)
+          overlays: (chartConfig.overlays || []).map(overlay => ({
+            id: overlay.id,
+            name: overlay.name,
+            enabled: overlay.enabled !== false,
+            type: overlay.type,
+            sourceTagId: overlay.sourceTagId,
+            showInLegend: overlay.showInLegend !== false,
+            color: overlay.color || '#3b82f6',
+            opacity: overlay.opacity ?? 0.25,
+            verticalPosition: overlay.verticalPosition ?? 0,
+            positionAnchor: overlay.positionAnchor === 'bottom' ? 'bottom' : 'top',
+            displayPreset: overlay.displayPreset,
+            border: overlay.border,
+            label: overlay.label,
+            // state-only
+            ...(overlay.type === 'state' ? {
+              activeValue: overlay.activeValue,
+              valueMap: overlay.valueMap,
+              height: overlay.height ?? 100,
+              unknownStyle: overlay.unknownStyle,
+            } : {}),
+            // event-only
+            ...(overlay.type === 'event' ? {
+              trigger: overlay.trigger,
+              triggerValue: overlay.triggerValue,
+              alignment: overlay.alignment || 'left',
+              widthPx: overlay.widthPx ?? 6,
+              heightPct: overlay.heightPct ?? 100,
+            } : {}),
+          })),
           // Grid settings
           grid: {
             color: chartConfig.grid?.color || '#cccccc',
             opacity: chartConfig.grid?.opacity != null ? chartConfig.grid.opacity : 0.3,
-            thickness: chartConfig.grid?.thickness || 1,
+            thickness: chartConfig.grid?.thickness != null ? chartConfig.grid.thickness : 1,
             dash: chartConfig.grid?.dash || 'solid',
           },
+          // X-axis (time) vertical grid line style override (falls back to `grid` when absent)
+          ...(chartConfig.xAxisGrid ? { xAxisGrid: chartConfig.xAxisGrid } : {}),
           // Background settings
           background: {
             color: chartConfig.background?.color || '#ffffff',
@@ -156,7 +190,7 @@ const SaveChartButton = () => {
           // Extension config namespaces (e.g. forecast, custom plugins) — pass through as-is
           ...Object.fromEntries(
             Object.entries(chartConfig).filter(([k, v]) =>
-              !['tagConfigs', 'axes', 'referenceLines', 'grid', 'background', 'display', 'interpolation', 'xAxisTickCount', 'extendCurveEdges'].includes(k) &&
+              !['tagConfigs', 'axes', 'referenceLines', 'grid', 'background', 'display', 'interpolation', 'xAxisTickCount', 'xAxisGrid', 'extendCurveEdges'].includes(k) &&
               v !== null && typeof v === 'object' && !Array.isArray(v)
             )
           ),

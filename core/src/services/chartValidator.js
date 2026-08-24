@@ -14,7 +14,12 @@ import {
   LEGEND_POSITIONS,
   AXIS_ORIENTATIONS,
   INTERPOLATION_TYPES,
-  STROKE_TYPES
+  STROKE_TYPES,
+  OVERLAY_TYPES,
+  OVERLAY_STATE_PRESETS,
+  OVERLAY_EVENT_PRESETS,
+  OVERLAY_EVENT_TRIGGERS,
+  OVERLAY_ALIGNMENTS
 } from '../schemas/ChartConfigSchema.js';
 
 /**
@@ -226,6 +231,16 @@ export function validateChartOptions(options, { partial = false, strict = false 
     value.derived = [];
   }
   
+  // States & Events overlays validation
+  if ('overlays' in options) {
+    const overlaysResult = validateOverlays(options.overlays);
+    errors.push(...overlaysResult.errors);
+    warnings.push(...overlaysResult.warnings);
+    value.overlays = overlaysResult.value;
+  } else if (!partial) {
+    value.overlays = [];
+  }
+  
   // Grid validation
   if ('grid' in options || !partial) {
     const gridResult = validateGrid(options.grid);
@@ -270,11 +285,20 @@ export function validateChartOptions(options, { partial = false, strict = false 
     value.xAxisTickCount = 5;
   }
 
+  // X-axis (time) vertical grid line style override
+  if ('xAxisGrid' in options) {
+    const xAxisGridResult = validateGridLineStyle(options.xAxisGrid);
+    warnings.push(...xAxisGridResult.warnings.map(w => `xAxisGrid: ${w}`));
+    if (xAxisGridResult.value) {
+      value.xAxisGrid = xAxisGridResult.value;
+    }
+  }
+
   // Extension config namespaces — pass through plain objects not owned by core.
   // Extensions write to their own configKey (e.g. options.forecast, options.myPlugin).
   const CORE_OPTION_KEYS = new Set([
     'axes', 'referenceLines', 'tags', 'grid', 'background', 'display',
-    'xAxisTickCount', 'extendCurveEdges'
+    'xAxisTickCount', 'xAxisGrid', 'extendCurveEdges'
   ]);
   for (const [key, val] of Object.entries(options)) {
     if (!CORE_OPTION_KEYS.has(key) && val !== null && typeof val === 'object' && !Array.isArray(val)) {
@@ -483,11 +507,71 @@ function validateAxes(axes) {
     if ('namePosition' in axis && ['start', 'middle', 'end'].includes(axis.namePosition)) {
       validAxis.namePosition = axis.namePosition;
     }
+
+    // Frontend-managed name placement fields (pass through as-is)
+    if ('nameLocation' in axis && ['inside', 'outside'].includes(axis.nameLocation)) {
+      validAxis.nameLocation = axis.nameLocation;
+    }
+    if ('nameGap' in axis) {
+      validAxis.nameGap = Number(axis.nameGap) || 0;
+    }
+
+    // Per-axis grid (split) line style override
+    if ('gridLine' in axis) {
+      const gridLineResult = validateGridLineStyle(axis.gridLine);
+      warnings.push(...gridLineResult.warnings.map(w => `axis[${idx}].gridLine: ${w}`));
+      if (gridLineResult.value) {
+        validAxis.gridLine = gridLineResult.value;
+      }
+    }
     
     value.push(validAxis);
   });
   
   return { errors, warnings, value };
+}
+
+/**
+ * Validate a partial grid-line style override (used for per-axis gridLine and xAxisGrid).
+ * Unlike validateGrid, this does NOT fill in defaults — only explicitly-set, valid
+ * fields are kept, so unset fields fall back to the chart-wide grid style at render time.
+ */
+function validateGridLineStyle(style) {
+  const warnings = [];
+  
+  if (!style || typeof style !== 'object') {
+    return { warnings, value: null };
+  }
+  
+  const value = {};
+  const hexPattern = /^#[0-9a-fA-F]{6}$/;
+  
+  if ('color' in style) {
+    if (hexPattern.test(style.color)) {
+      value.color = style.color;
+    } else {
+      warnings.push(`invalid color: ${style.color}`);
+    }
+  }
+  
+  if ('thickness' in style) {
+    const t = Number(style.thickness);
+    if (t >= 0 && t <= 5) {
+      value.thickness = t;
+    } else {
+      warnings.push(`invalid thickness: ${style.thickness}`);
+    }
+  }
+  
+  if ('dash' in style) {
+    if (STROKE_TYPES.includes(style.dash)) {
+      value.dash = style.dash;
+    } else {
+      warnings.push(`invalid dash style: ${style.dash}`);
+    }
+  }
+  
+  return { warnings, value: Object.keys(value).length > 0 ? value : null };
 }
 
 /**
@@ -665,6 +749,176 @@ function validateDerivedSeries(derived) {
 }
 
 /**
+ * Validate States & Events overlays array
+ *
+ * Overlays are display-only (see temp/States and Events.md) — sourceTagId is not
+ * cross-validated against options.tags here, matching how referenceLines/criticalRanges
+ * don't cross-validate yAxisId against options.axes either.
+ */
+function validateOverlays(overlays) {
+  const errors = [];
+  const warnings = [];
+  const value = [];
+  
+  if (!Array.isArray(overlays)) {
+    return { errors: ['overlays must be an array'], warnings: [], value: [] };
+  }
+  
+  if (overlays.length > CHART_LIMITS.MAX_OVERLAYS) {
+    errors.push(`too many overlays (max ${CHART_LIMITS.MAX_OVERLAYS})`);
+  }
+  
+  const hexPattern = /^#[0-9a-fA-F]{6}$/;
+  const isPrimitive = (v) => typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string';
+  
+  overlays.forEach((overlay, idx) => {
+    if (!overlay || typeof overlay !== 'object') {
+      errors.push(`overlay[${idx}] must be an object`);
+      return;
+    }
+    
+    const validOverlay = {};
+    
+    if (!overlay.id || typeof overlay.id !== 'string') {
+      errors.push(`overlay[${idx}].id is required`);
+    } else {
+      validOverlay.id = overlay.id;
+    }
+    
+    if (!overlay.name || typeof overlay.name !== 'string') {
+      errors.push(`overlay[${idx}].name is required`);
+    } else {
+      validOverlay.name = overlay.name.substring(0, CHART_LIMITS.MAX_LABEL_LENGTH);
+    }
+    
+    validOverlay.enabled = ('enabled' in overlay) ? !!overlay.enabled : true;
+    validOverlay.showInLegend = ('showInLegend' in overlay) ? !!overlay.showInLegend : true;
+    
+    const isState = overlay.type === 'state';
+    const isEvent = overlay.type === 'event';
+    if (!isState && !isEvent) {
+      errors.push(`overlay[${idx}].type must be one of: ${OVERLAY_TYPES.join(', ')}`);
+      return; // Can't validate type-specific fields without a valid type
+    }
+    validOverlay.type = overlay.type;
+    
+    if (!Number.isInteger(Number(overlay.sourceTagId))) {
+      errors.push(`overlay[${idx}].sourceTagId is required and must be an integer`);
+    } else {
+      validOverlay.sourceTagId = Number(overlay.sourceTagId);
+    }
+    
+    if (!overlay.color || !hexPattern.test(overlay.color)) {
+      errors.push(`overlay[${idx}].color must be a valid hex color`);
+    } else {
+      validOverlay.color = overlay.color;
+    }
+    
+    validOverlay.opacity = (typeof overlay.opacity === 'number' && overlay.opacity >= 0 && overlay.opacity <= 1)
+      ? overlay.opacity : 0.25;
+    validOverlay.verticalPosition = (typeof overlay.verticalPosition === 'number' && overlay.verticalPosition >= 0 && overlay.verticalPosition <= 100)
+      ? overlay.verticalPosition : 0;
+    validOverlay.positionAnchor = overlay.positionAnchor === 'bottom' ? 'bottom' : 'top';
+    
+    if (isState) {
+      const validPresets = OVERLAY_STATE_PRESETS;
+      validOverlay.displayPreset = validPresets.includes(overlay.displayPreset) ? overlay.displayPreset : 'fullBand';
+      validOverlay.height = (typeof overlay.height === 'number' && overlay.height >= 0 && overlay.height <= 100)
+        ? overlay.height : 100;
+      
+      if ('activeValue' in overlay && isPrimitive(overlay.activeValue)) {
+        validOverlay.activeValue = overlay.activeValue;
+      }
+      
+      if ('valueMap' in overlay) {
+        if (!Array.isArray(overlay.valueMap)) {
+          warnings.push(`overlay[${idx}].valueMap must be an array, ignoring`);
+        } else {
+          const validMap = [];
+          overlay.valueMap.forEach((entry, mIdx) => {
+            if (!entry || typeof entry !== 'object' || !isPrimitive(entry.value) ||
+                typeof entry.label !== 'string' || !hexPattern.test(entry.color || '')) {
+              warnings.push(`overlay[${idx}].valueMap[${mIdx}] is invalid, skipping`);
+              return;
+            }
+            validMap.push({
+              value: entry.value,
+              label: entry.label.substring(0, CHART_LIMITS.MAX_LABEL_LENGTH),
+              color: entry.color,
+              enabled: ('enabled' in entry) ? !!entry.enabled : true
+            });
+          });
+          validOverlay.valueMap = validMap;
+        }
+      }
+      
+      if (!('activeValue' in validOverlay) && !('valueMap' in validOverlay)) {
+        warnings.push(`overlay[${idx}] has neither activeValue nor valueMap \u2014 state will never render as active`);
+      }
+      
+      if (overlay.unknownStyle && typeof overlay.unknownStyle === 'object') {
+        validOverlay.unknownStyle = {
+          enabled: !!overlay.unknownStyle.enabled,
+          color: hexPattern.test(overlay.unknownStyle.color) ? overlay.unknownStyle.color : '#666666',
+          opacity: (typeof overlay.unknownStyle.opacity === 'number' && overlay.unknownStyle.opacity >= 0 && overlay.unknownStyle.opacity <= 1)
+            ? overlay.unknownStyle.opacity : 0.1
+        };
+      } else {
+        validOverlay.unknownStyle = { enabled: false, color: '#666666', opacity: 0.1 };
+      }
+    } else {
+      // Event overlay
+      const validPresets = OVERLAY_EVENT_PRESETS;
+      validOverlay.displayPreset = validPresets.includes(overlay.displayPreset) ? overlay.displayPreset : 'fullHeight';
+      
+      if (!OVERLAY_EVENT_TRIGGERS.includes(overlay.trigger)) {
+        errors.push(`overlay[${idx}].trigger must be one of: ${OVERLAY_EVENT_TRIGGERS.join(', ')}`);
+      } else {
+        validOverlay.trigger = overlay.trigger;
+      }
+      
+      if (overlay.trigger === 'specificValue') {
+        if (!isPrimitive(overlay.triggerValue)) {
+          errors.push(`overlay[${idx}].triggerValue is required when trigger is "specificValue"`);
+        } else {
+          validOverlay.triggerValue = overlay.triggerValue;
+        }
+      }
+      
+      validOverlay.alignment = OVERLAY_ALIGNMENTS.includes(overlay.alignment) ? overlay.alignment : 'left';
+      validOverlay.widthPx = (typeof overlay.widthPx === 'number' && overlay.widthPx >= 1 && overlay.widthPx <= 200)
+        ? overlay.widthPx : 6;
+      validOverlay.heightPct = (typeof overlay.heightPct === 'number' && overlay.heightPct >= 1 && overlay.heightPct <= 100)
+        ? overlay.heightPct : 100;
+    }
+    
+    if (overlay.border && typeof overlay.border === 'object') {
+      validOverlay.border = {
+        enabled: !!overlay.border.enabled,
+        color: hexPattern.test(overlay.border.color) ? overlay.border.color : (validOverlay.color || '#000000'),
+        width: (typeof overlay.border.width === 'number' && overlay.border.width >= 0.5 && overlay.border.width <= 10)
+          ? overlay.border.width : 1
+      };
+    }
+    
+    if (overlay.label && typeof overlay.label === 'object') {
+      validOverlay.label = {
+        show: !!overlay.label.show,
+        text: typeof overlay.label.text === 'string' ? overlay.label.text.substring(0, CHART_LIMITS.MAX_LABEL_LENGTH) : '',
+        verticalPosition: (typeof overlay.label.verticalPosition === 'number' && overlay.label.verticalPosition >= 0 && overlay.label.verticalPosition <= 100)
+          ? overlay.label.verticalPosition : 50,
+        ...(hexPattern.test(overlay.label.textColor) ? { textColor: overlay.label.textColor } : {}),
+        ...(overlay.label.icon ? { icon: String(overlay.label.icon) } : {})
+      };
+    }
+    
+    value.push(validOverlay);
+  });
+  
+  return { errors, warnings, value };
+}
+
+/**
  * Validate grid configuration
  */
 function validateGrid(grid) {
@@ -691,7 +945,7 @@ function validateGrid(grid) {
   
   if ('thickness' in grid) {
     const t = Number(grid.thickness);
-    if (t >= 0.5 && t <= 5) {
+    if (t >= 0 && t <= 5) {
       value.thickness = t;
     }
   }

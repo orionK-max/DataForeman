@@ -21,6 +21,35 @@ export class HttpRequestNode extends BaseNode {
 
     inputs: [],
 
+    ioRules: [
+      {
+        inputs: {
+          definitions: [
+            {
+              type: 'boolean',
+              displayName: 'Trigger',
+              required: false,
+              skipNodeOnNull: false,
+              typeFixed: true,
+              description: 'When false, the request is skipped. Leave unconnected to always fire.'
+            }
+          ],
+          dynamic: {
+            min: 0,
+            max: 9,
+            default: 0,
+            canAdd: true,
+            canRemove: true,
+            type: 'any',
+            typeFixed: false,
+            template: {
+              displayName: 'Value {n}'
+            }
+          }
+        }
+      }
+    ],
+
     outputs: [
       {
         displayName: 'Response',
@@ -75,7 +104,7 @@ export class HttpRequestNode extends BaseNode {
         type: 'string',
         default: '',
         required: true,
-        description: 'Full URL to request (e.g. https://api.weather.gov/points/39.7456,-97.0892)'
+        description: 'Full URL to request. Use {{1}}, {{2}}, ... to embed dynamic input values (e.g. https://api.day.app/key/Alert/Value+is+{{1}})'
       },
       {
         name: 'method',
@@ -104,7 +133,7 @@ export class HttpRequestNode extends BaseNode {
         displayName: 'Request Body',
         type: 'json',
         default: {},
-        description: 'JSON body for POST/PUT/PATCH requests'
+        description: 'JSON body for POST/PUT/PATCH requests. Use {{1}}, {{2}}, ... to embed dynamic input values.'
       },
       {
         name: 'extractPath',
@@ -161,14 +190,43 @@ export class HttpRequestNode extends BaseNode {
     },
 
     help: {
-      overview: "Makes HTTP/HTTPS requests to external APIs and web services. Supports all common HTTP methods, custom headers, JSON request bodies, and dot-notation path extraction to pluck a specific field from the response.",
+      overview: "Makes HTTP/HTTPS requests to external APIs and web services. The optional Trigger input (boolean) gates execution — connect a Comparison node to fire only on condition. Add extra inputs to embed live values into the URL or body using {{1}}, {{2}}, ... placeholders.",
       useCases: [
+        "Sending push notifications (e.g. Bark/Pushover) when a sensor threshold is breached",
         "Fetching data from REST APIs (weather, IoT cloud platforms, ERP systems)",
         "Sending sensor values to external HTTP endpoints",
-        "Querying web services that return JSON data",
         "Polling a remote API on each flow execution"
       ],
       examples: [
+        {
+          title: "Bark push notification on motion",
+          description: "Fire a Bark notification when motion sensor value equals 1. Connect Comparison output to Trigger input.",
+          configuration: {
+            url: 'https://api.day.app/YOUR_KEY/Motion/Motion+detected',
+            method: 'GET'
+          },
+          output: { message: 'pong' }
+        },
+        {
+          title: "Bark notification with live value",
+          description: "Include the actual sensor reading in the notification. Add one dynamic input and connect the tag. Use {{1}} in the URL.",
+          configuration: {
+            url: 'https://api.day.app/YOUR_KEY/Alert/Temperature+is+{{1}}',
+            method: 'GET'
+          },
+          output: { message: 'pong' }
+        },
+        {
+          title: "POST JSON with dynamic values",
+          description: "Send sensor readings in a JSON body using {{N}} placeholders",
+          configuration: {
+            url: 'https://example.com/api/readings',
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer YOUR_TOKEN' },
+            body: '{"sensor":"T1","value":{{1}}}'
+          },
+          output: { success: true }
+        },
         {
           title: "Fetch weather data",
           description: "GET a JSON API and extract a nested value",
@@ -178,38 +236,18 @@ export class HttpRequestNode extends BaseNode {
             extractPath: 'properties.relativeLocation.properties.city'
           },
           output: "Concordia"
-        },
-        {
-          title: "POST JSON to an endpoint",
-          description: "Send a JSON body with a POST request",
-          configuration: {
-            url: 'https://example.com/api/readings',
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer YOUR_TOKEN' },
-            body: '{"sensor":"T1","value":22.5}'
-          },
-          output: { success: true }
-        },
-        {
-          title: "Authenticated GET",
-          description: "Pass an API key via headers",
-          configuration: {
-            url: 'https://api.example.com/devices',
-            method: 'GET',
-            headers: { 'X-Api-Key': 'abc123' }
-          },
-          output: [{ id: 1, name: "Device A" }]
         }
       ],
       tips: [
+        "Trigger input (index 0): connect a boolean — when false the request is skipped; leave unconnected to always fire",
+        "Dynamic inputs start at index 1 — use {{1}}, {{2}}, ... in the URL, body, or headers to embed their values",
         "Extract Path uses dot notation — e.g. 'properties.periods.0.temperature' drills into nested JSON",
         "Leave Extract Path empty to receive the full response object",
-        "Header values are stored in the flow — avoid pasting long-lived secrets; prefer environment-injected values",
         "Set On Error to 'Continue' to pass null downstream instead of stopping the flow on failures",
         "Timeout default is 10 seconds — lower it for fast APIs, raise it for slow ones",
         "Non-2xx responses output the parsed body with degraded quality (64) rather than throwing an error"
       ],
-      relatedNodes: ["json-ops", "debug-log", "tag-output"]
+      relatedNodes: ["json-ops", "debug-log", "tag-output", "comparison"]
     }
   };
 
@@ -219,8 +257,10 @@ export class HttpRequestNode extends BaseNode {
     if (!url || typeof url !== 'string' || url.trim() === '') {
       errors.push('URL is required');
     } else {
+      // Strip {{N}} placeholders before URL validation so templates are accepted
+      const testUrl = url.trim().replace(/\{\{\d+\}\}/g, '0');
       try {
-        const parsed = new URL(url.trim());
+        const parsed = new URL(testUrl);
         if (!['http:', 'https:'].includes(parsed.protocol)) {
           errors.push('URL must use http or https');
         }
@@ -251,6 +291,18 @@ export class HttpRequestNode extends BaseNode {
   }
 
   /**
+   * Replace {{N}} placeholders in a string with values from the inputs map.
+   * e.g. _interpolate('Alert: {{1}}', { 1: '42.5' }) → 'Alert: 42.5'
+   */
+  _interpolate(template, values) {
+    if (!template || typeof template !== 'string') return template;
+    return template.replace(/\{\{(\d+)\}\}/g, (match, idx) => {
+      const key = parseInt(idx, 10);
+      return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : match;
+    });
+  }
+
+  /**
    * Resolve dot-notation path against an object.
    * e.g. extractByPath(obj, 'properties.periods.0.temperature')
    */
@@ -263,10 +315,27 @@ export class HttpRequestNode extends BaseNode {
   }
 
   async execute(context) {
-    const url      = this.getParameter(context.node, 'url', '').trim();
+    // --- Trigger check (input 0) ---
+    // If trigger is connected and explicitly false, skip the request entirely
+    const triggerData = context.getInputValue(0);
+    if (triggerData !== null && triggerData !== undefined && triggerData.value === false) {
+      return { value: null, quality: 192, metadata: { skipped: true, reason: 'trigger_false' } };
+    }
+
+    // --- Collect dynamic input values for {{N}} interpolation ---
+    // Scan handles 0–9; getInputValue returns null when not connected
+    const inputValues = {};
+    for (let i = 0; i <= 9; i++) {
+      const data = context.getInputValue(i);
+      if (data !== null && data !== undefined) {
+        inputValues[i] = String(data.value ?? '');
+      }
+    }
+
+    let url      = this._interpolate(this.getParameter(context.node, 'url', '').trim(), inputValues);
     const method   = this.getParameter(context.node, 'method', 'GET').toUpperCase();
-    const headers  = this.getParameter(context.node, 'headers', []);
-    const bodyRaw  = this.getParameter(context.node, 'body', '');
+    let headersRaw = this.getParameter(context.node, 'headers', {});
+    let bodyRaw    = this.getParameter(context.node, 'body', '');
     const extract  = this.getParameter(context.node, 'extractPath', '');
     const timeout  = this.getParameter(context.node, 'timeout', 10000);
     const onError  = this.getParameter(context.node, 'onError', 'stop');
@@ -279,17 +348,20 @@ export class HttpRequestNode extends BaseNode {
       throw new Error('URL must use http or https');
     }
 
-    // Build headers map from JSON object
+    // Build headers map from JSON object, interpolating values
     const headersMap = {};
-    if (headers && typeof headers === 'object' && !Array.isArray(headers)) {
-      for (const [key, value] of Object.entries(headers)) {
+    if (headersRaw && typeof headersRaw === 'object' && !Array.isArray(headersRaw)) {
+      for (const [key, value] of Object.entries(headersRaw)) {
         if (key && typeof key === 'string' && key.trim()) {
-          headersMap[key.trim()] = String(value ?? '');
+          headersMap[key.trim()] = this._interpolate(String(value ?? ''), inputValues);
         }
       }
     }
 
-    // Parse optional JSON body
+    // Interpolate body and parse optional JSON body
+    if (typeof bodyRaw === 'object') bodyRaw = JSON.stringify(bodyRaw);
+    bodyRaw = this._interpolate(bodyRaw, inputValues);
+
     let bodyString = undefined;
     if (['POST', 'PUT', 'PATCH'].includes(method) && bodyRaw && bodyRaw.trim()) {
       try {

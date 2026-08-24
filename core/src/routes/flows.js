@@ -689,13 +689,13 @@ export default async function flowRoutes(app) {
         `, [JSON.stringify({ flow_id: id, scanRateMs })]);
         req.log.info({ flowId: id, scanRateMs }, 'Test mode started, execution job queued');
       } else {
-        // Stop active session when exiting test mode
-        const { FlowSession } = await import('../services/flow-session.js');
-        const stopped = await FlowSession.stopSessionByFlowId(id);
-        if (stopped) {
+        // Stop active session when exiting test mode (session lives in the flow executor process -
+        // see temp/mqtt-broker-flapping-fixes-plan.md item #5)
+        const stopResult = await app.flowExecutorManager.stopFlow(id);
+        if (stopResult && !stopResult.timedOut) {
           req.log.info({ flowId: id }, 'Active flow session stopped on test mode exit');
         } else {
-          // If no active session in memory, update database anyway
+          // If no active session was running, update database anyway
           await db.query(
             `UPDATE flow_sessions
              SET status = 'stopped',
@@ -841,13 +841,13 @@ export default async function flowRoutes(app) {
         `, [JSON.stringify({ flow_id: id, scanRateMs })]);
         req.log.info({ flowId: id, scanRateMs }, 'Flow deployed and execution job queued');
       } else {
-        // Stop active session when undeploying
-        const { FlowSession } = await import('../services/flow-session.js');
-        const stopped = await FlowSession.stopSessionByFlowId(id);
-        if (stopped) {
+        // Stop active session when undeploying (session lives in the flow executor process -
+        // see temp/mqtt-broker-flapping-fixes-plan.md item #5)
+        const stopResult = await app.flowExecutorManager.stopFlow(id);
+        if (stopResult && !stopResult.timedOut) {
           req.log.info({ flowId: id }, 'Active flow session stopped on undeploy');
         } else {
-          // If no active session in memory, update database anyway
+          // If no active session was running, update database anyway
           await db.query(
             `UPDATE flow_sessions
              SET status = 'stopped',
@@ -1126,9 +1126,12 @@ export default async function flowRoutes(app) {
       return reply.code(400).send({ error: 'node is not a manual trigger' });
     }
 
-    // Set trigger flag in RuntimeStateStore (in-memory, runtime state)
+    // Set trigger flag in RuntimeStateStore (in-memory, runtime state) - this remains for any
+    // local reads of core's own copy - and publish to the flow executor process, where the flow
+    // actually runs, so the next scan cycle there sees the trigger (see plan item #5, question 1b).
     app.runtimeState.setTriggerFlag(id, nodeId, true);
-    req.log.info({ flowId: id, nodeId, userId }, 'Manual trigger flag set in RuntimeStateStore');
+    app.flowExecutorManager.publishTrigger(id, nodeId, true);
+    req.log.info({ flowId: id, nodeId, userId }, 'Manual trigger flag set and published to flow executor');
 
     reply.send({ 
       success: true,

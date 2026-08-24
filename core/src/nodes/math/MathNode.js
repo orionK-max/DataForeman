@@ -1,4 +1,5 @@
 import { BaseNode } from '../base/BaseNode.js';
+import { evaluateSafeExpression, ExpressionError } from '../../utils/safeExpression.js';
 
 /**
  * Unified Math Node - handles all mathematical operations
@@ -264,48 +265,41 @@ export class MathNode extends BaseNode {
   }
 
   /**
-   * Evaluates a custom formula safely using mathjs
+   * Evaluates a custom formula safely using a restricted, whitelist-based
+   * AST evaluator (see utils/safeExpression.js) — no `new Function`/`eval`,
+   * no access to globals/require/constructors.
    */
   evaluateFormula(formula, values) {
-    // Build scope with input variables
+    // Build scope with input variables (input0, input1, ...)
     const scope = {};
     values.forEach((value, index) => {
       scope[`input${index}`] = value;
     });
 
+    // Bare function names supported by the formula UI (e.g. `sqrt(input0)`)
+    const extraFunctions = {
+      sqrt: Math.sqrt,
+      abs: Math.abs,
+      round: Math.round,
+      floor: Math.floor,
+      ceil: Math.ceil,
+      min: Math.min,
+      max: Math.max,
+      pow: Math.pow
+    };
+
     try {
-      // Simple math expression parser (avoiding eval for security)
-      // Replace input variables
-      let expression = formula;
-      values.forEach((value, index) => {
-        const regex = new RegExp(`\\binput${index}\\b`, 'g');
-        expression = expression.replace(regex, value);
-      });
+      const result = evaluateSafeExpression(formula, scope, { extraFunctions });
 
-      // Support basic math functions
-      expression = expression.replace(/\bsqrt\s*\(/g, 'Math.sqrt(');
-      expression = expression.replace(/\babs\s*\(/g, 'Math.abs(');
-      expression = expression.replace(/\bround\s*\(/g, 'Math.round(');
-      expression = expression.replace(/\bfloor\s*\(/g, 'Math.floor(');
-      expression = expression.replace(/\bceil\s*\(/g, 'Math.ceil(');
-      expression = expression.replace(/\bmin\s*\(/g, 'Math.min(');
-      expression = expression.replace(/\bmax\s*\(/g, 'Math.max(');
-      expression = expression.replace(/\bpow\s*\(/g, 'Math.pow(');
-
-      // Validate expression contains only safe characters
-      if (!/^[\d\s+\-*/%().]+$/.test(expression.replace(/Math\.\w+/g, ''))) {
-        throw new Error('Formula contains invalid characters');
-      }
-
-      // Use Function constructor (safer than eval, but still sandboxed)
-      const result = new Function('Math', `return ${expression}`)(Math);
-      
-      if (!isFinite(result)) {
+      if (typeof result !== 'number' || !isFinite(result)) {
         throw new Error('Formula resulted in invalid number (Infinity or NaN)');
       }
 
       return result;
     } catch (error) {
+      if (error instanceof ExpressionError) {
+        throw new Error(`Formula contains invalid characters or unsupported syntax: ${error.message}`);
+      }
       throw new Error(`Formula evaluation failed: ${error.message}`);
     }
   }

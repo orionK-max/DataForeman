@@ -12,7 +12,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { nodeTypes as coreNodeTypes, buildNodeTypes } from '../components/FlowEditor/CustomNodes';
 import { getAllNodeTypes, getNodeMetadata } from '../constants/nodeTypes';
-import { getRequiredInputAdjustment, getInputConfig, parseInputConfig, generateOutputs, generateInputs } from '../utils/ioRulesUtils';
+import { getRequiredInputAdjustment, getRequiredOutputAdjustment, getInputConfig, getOutputConfig, parseInputConfig, generateOutputs, generateInputs } from '../utils/ioRulesUtils';
 import { validateForSave, validateForDeploy } from '../utils/flowValidation';
 import {
   Box,
@@ -41,6 +41,7 @@ import {
   Chip,
   ButtonGroup,
   Divider,
+  useTheme,
 } from '@mui/material';
 import {
   PlayArrow as RunIcon,
@@ -75,6 +76,7 @@ const FlowEditor = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const theme = useTheme();
   const { setPageTitle, setPageSubtitle } = usePageTitle();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -331,10 +333,12 @@ const FlowEditor = () => {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event) => {
-      // "/" to open node browser (only if not typing in an input)
+      // "/" to open node browser (only if not typing in an input or code editor)
       if (event.key === '/' && !nodeBrowserOpen) {
         const target = event.target;
-        const isTyping = ['INPUT', 'TEXTAREA'].includes(target.tagName);
+        const isTyping = ['INPUT', 'TEXTAREA'].includes(target.tagName) ||
+          target?.isContentEditable ||
+          target?.closest?.('.monaco-editor') !== null;
         
         if (!isTyping) {
           event.preventDefault();
@@ -345,7 +349,9 @@ const FlowEditor = () => {
       // Delete or Backspace to delete selected nodes/edges
       if ((event.key === 'Delete' || event.key === 'Backspace') && !nodeBrowserOpen) {
         const target = event.target;
-        const isTyping = ['INPUT', 'TEXTAREA'].includes(target.tagName);
+        const isTyping = ['INPUT', 'TEXTAREA'].includes(target.tagName) ||
+          target?.isContentEditable ||
+          target?.closest?.('.monaco-editor') !== null;
         
         if (!isTyping) {
           event.preventDefault();
@@ -1425,6 +1431,12 @@ const FlowEditor = () => {
         });
       }
 
+      // Initialize default output count from ioRules (parameter-driven), if dynamic
+      const outputConfig = getOutputConfig(metadata, initialData);
+      if (outputConfig && (outputConfig.canAdd || outputConfig.canRemove)) {
+        initialData.outputCount = outputConfig.count ?? outputConfig.min;
+      }
+
       const newNode = {
         id: `${type}-${crypto.randomUUID()}`,
         type,
@@ -1490,6 +1502,12 @@ const FlowEditor = () => {
       initialData.inputCount = metadata.inputs.length;
     }
     
+    // Get default output count from ioRules (parameter-driven), if this node supports dynamic outputs
+    const outputConfig = getOutputConfig(metadata, initialData);
+    if (outputConfig && (outputConfig.canAdd || outputConfig.canRemove)) {
+      initialData.outputCount = outputConfig.count ?? outputConfig.min;
+    }
+    
     const newNode = {
       id: `${nodeType}-${crypto.randomUUID()}`,
       type: nodeType,
@@ -1534,6 +1552,17 @@ const FlowEditor = () => {
       // Show notification to user
       showSnackbar(
         `Input count auto-adjusted to ${adjustment.inputCount}`,
+        'info'
+      );
+    }
+    
+    // Check if output count needs adjustment based on ioRules
+    const outputAdjustment = getRequiredOutputAdjustment(metadata, updatedData);
+    if (outputAdjustment) {
+      updatedData.outputCount = outputAdjustment.outputCount;
+      
+      showSnackbar(
+        `Output count auto-adjusted to ${outputAdjustment.outputCount}`,
         'info'
       );
     }
@@ -1833,7 +1862,12 @@ const FlowEditor = () => {
             >
               <Background />
               <Controls />
-              <MiniMap />
+              <MiniMap
+                style={{ backgroundColor: theme.palette.background.paper }}
+                maskColor={theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(240, 240, 240, 0.6)'}
+                nodeColor={theme.palette.mode === 'dark' ? '#555' : '#ccc'}
+                nodeStrokeColor={theme.palette.divider}
+              />
             </ReactFlow>
           </Box>
 
