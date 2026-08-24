@@ -90,15 +90,30 @@ async function applyPolicies(app) {
       PERFORM add_compression_policy('tag_values', INTERVAL '${cDays} days');
     EXCEPTION WHEN OTHERS THEN NULL; END;
 
-    -- Apply retention policy for system_metrics hypertable
+    -- Apply retention and compression policies for system_metrics hypertable
     BEGIN
       PERFORM 1 FROM timescaledb_information.hypertables WHERE hypertable_name = 'system_metrics';
-      -- If system_metrics hypertable exists, apply retention policy
+      -- Enable compression on system_metrics
+      BEGIN
+        EXECUTE 'ALTER TABLE system_metrics SET (timescaledb.compress, timescaledb.compress_orderby = ''ts DESC'', timescaledb.compress_segmentby = ''tag_id'')';
+      EXCEPTION WHEN OTHERS THEN
+        BEGIN
+          EXECUTE 'ALTER TABLE system_metrics SET (timescaledb.compress)';
+        EXCEPTION WHEN OTHERS THEN NULL; END;
+      END;
+      -- Retention policy
       BEGIN
         PERFORM remove_retention_policy('system_metrics');
       EXCEPTION WHEN OTHERS THEN NULL; END;
       BEGIN
         PERFORM add_retention_policy('system_metrics', INTERVAL '${sysMetricsRDays} days');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+      -- Compression policy (compress chunks older than compression_days, same as tag_values)
+      BEGIN
+        PERFORM remove_compression_policy('system_metrics');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN
+        PERFORM add_compression_policy('system_metrics', INTERVAL '${cDays} days');
       EXCEPTION WHEN OTHERS THEN NULL; END;
     EXCEPTION WHEN OTHERS THEN
       -- Hypertable doesn't exist yet, skip
