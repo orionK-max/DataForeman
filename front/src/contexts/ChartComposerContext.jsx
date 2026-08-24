@@ -396,6 +396,8 @@ export const ChartComposerProvider = ({ children }) => {
                   ...tagWithoutYAxisId,
                   axisId, // Use validated axis ID (mapped from yAxisId in DB)
                   name: meta?.tag_name || tagConfig.name || `Tag ${tagConfig.tag_id}`,
+                  tag_name: meta?.tag_name || tagConfig.tag_name || tagConfig.name || `Tag ${tagConfig.tag_id}`,
+                  tag_path: meta?.tag_path || tagConfig.tag_path || '',
                   connection_id: connectionId,
                   connection_name: connectionName,
                   data_type: meta?.data_type || tagConfig.data_type,
