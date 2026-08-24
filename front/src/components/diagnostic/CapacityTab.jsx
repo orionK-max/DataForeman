@@ -468,39 +468,43 @@ export default function CapacityTab() {
 
                       {/* Disk */}
                       <Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <StorageIcon sx={{ fontSize: 18, color: 'primary.main' }} />
-                            <Typography variant="body2" fontWeight={500}>Disk</Typography>
-                          </Box>
-                          <Typography 
-                            variant="body2" 
-                            fontWeight={700}
-                            color={
-                              (systemMetrics?.disks?.[0] ? ((systemMetrics.disks[0].used_bytes / systemMetrics.disks[0].size_bytes) * 100) : 0) > 80 ? 'error.main' :
-                              (systemMetrics?.disks?.[0] ? ((systemMetrics.disks[0].used_bytes / systemMetrics.disks[0].size_bytes) * 100) : 0) > 60 ? 'warning.main' :
-                              'success.main'
-                            }
-                          >
-                            {systemMetrics?.disks?.[0] ? ((systemMetrics.disks[0].used_bytes / systemMetrics.disks[0].size_bytes) * 100).toFixed(1) : '–'}%
-                          </Typography>
-                        </Box>
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={Math.min(100, systemMetrics?.disks?.[0] ? ((systemMetrics.disks[0].used_bytes / systemMetrics.disks[0].size_bytes) * 100) : 0)}
-                          sx={{
-                            height: 8,
-                            borderRadius: 1,
-                            bgcolor: 'action.hover',
-                            '& .MuiLinearProgress-bar': {
-                              bgcolor: 
-                                (systemMetrics?.disks?.[0] ? ((systemMetrics.disks[0].used_bytes / systemMetrics.disks[0].size_bytes) * 100) : 0) > 80 ? 'error.main' :
-                                (systemMetrics?.disks?.[0] ? ((systemMetrics.disks[0].used_bytes / systemMetrics.disks[0].size_bytes) * 100) : 0) > 60 ? 'warning.main' :
-                                'success.main',
-                              borderRadius: 1,
-                            }
-                          }}
-                        />
+                        {(() => {
+                          const d = systemMetrics?.disks?.[0];
+                          // Match `df`'s Use% (used / (used + available)), not used/size_bytes —
+                          // size_bytes includes filesystem-reserved blocks (e.g. ext4's ~5% root
+                          // reserve) which are never available for writes, so used/size understates
+                          // real fullness and can never reach 100% even when the disk is full.
+                          const diskPct = d && (d.used_bytes + d.avail_bytes) > 0
+                            ? (d.used_bytes / (d.used_bytes + d.avail_bytes)) * 100
+                            : 0;
+                          const diskColor = diskPct > 80 ? 'error.main' : diskPct > 60 ? 'warning.main' : 'success.main';
+                          return (
+                            <>
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <StorageIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                                  <Typography variant="body2" fontWeight={500}>Disk</Typography>
+                                </Box>
+                                <Typography variant="body2" fontWeight={700} color={diskColor}>
+                                  {d ? diskPct.toFixed(1) : '–'}%
+                                </Typography>
+                              </Box>
+                              <LinearProgress
+                                variant="determinate"
+                                value={Math.min(100, diskPct)}
+                                sx={{
+                                  height: 8,
+                                  borderRadius: 1,
+                                  bgcolor: 'action.hover',
+                                  '& .MuiLinearProgress-bar': {
+                                    bgcolor: diskColor,
+                                    borderRadius: 1,
+                                  }
+                                }}
+                              />
+                            </>
+                          );
+                        })()}
                       </Box>
                     </Box>
                   </Paper>
