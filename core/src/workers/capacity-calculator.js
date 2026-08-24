@@ -52,14 +52,46 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
     const sysMetricsRowCount = Number(sysMetricsRateResult.rows[0]?.row_count || 0);
     const sysMetricsTimeSpan = Number(sysMetricsRateResult.rows[0]?.time_span_seconds || 0);
     
-    // Calculate average bytes per row (estimate based on table structure)
-    // tag_values: ts(8) + connection_id(16) + tag_id(4) + quality(2) + v_num(8) + v_text(avg ~50) + v_json(avg ~100) + overhead(~30)
-    // Conservative estimate: ~200 bytes/row average
-    const TAG_VALUES_BYTES_PER_ROW = 200;
+    // Measure ACTUAL on-disk size per row instead of using a fixed byte estimate.
+    // TimescaleDB compresses chunks older than the compression policy, which can shrink
+    // storage by 90%+. A hardcoded "bytes per row" constant assumes everything stays
+    // uncompressed, which massively overestimates the steady-state target size and makes
+    // "days until steady state" get stuck forever (the DB actually reaches its real,
+    // compressed steady-state size, but the calculation keeps comparing against an
+    // inflated target it will never reach).
+    async function getHypertableSize(tableName) {
+      try {
+        const r = await db.query(`SELECT hypertable_size($1::regclass) as size`, [tableName]);
+        return Number(r.rows[0]?.size || 0);
+      } catch {
+        try {
+          const r = await db.query(`SELECT pg_total_relation_size($1::regclass) as size`, [tableName]);
+          return Number(r.rows[0]?.size || 0);
+        } catch {
+          return 0;
+        }
+      }
+    }
     
-    // system_metrics: tag_id(4) + ts(8) + v_num(8) + overhead(~24)
-    // Smaller table, estimate: ~44 bytes/row average
-    const SYS_METRICS_BYTES_PER_ROW = 44;
+    const tagValuesSizeBytes = await getHypertableSize('tag_values');
+    const tagValuesTotalCount = await db.query(`SELECT count(*) as c FROM tag_values`)
+      .then(r => Number(r.rows[0]?.c || 0)).catch(() => 0);
+    const sysMetricsSizeBytes = await getHypertableSize('system_metrics');
+    const sysMetricsTotalCount = await db.query(`SELECT count(*) as c FROM system_metrics`)
+      .then(r => Number(r.rows[0]?.c || 0)).catch(() => 0);
+    
+    // Fallback constants only used if actual size/count can't be measured (e.g. empty table)
+    const TAG_VALUES_BYTES_PER_ROW = (tagValuesSizeBytes > 0 && tagValuesTotalCount > 0)
+      ? tagValuesSizeBytes / tagValuesTotalCount
+      : 200;
+    const SYS_METRICS_BYTES_PER_ROW = (sysMetricsSizeBytes > 0 && sysMetricsTotalCount > 0)
+      ? sysMetricsSizeBytes / sysMetricsTotalCount
+      : 44;
+    
+    // Actual current data size (compression-aware), used for growth/steady-state comparisons
+    // instead of pg_database_size which is dominated by these same two hypertables anyway but
+    // could be skewed by other unrelated tables.
+    const dataSizeBytes = tagValuesSizeBytes + sysMetricsSizeBytes;
     
     // Calculate ingestion rate for tag_values
     let bytesPerDay = null;
@@ -94,14 +126,14 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
         const sysMetricsSteadyState = (sysMetricsRetentionDays || 30) * (sysMetricsBytesPerDay || 0);
         steadyStateBytes = tagValuesSteadyState + sysMetricsSteadyState;
         
-        if (dbSizeBytes >= steadyStateBytes * 0.95) {
+        if (dataSizeBytes >= steadyStateBytes * 0.95) {
           // Already at steady state (within 5% of target)
           mode = 'steady_state';
           daysRemaining = null; // Infinite - data won't grow beyond this
         } else {
           // Still growing towards steady state
           mode = 'growth';
-          const bytesUntilSteadyState = steadyStateBytes - dbSizeBytes;
+          const bytesUntilSteadyState = steadyStateBytes - dataSizeBytes;
           daysUntilSteadyState = Math.ceil(bytesUntilSteadyState / totalBytesPerDay);
         }
       } else {
@@ -123,6 +155,9 @@ export default async function capacityCalculator({ job, complete, fail, app }) {
     
     const capacityEstimate = {
       db_size_bytes: dbSizeBytes,
+      data_size_bytes: dataSizeBytes,
+      tag_values_size_bytes: tagValuesSizeBytes,
+      system_metrics_size_bytes: sysMetricsSizeBytes,
       rows_last_24h: rowCount,
       system_metrics_rows_last_24h: sysMetricsRowCount,
       estimated_bytes_per_day: bytesPerDay,

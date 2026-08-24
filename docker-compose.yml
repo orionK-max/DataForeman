@@ -177,7 +177,8 @@ services:
       - ./logs/postgres:/var/log/postgresql
       - ./logs/ops:/var/log/ops
       - ./logs/connectivity:/var/log/connectivity
-      - ./logs/front:/var/log/front:ro
+      - ./logs/broker:/var/log/broker
+      - ./logs/front:/var/log/front
       - ./var:/app/var
       - ./ops/logging.components.json:/app/ops/logging.components.json:ro
       - ./logs:/app/logs:ro

@@ -21,8 +21,8 @@ function loadComponents() {
     const arr = Array.isArray(parsed?.components) ? parsed.components : [];
     const safe = /^[a-z0-9\-]+$/; // allow only simple folder names like 'core', 'web-access'
     return arr
-      .map((c) => String(c.name))
-      .filter((n) => Boolean(n) && safe.test(n));
+      .filter((c) => c && safe.test(String(c.name)) && c.pattern)
+      .map((c) => ({ name: String(c.name), pattern: String(c.pattern) }));
   } catch {
     return [];
   }
@@ -35,11 +35,22 @@ export function runRetentionOnce({ logger } = {}) {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const components = loadComponents();
   let removed = 0;
-  for (const name of components) {
-    const dir = path.resolve(base, name);
+  // Some components share a physical directory (e.g. postgres/tsdb both log to
+  // /var/log/postgresql, distinguished only by filename prefix) — dedupe so we
+  // don't scan the same directory twice per run.
+  const seenDirs = new Set();
+  for (const { name, pattern } of components) {
+    // Prefer the directory encoded in the component's log pattern (matches the
+    // actual container mount path, e.g. postgres -> /var/log/postgresql, not
+    // /var/log/postgres) — falling back to base/name only if the pattern isn't
+    // an absolute path.
+    const patternDir = path.dirname(pattern);
+    const dir = path.isAbsolute(patternDir) ? path.resolve(patternDir) : path.resolve(base, name);
     // Bound to LOG_DIR: skip if outside base (defensive)
     const baseWithSep = base.endsWith(path.sep) ? base : base + path.sep;
     if (!dir.startsWith(baseWithSep)) continue;
+    if (seenDirs.has(dir)) continue;
+    seenDirs.add(dir);
     let items = [];
     try {
       items = fs.readdirSync(dir);
