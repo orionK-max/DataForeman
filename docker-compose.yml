@@ -146,7 +146,7 @@ services:
       MQTT_WEBHOOK_SECRET: ${MQTT_WEBHOOK_SECRET:-ed81bf13c2455c5f7106582d070449b2bf91baa36fdbcd01}
       # Forecast service
       FORECAST_SERVICE_URL: ${FORECAST_SERVICE_URL:-http://forecast:8100}
-      APP_VERSION: ${APP_VERSION:-0.7.0}
+      APP_VERSION: ${APP_VERSION:-0.8.0}
       # Compose project file path — used by the library manager to start/stop extension services
       COMPOSE_PROJECT_FILE: ${COMPOSE_PROJECT_FILE:-/app/docker-compose.yml}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-dataforeman}
