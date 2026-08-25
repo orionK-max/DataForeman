@@ -694,7 +694,11 @@ const FlowEditor = () => {
     }
   }, [location.search, nodes.length, reactFlowInstance, id]); // Only depend on values that actually change
 
-  const handleSnackbarClose = () => {
+  const handleSnackbarClose = (event, reason) => {
+    // Keep warning/error snackbars visible until the user explicitly dismisses them
+    // (ignore clickaway/timeout auto-close so they don't disappear before being read).
+    if (reason === 'clickaway') return;
+    if (reason === 'timeout' && (snackbar.severity === 'warning' || snackbar.severity === 'error')) return;
     setSnackbar({ ...snackbar, open: false });
   };
 
@@ -1911,7 +1915,7 @@ const FlowEditor = () => {
       {/* Snackbar for notifications */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={6000}
+        autoHideDuration={snackbar.severity === 'warning' || snackbar.severity === 'error' ? null : 6000}
         onClose={handleSnackbarClose}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
