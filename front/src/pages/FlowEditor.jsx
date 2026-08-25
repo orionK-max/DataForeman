@@ -91,6 +91,10 @@ const FlowEditor = () => {
   const [isExecutingNode, setIsExecutingNode] = useState(false);
   const [pinnedData, setPinnedData] = useState({}); // { nodeId: data }
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  // Warning/error messages are tracked separately from transient info/success ones so a
+  // later success snackbar (e.g. "Flow deployed successfully") can't dismiss a warning
+  // the user hasn't had a chance to read yet.
+  const [alertSnackbar, setAlertSnackbar] = useState({ open: false, message: '', severity: 'warning' });
   const [executingTriggers, setExecutingTriggers] = useState(new Set()); // Track which triggers are executing
   const [isTestMode, setIsTestMode] = useState(false); // Track if flow is in test mode
   const [testModeDisableWrites, setTestModeDisableWrites] = useState(false); // Disable writes in test mode
@@ -225,7 +229,7 @@ const FlowEditor = () => {
     // Manual flows can execute without deployment
     // Continuous flows require deployment or test mode
     if (flow?.execution_mode === 'continuous' && !flow?.deployed && !isTestMode) {
-      setSnackbar({ open: true, message: 'Continuous flows must be deployed or in test mode to execute.', severity: 'warning' });
+      showSnackbar('Continuous flows must be deployed or in test mode to execute.', 'warning');
       return;
     }
 
@@ -246,7 +250,7 @@ const FlowEditor = () => {
       // For continuous flows (deployed), just fire the trigger
       // The running session will pick it up on next scan
       const result = await fireTrigger(id, triggerNodeId);
-      setSnackbar({ open: true, message: 'Trigger fired - will execute on next scan', severity: 'success' });
+      showSnackbar('Trigger fired - will execute on next scan', 'success');
       
       // Remove from executing set after a brief moment
       setTimeout(() => {
@@ -267,7 +271,7 @@ const FlowEditor = () => {
         );
       }, 500);
     } catch (error) {
-      setSnackbar({ open: true, message: 'Failed to fire trigger: ' + error.message, severity: 'error' });
+      showSnackbar('Failed to fire trigger: ' + error.message, 'error');
       
       // Remove from executing set on error
       setExecutingTriggers(prev => {
@@ -553,7 +557,11 @@ const FlowEditor = () => {
   };
 
   const showSnackbar = (message, severity = 'info') => {
-    setSnackbar({ open: true, message, severity });
+    if (severity === 'warning' || severity === 'error') {
+      setAlertSnackbar({ open: true, message, severity });
+    } else {
+      setSnackbar({ open: true, message, severity });
+    }
   };
 
   // Helper: trigger a browser download for Save File outputs
@@ -695,11 +703,16 @@ const FlowEditor = () => {
   }, [location.search, nodes.length, reactFlowInstance, id]); // Only depend on values that actually change
 
   const handleSnackbarClose = (event, reason) => {
-    // Keep warning/error snackbars visible until the user explicitly dismisses them
-    // (ignore clickaway/timeout auto-close so they don't disappear before being read).
     if (reason === 'clickaway') return;
-    if (reason === 'timeout' && (snackbar.severity === 'warning' || snackbar.severity === 'error')) return;
     setSnackbar({ ...snackbar, open: false });
+  };
+
+  const handleAlertSnackbarClose = (event, reason) => {
+    // Warning/error snackbars never auto-hide (no autoHideDuration is set below), so the
+    // only close reasons are clickaway or the user clicking the Alert's close icon —
+    // ignore clickaway so they stay visible until explicitly dismissed.
+    if (reason === 'clickaway') return;
+    setAlertSnackbar({ ...alertSnackbar, open: false });
   };
 
   // Save flow
@@ -1912,15 +1925,28 @@ const FlowEditor = () => {
         />
       )}
 
-      {/* Snackbar for notifications */}
+      {/* Snackbar for transient info/success notifications - auto-hides after 6s */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={snackbar.severity === 'warning' || snackbar.severity === 'error' ? null : 6000}
+        autoHideDuration={6000}
         onClose={handleSnackbarClose}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <Alert onClose={handleSnackbarClose} severity={snackbar.severity} sx={{ width: '100%' }}>
           {snackbar.message}
+        </Alert>
+      </Snackbar>
+
+      {/* Separate Snackbar for warning/error notifications - stays open until dismissed,
+          independent from the transient one above so they never close each other early. */}
+      <Snackbar
+        open={alertSnackbar.open}
+        onClose={handleAlertSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        sx={{ bottom: { xs: 90, sm: 96 } }}
+      >
+        <Alert onClose={handleAlertSnackbarClose} severity={alertSnackbar.severity} sx={{ width: '100%' }}>
+          {alertSnackbar.message}
         </Alert>
       </Snackbar>
 
