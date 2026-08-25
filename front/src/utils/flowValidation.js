@@ -172,6 +172,8 @@ export const validateFlow = (nodes, edges) => {
   }
 
   // Check for disconnected nodes
+  // Comment nodes are passive annotations and are expected to have no connections,
+  // so they're excluded from this check (see comment case in validateNodeConfig above).
   const connectedNodeIds = new Set();
   edges.forEach(edge => {
     connectedNodeIds.add(edge.source);
@@ -179,7 +181,7 @@ export const validateFlow = (nodes, edges) => {
   });
   
   const disconnectedNodes = nodes.filter(node => 
-    !connectedNodeIds.has(node.id)
+    node.type !== 'comment' && !connectedNodeIds.has(node.id)
   );
 
   if (disconnectedNodes.length > 0) {
