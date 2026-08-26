@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-function resolveBaseLogDir() {
+export function resolveBaseLogDir() {
   const logDir = process.env.LOG_DIR;
   if (logDir) return path.resolve(process.cwd(), logDir);
   const logFile = process.env.LOG_FILE;

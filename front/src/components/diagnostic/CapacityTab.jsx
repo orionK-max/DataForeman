@@ -45,6 +45,15 @@ function formatBytesPerDay(bytes) {
   return `${(mbPerDay / 1024).toFixed(2)} GB/day`;
 }
 
+/** Formats an absolute byte count (not a rate) - used for the System Logs section, which shows
+ * current on-disk size rather than a growth rate. */
+function formatBytes(bytes) {
+  const mb = (bytes || 0) / 1024 / 1024;
+  if (mb < 1) return `${((bytes || 0) / 1024).toFixed(0)} KB`;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}
+
 /** Small "?" hint icon with a tooltip, for table headers / section titles */
 function HeaderHint({ title }) {
   return (
@@ -910,7 +919,7 @@ export default function CapacityTab() {
     </Paper>
 
     {/* Disk Space Breakdown - "Details" button on the Disk Capacity card */}
-    <Dialog open={breakdownOpen} onClose={() => setBreakdownOpen(false)} maxWidth="sm" fullWidth>
+    <Dialog open={breakdownOpen} onClose={() => setBreakdownOpen(false)} maxWidth="md" fullWidth>
       <DialogTitle>Disk Space Breakdown</DialogTitle>
       <DialogContent dividers>
         {breakdownLoading ? (
@@ -936,17 +945,17 @@ export default function CapacityTab() {
                   <TableRow>
                     <TableCell>Connection</TableCell>
                     <TableCell>Type</TableCell>
-                    <TableCell align="right">Rows/24h</TableCell>
-                    <TableCell align="right">Est. Volume</TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>Rows/24h</TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>Est. Volume</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {breakdown.connectivityDrivers.map((c) => (
                     <TableRow key={c.connectionId}>
-                      <TableCell>{c.name}</TableCell>
-                      <TableCell><Chip size="small" label={c.type} /></TableCell>
-                      <TableCell align="right">{c.rowsPerDay.toLocaleString()}</TableCell>
-                      <TableCell align="right">{formatBytesPerDay(c.bytesPerDay)}</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>{c.name}</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}><Chip size="small" label={c.type} /></TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{c.rowsPerDay.toLocaleString()}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytesPerDay(c.bytesPerDay)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -969,29 +978,29 @@ export default function CapacityTab() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Flow</TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                       Tag Writes
                       <HeaderHint title="Estimated share of this flow's Tag Output node writes to historian tags (live rate, resets on restart - not part of the Total below, see 'Flow tag writes (all flows combined)' for the real figure). Reduce by turning off 'Save to Database' on Tag Output nodes that don't need history, or by increasing the flow's Scan Rate." />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                       Diagnostics
                       <HeaderHint title="The flow's own resource-monitoring metrics (scan efficiency, memory, cycle time, etc.) - not logs. Real measurement, same window as everything else here. Turn off 'Save usage/diagnostic history' in that flow's Settings to stop this entirely, or increase its Scan Rate to reduce it." />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                       Logs
                       <HeaderHint title="Execution logs written by this flow (Flow Settings > Execution Logs). Real measurement, directly attributed by flow. Reduce by lowering its Log Retention Period, turning logging off, or increasing its Scan Rate." />
                     </TableCell>
-                    <TableCell align="right">Est. Volume</TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>Est. Volume</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {breakdown.flows.map((f) => (
                     <TableRow key={f.flowId}>
-                      <TableCell>{f.name}</TableCell>
-                      <TableCell align="right">{formatBytesPerDay(f.dataBytesPerDay)}</TableCell>
-                      <TableCell align="right">{formatBytesPerDay(f.diagBytesPerDay)}</TableCell>
-                      <TableCell align="right">{formatBytesPerDay(f.logsBytesPerDay)}</TableCell>
-                      <TableCell align="right">{formatBytesPerDay(f.bytesPerDay)}</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }} title={f.name}>{f.name}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytesPerDay(f.dataBytesPerDay)}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytesPerDay(f.diagBytesPerDay)}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytesPerDay(f.logsBytesPerDay)}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytesPerDay(f.bytesPerDay)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1006,7 +1015,7 @@ export default function CapacityTab() {
               <TableBody>
                 <TableRow>
                   <TableCell>{breakdown.flowTagWrites.name}</TableCell>
-                  <TableCell align="right">{formatBytesPerDay(breakdown.flowTagWrites.bytesPerDay)}</TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytesPerDay(breakdown.flowTagWrites.bytesPerDay)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
@@ -1019,10 +1028,43 @@ export default function CapacityTab() {
               <TableBody>
                 <TableRow>
                   <TableCell>{breakdown.other.name}</TableCell>
-                  <TableCell align="right">{formatBytesPerDay(breakdown.other.bytesPerDay)}</TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytesPerDay(breakdown.other.bytesPerDay)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
+
+            {breakdown.systemLogs && (
+              <>
+                <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                  System &amp; Application Logs
+                  <HeaderHint title="Current size on disk of each service's rotated log files (core, connectivity, MQTT broker, databases, etc.), read from the ./logs directory. Unlike the sections above, this is the actual footprint right now, not a bytes/day growth rate - log files are rotated/pruned on their own schedule (see ops/rotate-logs.js) rather than growing steadily, so it isn't part of the Total below. Reduce by lowering log retention/rotation settings." />
+                </Typography>
+                {breakdown.systemLogs.items.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>None</Typography>
+                ) : (
+                  <Table size="small" sx={{ mb: 3 }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Component</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>Size on Disk</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {breakdown.systemLogs.items.map((i) => (
+                        <TableRow key={i.name}>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>{i.label}</TableCell>
+                          <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytes(i.bytesOnDisk)}</TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow sx={{ '& td': { borderTop: '2px solid', borderTopColor: 'divider', fontWeight: 700 } }}>
+                        <TableCell>Total logs on disk</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatBytes(breakdown.systemLogs.totalBytes)}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                )}
+              </>
+            )}
 
             <Table size="small" sx={{ mb: 3 }}>
               <TableBody>
@@ -1059,7 +1101,7 @@ export default function CapacityTab() {
                           current {toGB(cap.data_size_bytes)} GB ≈ target {toGB(cap.steady_state_bytes)} GB ({cap.retention_days}-day retention)
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Within 5% of target → no longer growing → "Steady State"
+                          Close to or over 95% of target size, not expected to grow
                         </Typography>
                       </Box>
                     );

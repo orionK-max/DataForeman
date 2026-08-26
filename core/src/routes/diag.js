@@ -1,6 +1,75 @@
 import net from 'net';
+import fs from 'fs/promises';
+import path from 'path';
 import { listLogComponents } from '../services/log-registry.js';
 import { estimateFlowDataFootprint } from '../services/flow-resource-metrics.js';
+
+// Friendly display names for the top-level ./logs/<name> directories (see docker-compose.yml
+// volume mounts) used by the capacity breakdown's "System & Application Logs" section.
+const LOG_DIR_LABELS = {
+  core: 'Core (API server)',
+  connectivity: 'Connectivity',
+  ingestor: 'Ingestor',
+  broker: 'MQTT Broker',
+  nats: 'NATS (message queue)',
+  postgres: 'PostgreSQL (main DB)',
+  tsdb: 'TimescaleDB (historian)',
+  front: 'Frontend (nginx)',
+  ops: 'Ops utilities',
+};
+
+// Recursively sums file sizes under a directory. Missing/unreadable dirs return 0 rather than
+// throwing, since not every component's log dir necessarily exists on every install.
+async function getDirSizeBytes(dirPath) {
+  let total = 0;
+  let entries;
+  try {
+    entries = await fs.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        total += await getDirSizeBytes(entryPath);
+      } else if (entry.isFile()) {
+        const st = await fs.stat(entryPath);
+        total += st.size;
+      }
+    } catch { /* file may have been rotated/removed mid-scan - skip it */ }
+  }
+  return total;
+}
+
+// Current on-disk footprint of every component's log directory under ./logs. Unlike the rest of
+// the breakdown (which is a bytes/day growth rate extrapolated from a measurement window), this is
+// the actual current size on disk right now - log files are rotated/pruned independently by
+// ops/rotate-logs.js rather than growing at a steady rate, so a rate figure wouldn't be meaningful.
+//
+// NOTE: deliberately does NOT use log-registry.js's resolveBaseLogDir() - that resolves to this
+// component's (core's) own individual log dir override (derived from its own LOG_FILE env var,
+// e.g. /var/log, which only has the handful of subdirs individually bind-mounted into the core
+// container). We want the full aggregated tree instead, which docker-compose always mounts
+// read-only at ./logs -> /app/logs for the core service (see docker-compose.yml), regardless of
+// core's own LOG_FILE/LOG_DIR override.
+async function getSystemLogSizes() {
+  const baseDir = path.resolve(process.cwd(), './logs');
+  let dirNames;
+  try {
+    dirNames = (await fs.readdir(baseDir, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
+  const items = await Promise.all(dirNames.map(async (name) => ({
+    name,
+    label: LOG_DIR_LABELS[name] || name,
+    bytesOnDisk: await getDirSizeBytes(path.join(baseDir, name)),
+  })));
+  return items.filter((i) => i.bytesOnDisk > 0).sort((a, b) => b.bytesOnDisk - a.bytesOnDisk);
+}
 
 function parseNatsUrl(url) {
   try {
@@ -841,6 +910,9 @@ export async function diagRoutes(app) {
       const otherBytesPerDay = otherSystemBytesPerDay + otherLogsBytesPerDay;
       const totalBytesPerDay = connectivitySum + flowTagWritesBytesPerDay + flowsDiagSum + flowsLogsSum + otherBytesPerDay;
 
+      const systemLogItems = await getSystemLogSizes();
+      const systemLogsTotalBytes = systemLogItems.reduce((sum, i) => sum + i.bytesOnDisk, 0);
+
       return {
         calculatedAt: capacityEstimate?.calculated_at || null,
         rateWindowHours: windowHours,
@@ -855,6 +927,10 @@ export async function diagRoutes(app) {
           bytesPerDay: otherBytesPerDay,
         },
         totalBytesPerDay,
+        systemLogs: {
+          items: systemLogItems,
+          totalBytes: systemLogsTotalBytes,
+        },
       };
     } catch (err) {
       app.log.error({ err }, 'Failed to compute capacity breakdown');
