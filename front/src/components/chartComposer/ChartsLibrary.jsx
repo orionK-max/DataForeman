@@ -223,18 +223,21 @@ const ChartsLibrary = () => {
 
   // Filter charts based on selection
   const filteredCharts = React.useMemo(() => {
+    // Real folder_id column wins; options.folder_id is only a fallback for any legacy chart
+    // data saved before folder assignment moved to a real DB column (see useBrowserFolders.js).
+    const getFolderId = (c) => (c.folder_id ?? c.options?.folder_id ?? null);
     if (selectedFolderId === 'all') {
       // 'all' now means Home - charts without folders
-      return charts.filter(c => !c.options?.folder_id);
+      return charts.filter(c => !getFolderId(c));
     } else if (selectedFolderId === 'mine') {
       return charts.filter(c => c.is_owner);
     } else if (selectedFolderId === 'shared') {
       return charts.filter(c => !c.is_owner);
     } else if (selectedFolderId === 'root') {
       // Backward compatibility (same as 'all' now)
-      return charts.filter(c => !c.options?.folder_id);
+      return charts.filter(c => !getFolderId(c));
     } else {
-      return charts.filter(c => c.options?.folder_id === selectedFolderId);
+      return charts.filter(c => getFolderId(c) === selectedFolderId);
     }
   }, [charts, selectedFolderId]);
 

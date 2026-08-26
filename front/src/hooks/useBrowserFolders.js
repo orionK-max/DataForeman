@@ -239,13 +239,15 @@ export function useBrowserFolders(folderType, items = [], onReload = null) {
       return [];
     }
 
-    // Determine the folder field name based on item structure
-    // Charts use options.folder_id, others use folder_id
+    // All item types (flows, charts, dashboards) now expose a real folder_id column. The
+    // options.folder_id fallback is only for any not-yet-resaved legacy chart/dashboard data
+    // from before this was backed by a real column (that value gets silently dropped the next
+    // time the item is fully saved, so folder_id - the real column - always wins once set).
     const getFolderId = (item) => {
-      if (item.options?.folder_id !== undefined) {
-        return item.options.folder_id;
+      if (item.folder_id !== undefined && item.folder_id !== null) {
+        return item.folder_id;
       }
-      return item.folder_id;
+      return item.options?.folder_id ?? null;
     };
 
     // Apply view mode filter first

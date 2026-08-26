@@ -51,7 +51,7 @@ export async function dashboardRoutes(app) {
     
     const baseCols = `id, name, description, created_at, updated_at, is_shared, (user_id=$1) as is_owner, 
                       COALESCE(jsonb_array_length(layout->'items'), 0) as widget_count,
-                      (options->>'folder_id') as folder_id`;
+                      folder_id`;
     
     let where = 'is_deleted=false AND (user_id=$1 OR is_shared=true)';
     if (scope === 'mine') where = 'is_deleted=false AND user_id=$1';

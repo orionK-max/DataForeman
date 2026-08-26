@@ -116,7 +116,7 @@ export async function chartsRoutes(app) {
     const scope = String(req.query?.scope || 'all');
     const limit = Math.min(200, Math.max(1, Number(req.query?.limit || 50)));
     const offset = Math.max(0, Number(req.query?.offset || 0));
-    const baseCols = `id,name,created_at,updated_at,is_shared,is_system_chart,(user_id=$1) as is_owner,COALESCE(jsonb_array_length(options->'tags'),0) as tag_count,options`;
+    const baseCols = `id,name,created_at,updated_at,is_shared,is_system_chart,folder_id,(user_id=$1) as is_owner,COALESCE(jsonb_array_length(options->'tags'),0) as tag_count,options`;
     // Exclude system charts from Chart Composer browser - they're used in diagnostics/monitors
     // System charts are still accessible by ID for flow monitors and diagnostic pages
     let where = 'is_deleted=false and is_system_chart=false and (user_id=$1 or is_shared=true)';

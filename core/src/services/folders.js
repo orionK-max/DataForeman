@@ -30,9 +30,9 @@ const ITEM_USER_COLUMNS = {
 };
 
 const ITEM_FOLDER_STORAGE = {
-  [FOLDER_TYPES.DASHBOARD]: 'options', // stored in options JSONB
-  [FOLDER_TYPES.CHART]: 'options',     // stored in options JSONB
-  [FOLDER_TYPES.FLOW]: 'column',       // direct column
+  [FOLDER_TYPES.DASHBOARD]: 'column', // direct column (chart_configs/dashboard_configs both have a real folder_id column)
+  [FOLDER_TYPES.CHART]: 'column',
+  [FOLDER_TYPES.FLOW]: 'column',
 };
 
 /**
@@ -357,27 +357,45 @@ export async function moveItemToFolder(db, folderType, itemId, folderId, sortOrd
  */
 export async function getFolderItems(folderId, userId, folderType, db) {
   const itemTable = getItemTable(folderType);
-  
-  // Query based on folder_id in options JSONB column
+  const storage = ITEM_FOLDER_STORAGE[folderType];
+
   let query;
   let params;
-  
-  if (folderId) {
-    query = `SELECT * FROM ${itemTable}
-             WHERE user_id = $1 
-             AND (options->>'folder_id')::text = $2
-             ORDER BY (options->>'sort_order')::integer NULLS LAST, name`;
-    params = [userId, folderId];
+
+  if (storage === 'column') {
+    if (folderId) {
+      query = `SELECT * FROM ${itemTable}
+               WHERE user_id = $1
+               AND folder_id = $2
+               ORDER BY name`;
+      params = [userId, folderId];
+    } else {
+      query = `SELECT * FROM ${itemTable}
+               WHERE user_id = $1
+               AND folder_id IS NULL
+               ORDER BY name`;
+      params = [userId];
+    }
   } else {
-    query = `SELECT * FROM ${itemTable}
-             WHERE user_id = $1 
-             AND (options->>'folder_id' IS NULL OR options->>'folder_id' = 'null')
-             ORDER BY (options->>'sort_order')::integer NULLS LAST, name`;
-    params = [userId];
+    // Legacy path: folder_id stored in options JSONB (no longer used by any current folder type,
+    // kept for safety in case a new type is added with this storage mode)
+    if (folderId) {
+      query = `SELECT * FROM ${itemTable}
+               WHERE user_id = $1 
+               AND (options->>'folder_id')::text = $2
+               ORDER BY (options->>'sort_order')::integer NULLS LAST, name`;
+      params = [userId, folderId];
+    } else {
+      query = `SELECT * FROM ${itemTable}
+               WHERE user_id = $1 
+               AND (options->>'folder_id' IS NULL OR options->>'folder_id' = 'null')
+               ORDER BY (options->>'sort_order')::integer NULLS LAST, name`;
+      params = [userId];
+    }
   }
-  
+
   const result = await db.query(query, params);
-  
+
   return result.rows;
 }
 
