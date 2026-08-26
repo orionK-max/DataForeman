@@ -49,6 +49,23 @@ const ServiceStatusBanner = ({ summary }) => {
     });
   }
 
+  // Disk usage in warning/error zone (current usage, not projected)
+  if (summary.disk?.status === 'error' && !dismissed['disk']) {
+    banners.push({
+      key: 'disk',
+      severity: 'error',
+      title: 'Disk Space Critically Low',
+      message: `Disk usage is at ${summary.disk.pct_used?.toFixed(1)}%. Free up space or increase capacity soon, or data collection may fail.`,
+    });
+  } else if (summary.disk?.status === 'warning' && !dismissed['disk']) {
+    banners.push({
+      key: 'disk',
+      severity: 'warning',
+      title: 'Disk Space Running Low',
+      message: `Disk usage is at ${summary.disk.pct_used?.toFixed(1)}%. Consider reviewing retention policy or freeing up space.`,
+    });
+  }
+
   if (banners.length === 0) return null;
 
   return (
@@ -64,7 +81,7 @@ const ServiceStatusBanner = ({ summary }) => {
             }}
             action={
               <>
-                {can('diagnostic.system', 'update') ? (
+                {service && (can('diagnostic.system', 'update') ? (
                   <Button
                     color="inherit"
                     size="small"
@@ -83,7 +100,7 @@ const ServiceStatusBanner = ({ summary }) => {
                       </Button>
                     </span>
                   </Tooltip>
-                )}
+                ))}
                 <IconButton
                   aria-label="close"
                   color="inherit"

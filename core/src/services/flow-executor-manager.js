@@ -126,6 +126,22 @@ export const flowExecutorManagerPlugin = fp(async (app) => {
     return desiredFlows.has(flowId);
   }
 
+  // Apply a settings change to an already-running flow in place (no restart). Also patches the
+  // cached "desired" flow definition so a crash-restart re-applies the change automatically.
+  // `settings._refreshResourceTags` (if present) is sent live but NOT persisted into the cached
+  // flow definition - it's a one-off instruction, not a flow field.
+  function updateFlowSettings(flowId, settings) {
+    const { _refreshResourceTags, ...persistable } = settings || {};
+    const cached = desiredFlows.get(flowId);
+    if (cached) Object.assign(cached, persistable);
+    if (!ready || !child || !cached) return; // flow isn't currently running - nothing to push live
+    try {
+      child.send({ cmd: 'update-settings', flowId, settings });
+    } catch (err) {
+      log.warn({ err, flowId }, 'Failed to send update-settings to flow executor process');
+    }
+  }
+
   // executor -> core sync: node outputs (Flow Editor live view) + resource metrics (Resource Monitor).
   app.addHook('onReady', async () => {
     if (app.nats?.healthy?.()) {
@@ -162,6 +178,7 @@ export const flowExecutorManagerPlugin = fp(async (app) => {
     stopFlow,
     getMetrics,
     isRunning,
+    updateFlowSettings,
     // For manual-trigger routes: publish to the executor over NATS instead of only setting
     // core's own local RuntimeStateStore (see plan item #5, question 1b).
     publishTrigger(flowId, nodeId, value) {

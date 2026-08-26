@@ -114,8 +114,10 @@ export async function buildServer() {
       MAX_BYTES_CAP
     ),
   });
-  // Start log retention cleaner (hourly)
-  startRetentionScheduler(app.log);
+  // Start log retention cleaner (hourly) - retention period is configurable via
+  // system_settings 'logs.file_retention_days' (Capacity > Retention Policy), falls back to
+  // LOG_RETENTION_DAYS env var
+  startRetentionScheduler(app.log, app);
   
   await app.register(cors, { origin: true, credentials: true });
   await app.register(helmet, { global: true });

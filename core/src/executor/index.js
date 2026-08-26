@@ -11,6 +11,7 @@
 // IPC protocol (parent <-> child, plain JSON messages via process.send/process.on('message')):
 //   parent -> child: { cmd: 'start', flow }               start a continuous flow's ScanExecutor
 //   parent -> child: { cmd: 'stop', flowId }               stop a running flow
+//   parent -> child: { cmd: 'update-settings', flowId, settings }  apply settings to a running flow in place (no restart)
 //   parent -> child: { cmd: 'shutdown' }                   stop everything and exit
 //   child  -> parent: { evt: 'started', flowId, sessionId }
 //   child  -> parent: { evt: 'stopped', flowId }
@@ -143,6 +144,10 @@ async function main() {
     try {
       if (msg.cmd === 'start' && msg.flow) await startFlow(msg.flow);
       else if (msg.cmd === 'stop' && msg.flowId) await stopFlow(msg.flowId);
+      else if (msg.cmd === 'update-settings' && msg.flowId) {
+        const session = sessions.get(msg.flowId);
+        await session?.updateSettings(msg.settings);
+      }
       else if (msg.cmd === 'shutdown') await shutdown();
     } catch (err) {
       app.log.error({ err, msg }, 'Executor failed to handle IPC message');

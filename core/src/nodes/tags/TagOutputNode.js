@@ -522,6 +522,9 @@ export class TagOutputNode extends BaseNode {
       context.logError({ err, tagId, tagPath }, 'NATS publish failed');
     });
 
+    // Track this as a historian write for flow disk-footprint estimation (Resource Monitor)
+    context.recordDataWrite?.();
+
     // Pass through the value
     return { 
       value: inputValue.value, 

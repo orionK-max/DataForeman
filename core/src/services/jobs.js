@@ -734,16 +734,105 @@ export const jobsPlugin = fp(async (app) => {
 				   AND tag_path LIKE $2`,
 				[systemConnId, `flow.${flowId}.%`]
 			);
+
+			// The flow's resource-monitoring chart (if any) hardcodes these tag_ids in its series
+			// config. Since re-enabling usage data creates brand-new tag_ids (the old tag_paths were
+			// just hard-deleted, so they can't be reused via ON CONFLICT), the chart would otherwise
+			// keep pointing at tag_ids that no longer exist and show "No data to display" forever.
+			// Deleting it here lets /api/flows/:id/resource-chart's existing self-heal logic
+			// (stored chart missing -> clear reference -> create fresh one) rebuild it correctly
+			// next time the Resource Monitor is opened.
+			let chartDeleted = false;
+			try {
+				const { rows: flowRows } = await app.db.query('SELECT resource_chart_id FROM flows WHERE id = $1', [flowId]);
+				const chartId = flowRows[0]?.resource_chart_id;
+				if (chartId) {
+					await app.db.query('DELETE FROM chart_configs WHERE id = $1', [chartId]);
+					await app.db.query('UPDATE flows SET resource_chart_id = NULL WHERE id = $1', [flowId]);
+					chartDeleted = true;
+				}
+			} catch (err) {
+				app.log.warn({ err, flowId }, 'Failed to clean up stale flow resource chart during metrics cleanup');
+			}
+
+			// If this flow has a live running session, its in-memory cached tag_ids (flowResourceTagIds)
+			// now point at the rows we just deleted above. Tell it to drop that cache and, if usage-data
+			// saving is currently enabled, recreate fresh tags right away - otherwise the session would
+			// keep silently writing under stale/deleted tag_ids (or, if saving is re-enabled later without
+			// this, it wouldn't notice the cache is stale and would never re-create tags at all), and the
+			// resource chart the user opens next would point at yet another mismatched set of tag_ids.
+			// This must run *after* the deletes above complete, not fired-and-forget from the API route.
+			try {
+				app.flowExecutorManager?.updateFlowSettings?.(flowId, { _refreshResourceTags: true });
+			} catch (err) {
+				app.log.warn({ err, flowId }, 'Failed to notify flow executor of resource tag cleanup');
+			}
 			
 			await complete(job.id, { 
 				message: `Cleaned up ${tagsDeleted} tags and ${dataPoints} data points`,
 				tagsDeleted,
-				dataPointsDeleted: dataPoints
+				dataPointsDeleted: dataPoints,
+				chartDeleted
 			});
 		} catch (error) {
 			await fail(job.id, error);
 		}
 	}, { maxAttempts: 3, description: 'Delete all metric data for a deleted flow' });
+
+	// Clear a flow's execution logs in batches. A single unbounded DELETE on a flow with tens of
+	// millions of log rows (e.g. a fast-scanning flow with logging left on for months) can run for
+	// minutes and blow past any reasonable request/statement timeout, so this deletes in bounded
+	// chunks via the primary key instead of one giant statement.
+	//
+	// NOTE: this must select/delete by the `id` primary key, not `ctid`. `ctid` has no index, so
+	// `DELETE ... WHERE ctid IN (...)` forces a full sequential scan of the *entire* table on every
+	// batch (to match each row's physical tid), which is O(table size) per batch and blows past the
+	// 5s statement_timeout on large tables. Deleting by `id` lets the planner use the primary key
+	// index for the delete, and the (flow_id, timestamp) index for the inner select.
+	//
+	// ALSO: this table can accumulate huge dead-tuple bloat between autovacuums if one flow logs
+	// far more than the others (a single dominant flow_id can dwarf the rest of the table). That
+	// bloat inflates pg_class.reltuples for the whole table, which in turn inflates the planner's
+	// row estimate for `WHERE flow_id = $1` (estimate = matched fraction * bloated total), so it
+	// can end up choosing a full sequential scan even though only a small slice of the table
+	// actually matches. While autovacuum is actively working through a large backlog, both a seq
+	// scan and an index scan can be slow (heap fetches interleaved with opportunistic vacuuming), so
+	// this bumps the per-batch statement_timeout rather than trying to force a particular plan.
+	register('flow_logs_clear', async (ctx) => {
+		const { job, updateProgress, complete, fail } = ctx;
+		const { flowId } = job.params;
+		const BATCH_SIZE = 20000;
+		let totalDeleted = 0;
+		const client = await app.db.connect();
+		try {
+			for (;;) {
+				let rowCount;
+				try {
+					await client.query('BEGIN');
+					await client.query("SET LOCAL statement_timeout = '60s'");
+					({ rowCount } = await client.query(
+						`DELETE FROM flow_execution_logs
+						 WHERE id IN (
+						   SELECT id FROM flow_execution_logs WHERE flow_id = $1 LIMIT $2
+						 )`,
+						[flowId, BATCH_SIZE]
+					));
+					await client.query('COMMIT');
+				} catch (batchError) {
+					await client.query('ROLLBACK').catch(() => {});
+					throw batchError;
+				}
+				totalDeleted += rowCount;
+				if (rowCount === 0) break;
+				await updateProgress(job.id, { message: `Deleted ${totalDeleted.toLocaleString()} logs so far...` });
+			}
+			await complete(job.id, { message: `Deleted ${totalDeleted.toLocaleString()} logs`, deletedCount: totalDeleted });
+		} catch (error) {
+			await fail(job.id, error);
+		} finally {
+			client.release();
+		}
+	}, { maxAttempts: 5, description: "Delete a flow's execution logs in batches" });
 
 	// Flow executor - executes deployed flows with node-by-node processing
 	register('flow_execution', async (ctx) => {

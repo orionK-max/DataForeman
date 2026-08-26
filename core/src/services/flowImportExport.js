@@ -696,7 +696,7 @@ export async function importFlow(importData, userId, validation, db, newName = n
     execution_mode: flowData.execution_mode || 'continuous',
     scan_rate_ms: flowData.scan_rate_ms || 1000,
     logs_enabled: flowData.logs_enabled || false,
-    logs_retention_days: flowData.logs_retention_days || 30,
+    logs_retention_days: flowData.logs_retention_days || 1,
     save_usage_data: flowData.save_usage_data !== false,
     definition: {
       ...definition,

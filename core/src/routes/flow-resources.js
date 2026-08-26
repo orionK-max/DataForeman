@@ -4,6 +4,8 @@
  * API endpoints for tracking and warning about flow resource usage.
  */
 
+import { estimateFlowDataFootprint, getCachedCapacityEstimate } from '../services/flow-resource-metrics.js';
+
 export default async function flowResourceRoutes(app, opts) {
   /**
    * GET /api/flows/resources/active
@@ -41,13 +43,18 @@ export default async function flowResourceRoutes(app, opts) {
           fs.flow_id,
           f.name as flow_name,
           fs.started_at,
-          f.scan_rate_ms
+          f.scan_rate_ms,
+          f.save_usage_data
         FROM flow_sessions fs
         JOIN flows f ON fs.flow_id = f.id
         WHERE fs.status = 'active'
         ORDER BY f.name ASC`,
         []
       );
+
+      // Cached capacity calculation gives us measured bytes/row for tag_values and system_metrics,
+      // so we can turn each flow's live write-rate into an estimated MB/day without re-measuring it.
+      const capacityEstimate = await getCachedCapacityEstimate(app);
 
       const flows = result.rows.map(row => {
         // Get live metrics synced from the flow executor process (see
@@ -123,6 +130,16 @@ export default async function flowResourceRoutes(app, opts) {
         }
         
         const scanRateMs = row.scan_rate_ms || 1000;
+
+        // Estimated disk footprint at the flow's current write rate (resets on flow restart -
+        // this is a live estimate, not a historical measurement, see flow-resource-metrics.js)
+        const dataFootprint = estimateFlowDataFootprint({
+          metrics: liveMetrics,
+          scanRateMs,
+          tagValuesBytesPerRow: capacityEstimate?.tag_values_bytes_per_row,
+          systemMetricsBytesPerRow: capacityEstimate?.system_metrics_bytes_per_row,
+          diagnosticsEnabled: row.save_usage_data !== false,
+        });
         
         return {
           sessionId: row.session_id,
@@ -140,6 +157,10 @@ export default async function flowResourceRoutes(app, opts) {
           startedAt: row.started_at,
           lastScanAt: lastScanAt,
           scanRateMs: scanRateMs,
+          saveUsageData: row.save_usage_data !== false,
+          estimatedDataBytesPerDay: dataFootprint.dataBytesPerDay,
+          estimatedDiagBytesPerDay: dataFootprint.diagBytesPerDay,
+          estimatedTotalBytesPerDay: dataFootprint.totalBytesPerDay,
           warnings: warnings
         };
       });

@@ -19,13 +19,14 @@ export class NodeExecutionContext {
     this.node = node;
     this.nodeOutputs = nodeOutputs;
     
-    const { app, flow, execution, logBuffer, inputStateManager, runtimeState } = executionData;
+    const { app, flow, execution, logBuffer, inputStateManager, runtimeState, scanExecutor } = executionData;
     this.app = app;
     this.flow = flow;
     this.execution = execution;
     this.logBuffer = logBuffer; // Optional log buffer for persistent logging
     this.inputStateManager = inputStateManager; // Optional input state manager for continuous execution
     this.runtimeState = runtimeState; // Optional runtime state store for trigger flags and tag caching
+    this._scanExecutor = scanExecutor; // Optional owning ScanExecutor, for reporting resource metrics back
     
     // Convenient accessors
     this.db = app.db;
@@ -37,6 +38,15 @@ export class NodeExecutionContext {
       nodeId: node.id,
       nodeType: node.type
     });
+  }
+
+  /**
+   * Report that this node persisted a value to the historian (tag_values). Used to
+   * estimate a flow's disk/data footprint in the Resource Monitor. No-op if this
+   * context isn't running inside a ScanExecutor (e.g. one-shot manual execution).
+   */
+  recordDataWrite() {
+    this._scanExecutor?.recordDataWrite();
   }
 
   /**

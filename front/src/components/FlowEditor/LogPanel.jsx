@@ -29,6 +29,8 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -96,6 +98,7 @@ export default function LogPanel({
   const [autoScroll, setAutoScroll] = useState(true);
   const [paused, setPaused] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearMessage, setClearMessage] = useState('');
   
   // Resize state
   const [size, setSize] = useState(() => {
@@ -328,11 +331,13 @@ export default function LogPanel({
   // Clear logs
   const handleClear = async () => {
     try {
+      // Deletion now runs as a background job (batched) - large flows can have millions of log
+      // rows, so this no longer completes synchronously. Close the dialog and let the user know;
+      // the panel will show the reduced/empty list once the job has had a chance to run.
       await clearFlowLogs(flowId);
-      setLogs([]);
       setClearDialogOpen(false);
-      // Reload logs after clearing to ensure fresh state
-      await loadLogs();
+      setClearMessage('Clearing logs in the background - this can take a moment for flows with a lot of history. Refresh in a bit to see the updated list.');
+      setTimeout(() => setClearMessage(''), 8000);
     } catch (error) {
       console.error('Failed to clear logs:', error);
       alert('Failed to clear logs: ' + error.message);
@@ -748,6 +753,7 @@ export default function LogPanel({
         <DialogContent>
           <DialogContentText>
             This will permanently delete all logs for this flow. This action cannot be undone.
+            Runs in the background and may take a few moments for flows with a lot of log history.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -759,6 +765,17 @@ export default function LogPanel({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={!!clearMessage}
+        autoHideDuration={8000}
+        onClose={() => setClearMessage('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="info" onClose={() => setClearMessage('')} sx={{ width: '100%' }}>
+          {clearMessage}
+        </Alert>
+      </Snackbar>
     </Paper>
   );
 }

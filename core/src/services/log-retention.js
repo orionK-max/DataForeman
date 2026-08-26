@@ -28,10 +28,24 @@ function loadComponents() {
   }
 }
 
-export function runRetentionOnce({ logger } = {}) {
+export async function runRetentionOnce({ logger, app } = {}) {
   const log = logger || console;
   const base = path.resolve(resolveBaseLogDir());
-  const days = Math.max(0, Number(process.env.LOG_RETENTION_DAYS || 14));
+  // Configurable via Capacity > Retention Policy (system_settings key 'logs.file_retention_days');
+  // falls back to the LOG_RETENTION_DAYS env var, then a hardcoded default, if not set in the DB
+  // (e.g. app.db not available yet, or the setting was never saved).
+  let days = Number(process.env.LOG_RETENTION_DAYS) || 14;
+  if (app?.db) {
+    try {
+      const { rows } = await app.db.query(
+        `SELECT value FROM system_settings WHERE key = $1`,
+        ['logs.file_retention_days']
+      );
+      const configured = Number(rows[0]?.value);
+      if (Number.isFinite(configured) && configured > 0) days = configured;
+    } catch {}
+  }
+  days = Math.max(0, days);
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const components = loadComponents();
   let removed = 0;
@@ -81,11 +95,11 @@ export function runRetentionOnce({ logger } = {}) {
     log.log?.(`log-retention: removed ${removed} files older than ${days}d from ${components.length} components under ${base}`);
 }
 
-export function startRetentionScheduler(logger) {
+export function startRetentionScheduler(logger, app) {
   // Run at startup and then hourly
-  try { runRetentionOnce({ logger }); } catch {}
+  runRetentionOnce({ logger, app }).catch(() => {});
   const hourMs = 60 * 60 * 1000;
   setInterval(() => {
-    try { runRetentionOnce({ logger }); } catch {}
+    runRetentionOnce({ logger, app }).catch(() => {});
   }, hourMs).unref?.();
 }

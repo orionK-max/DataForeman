@@ -233,3 +233,61 @@ export async function writeFlowResourceMetrics(app, tagIds, metrics, timestamp =
     log.warn({ error }, 'Failed to write flow resource metrics');
   }
 }
+
+// Number of resource-monitoring tags written per flow per write (scan_efficiency_pct, total_cycles,
+// cycles_per_second, uptime_seconds, memory_peak_mb, memory_avg_mb, scan_duration_ms - see metricValues above)
+const FLOW_DIAG_TAGS_PER_WRITE = 7;
+
+/**
+ * Estimate a running flow's disk/data footprint (bytes/day), split into:
+ *  - diagBytesPerDay: the flow's own resource-monitoring tags (written to system_metrics),
+ *    throttled to at most one write per 100ms regardless of scan rate (see writeFlowResourceMetrics)
+ *  - dataBytesPerDay: actual historian writes performed by this flow's own nodes (e.g. Tag Output),
+ *    based on the live dataWritesPerSecond counter reported by ScanExecutor#getMetrics()
+ *
+ * This is an estimate based on the flow's *current* write rate, not a historical measurement -
+ * it only reflects the current session and resets when the flow restarts.
+ *
+ * @param {Object} params
+ * @param {Object} params.metrics - Result of ScanExecutor#getMetrics() (needs dataWritesPerSecond)
+ * @param {number} params.scanRateMs - Flow's configured scan rate
+ * @param {number} params.tagValuesBytesPerRow - Measured avg bytes/row for tag_values (from capacity calc)
+ * @param {number} params.systemMetricsBytesPerRow - Measured avg bytes/row for system_metrics (from capacity calc)
+ * @param {boolean} [params.diagnosticsEnabled=true] - Flow's save_usage_data setting. When false,
+ *   diagBytesPerDay is 0 regardless of scan rate, since nothing is actually being written.
+ * @returns {{ diagBytesPerDay: number, dataBytesPerDay: number, totalBytesPerDay: number }}
+ */
+export function estimateFlowDataFootprint({ metrics, scanRateMs, tagValuesBytesPerRow, systemMetricsBytesPerRow, diagnosticsEnabled = true }) {
+  const diagWritesPerSecond = diagnosticsEnabled ? 1000 / Math.max(Number(scanRateMs) || 1000, 100) : 0;
+  const diagBytesPerDay = diagWritesPerSecond * 86400 * FLOW_DIAG_TAGS_PER_WRITE * (Number(systemMetricsBytesPerRow) || 0);
+
+  const dataWritesPerSecond = Number(metrics?.dataWritesPerSecond) || 0;
+  const dataBytesPerDay = dataWritesPerSecond * 86400 * (Number(tagValuesBytesPerRow) || 0);
+
+  return {
+    diagBytesPerDay: Math.round(diagBytesPerDay),
+    dataBytesPerDay: Math.round(dataBytesPerDay),
+    totalBytesPerDay: Math.round(diagBytesPerDay + dataBytesPerDay),
+  };
+}
+
+/**
+ * Fetch the cached capacity estimate (written every 15min by capacity-calculator.js worker),
+ * used to get measured bytes-per-row for tag_values/system_metrics without re-measuring it here.
+ *
+ * @param {Object} app - Fastify app instance
+ * @returns {Object|null} Cached capacity estimate, or null if not yet calculated
+ */
+export async function getCachedCapacityEstimate(app) {
+  try {
+    const { rows } = await app.db.query(
+      `SELECT value FROM system_settings WHERE key = $1`,
+      ['capacity.last_calculation']
+    );
+    return rows[0]?.value || null;
+  } catch {
+    return null;
+  }
+}
+
+

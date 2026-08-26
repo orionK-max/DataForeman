@@ -1,5 +1,6 @@
 import net from 'net';
 import { listLogComponents } from '../services/log-registry.js';
+import { estimateFlowDataFootprint } from '../services/flow-resource-metrics.js';
 
 function parseNatsUrl(url) {
   try {
@@ -238,6 +239,24 @@ export async function diagRoutes(app) {
       };
     }
 
+    // Disk usage status (current, not projected) from the cached capacity calculation,
+    // used to drive the disk usage banner without re-running `df` on every summary poll.
+    let disk = { pct_used: null, status: null };
+    try {
+      const { rows } = await app.db.query(`
+        SELECT value FROM system_settings WHERE key = $1
+      `, ['capacity.last_calculation']);
+      const cached = rows[0]?.value;
+      if (cached) {
+        disk = {
+          pct_used: cached.disk_pct_used ?? null,
+          status: cached.disk_status ?? null,
+          warning_pct: cached.disk_warning_pct ?? null,
+          error_pct: cached.disk_error_pct ?? null,
+        };
+      }
+    } catch {}
+
     const response = {
       core: { health, ready, uptime },
       db,
@@ -245,6 +264,7 @@ export async function diagRoutes(app) {
       tsdb,
       connectivity,
       broker,
+      disk,
       front: { ok: !!frontTcp.ok },
       caddy: { ok: !!caddyTcp.ok },
       coreIngestion,
@@ -624,6 +644,222 @@ export async function diagRoutes(app) {
     }
 
     return { process: processInfo, memory, cpu, disks: disksOut, net, capacity: capacityEstimate };
+  });
+
+  // Disk space breakdown for the Capacity tab "Details" view: who is generating the data.
+  // Connectivity drivers and host diagnostics get an exact rows-in-window -> MB/day figure from
+  // real history. Flows report while running: "Diagnostics" is also a real measurement (their
+  // own tag_ids are known), but "Tag Writes" stays a live estimate since INTERNAL tags written by
+  // Tag Output nodes aren't individually attributable to one flow once persisted (they share one
+  // "System" connection). All real figures use the SAME window as the capacity calculation
+  // (capacity.last_calculation.rate_window_hours) so they sum to `totalBytesPerDay`, which matches
+  // the total shown in the Disk Capacity card / Calculation Check.
+  app.get('/capacity/breakdown', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!userId || !(await app.permissions.can(userId, 'diagnostic.system', 'read'))) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    try {
+      const capacityResult = await app.db.query(
+        `SELECT value FROM system_settings WHERE key = $1`,
+        ['capacity.last_calculation']
+      );
+      const capacityEstimate = capacityResult.rows[0]?.value || null;
+      const tagValuesBytesPerRow = Number(capacityEstimate?.tag_values_bytes_per_row) || 0;
+      const systemMetricsBytesPerRow = Number(capacityEstimate?.system_metrics_bytes_per_row) || 0;
+      const logsBytesPerRow = Number(capacityEstimate?.logs_bytes_per_row) || 0;
+      // Same measurement window the capacity worker uses (see RATE_WINDOW_HOURS in
+      // capacity-calculator.js), so every "bytes/day" figure below is extrapolated from the same
+      // basis and actually adds up to capacityEstimate.total_bytes_per_day.
+      const windowHours = Number(capacityEstimate?.rate_window_hours) || 1;
+      const hoursPerDay = 24 / windowHours;
+
+      const db = app.tsdb || app.db;
+
+      // tag_values rows in the window, grouped by connection (real device connections + the
+      // shared "System" connection flows write INTERNAL/Tag Output values to)
+      const { rows: connCounts } = await db.query(
+        `SELECT connection_id, count(*) as rows_window
+         FROM tag_values
+         WHERE ts >= now() - interval '${windowHours} hours'
+         GROUP BY connection_id`
+      );
+      const { rows: connections } = await app.db.query(
+        `SELECT id, name, type, is_system_connection FROM connections`
+      );
+      const connById = new Map(connections.map((c) => [c.id, c]));
+
+      const connectivityDrivers = [];
+      let systemConnectionRowsWindow = 0;
+      for (const row of connCounts) {
+        const conn = connById.get(row.connection_id);
+        const rowsWindow = Number(row.rows_window) || 0;
+        if (conn?.is_system_connection) {
+          // INTERNAL tags written by flows (Tag Output nodes), not a real device driver - counted
+          // separately below as "flowTagWrites" since it can't be split by connection.
+          systemConnectionRowsWindow += rowsWindow;
+          continue;
+        }
+        const rowsPerDay = rowsWindow * hoursPerDay;
+        connectivityDrivers.push({
+          connectionId: row.connection_id,
+          name: conn?.name || '(deleted connection)',
+          type: conn?.type || 'unknown',
+          rowsPerDay: Math.round(rowsPerDay),
+          bytesPerDay: Math.round(rowsPerDay * tagValuesBytesPerRow),
+        });
+      }
+      connectivityDrivers.sort((a, b) => b.bytesPerDay - a.bytesPerDay);
+
+      // Real, combined total for all flows' Tag Output writes (can't be split per-flow: INTERNAL
+      // tags aren't individually owned by one flow - they share the "System" connection)
+      const flowTagWritesBytesPerDay = Math.round(systemConnectionRowsWindow * hoursPerDay * tagValuesBytesPerRow);
+
+      // system_metrics rows in the window, grouped by tag_id, so we can split them into
+      // per-flow diagnostics (tag_path 'flow.<id>.*') vs host-only tags (everything else)
+      const { rows: sysMetricsCounts } = await db.query(
+        `SELECT tag_id, count(*) as rows_window
+         FROM system_metrics
+         WHERE ts >= now() - interval '${windowHours} hours'
+         GROUP BY tag_id`
+      );
+      const { rows: systemConnRows } = await app.db.query(
+        `SELECT id FROM connections WHERE name = 'System' AND is_system_connection = true LIMIT 1`
+      );
+      const systemConnId = systemConnRows[0]?.id;
+
+      const flowDiagRowsByFlowId = new Map(); // flowId -> rows_window
+      const flowIdByTagId = new Map(); // tag_id -> flowId, for every flow.<id>.* diagnostics tag
+      if (systemConnId) {
+        const { rows: systemTagRows } = await app.db.query(
+          `SELECT tag_id, tag_path FROM tag_metadata WHERE connection_id = $1`,
+          [systemConnId]
+        );
+        for (const t of systemTagRows) {
+          const m = /^flow\.([^.]+)\./.exec(t.tag_path);
+          if (m) flowIdByTagId.set(t.tag_id, m[1]);
+        }
+        for (const row of sysMetricsCounts) {
+          const flowId = flowIdByTagId.get(row.tag_id);
+          if (flowId) {
+            flowDiagRowsByFlowId.set(flowId, (flowDiagRowsByFlowId.get(flowId) || 0) + Number(row.rows_window));
+          }
+        }
+      }
+
+      // Running flows: Diagnostics is a real measurement (own tag_ids, mapped above); Tag Writes
+      // stays a live write-rate estimate (resets on flow restart) since it can't be attributed
+      // per-flow from real data.
+      //
+      // Only flows with an active session are listed here (matches "Only flows currently running
+      // are shown" below). A flow that stopped recently can still have real rows inside this
+      // measurement window (residual data from before it stopped) - rather than showing it as a
+      // "running" flow (misleading) or silently dropping its bytes (undercounting the total), that
+      // residual amount gets folded into "Other" below instead. It naturally drops out on its own
+      // once that old activity ages out of the window.
+      const { rows: sessionFlows } = await app.db.query(
+        `SELECT f.id as flow_id, f.name as flow_name, f.scan_rate_ms, f.save_usage_data
+         FROM flow_sessions fs
+         JOIN flows f ON fs.flow_id = f.id
+         WHERE fs.status = 'active'`
+      );
+
+      // Execution logs: unlike Tag Output writes and diagnostics, these are directly attributed
+      // to a flow via flow_execution_logs.flow_id - no estimation needed.
+      //
+      // flow_execution_logs has no plain index on `timestamp` alone (only (flow_id, timestamp) -
+      // it's a regular table, not a hypertable, and can be very large), so a bare "WHERE timestamp
+      // >= ..." forces a full table scan and can time out. Scoping to `flow_id = ANY(<all flow
+      // ids>)` lets Postgres use that composite index instead (verified: ~150ms vs timeout on a
+      // 100M+ row table).
+      const { rows: allFlowIdRows } = await app.db.query(`SELECT id FROM flows`);
+      const allFlowIds = allFlowIdRows.map((r) => r.id);
+      let logCounts = [];
+      if (allFlowIds.length > 0) {
+        const res = await app.db.query(
+          `SELECT flow_id, count(*) as rows_window
+           FROM flow_execution_logs
+           WHERE flow_id = ANY($1::uuid[]) AND timestamp >= now() - interval '${windowHours} hours'
+           GROUP BY flow_id`,
+          [allFlowIds]
+        );
+        logCounts = res.rows;
+      }
+      const logRowsByFlowId = new Map(logCounts.map((r) => [r.flow_id, Number(r.rows_window) || 0]));
+
+      const flows = sessionFlows.map((row) => {
+        const liveMetrics = app.flowExecutorManager.getMetrics(row.flow_id);
+        const footprint = estimateFlowDataFootprint({
+          metrics: liveMetrics,
+          scanRateMs: row.scan_rate_ms || 1000,
+          tagValuesBytesPerRow,
+          systemMetricsBytesPerRow,
+          diagnosticsEnabled: row.save_usage_data !== false,
+        });
+        const diagRowsWindow = flowDiagRowsByFlowId.get(row.flow_id) || 0;
+        const diagBytesPerDay = Math.round(diagRowsWindow * hoursPerDay * systemMetricsBytesPerRow);
+        const logRowsWindow = logRowsByFlowId.get(row.flow_id) || 0;
+        const logsBytesPerDay = Math.round(logRowsWindow * hoursPerDay * logsBytesPerRow);
+        return {
+          flowId: row.flow_id,
+          name: row.flow_name,
+          scanRateMs: row.scan_rate_ms || 1000,
+          dataBytesPerDay: footprint.dataBytesPerDay,
+          diagBytesPerDay,
+          logsBytesPerDay,
+          bytesPerDay: footprint.dataBytesPerDay + diagBytesPerDay + logsBytesPerDay,
+        };
+      });
+      flows.sort((a, b) => b.bytesPerDay - a.bytesPerDay);
+
+      // Host-level system_metrics (CPU/mem/disk/network sampler) - everything NOT matched to a
+      // *currently running* flow's diagnostics tag above. Includes real host metrics, residual
+      // rows from flows that stopped recently (see comment above), and any leftover rows from tags
+      // that no longer exist in tag_metadata at all (e.g. orphaned rows from a since-deleted flow
+      // tag). Measured directly, same window as above.
+      const activeFlowIds = new Set(sessionFlows.map((r) => r.flow_id));
+      let hostRowsWindow = 0;
+      for (const row of sysMetricsCounts) {
+        const flowId = flowIdByTagId.get(row.tag_id);
+        const isCountedFlowTag = flowId != null && activeFlowIds.has(flowId);
+        if (!isCountedFlowTag) hostRowsWindow += Number(row.rows_window);
+      }
+      const otherSystemBytesPerDay = Math.round(hostRowsWindow * hoursPerDay * systemMetricsBytesPerRow);
+
+      // Residual execution-log rows from flows that stopped recently (same reasoning as host
+      // metrics above) - folded into Other rather than dropped or shown as a "running" flow.
+      let otherLogsRowsWindow = 0;
+      for (const [flowId, rowsWindow] of logRowsByFlowId.entries()) {
+        if (!activeFlowIds.has(flowId)) otherLogsRowsWindow += rowsWindow;
+      }
+      const otherLogsBytesPerDay = Math.round(otherLogsRowsWindow * hoursPerDay * logsBytesPerRow);
+
+      const connectivitySum = connectivityDrivers.reduce((sum, c) => sum + c.bytesPerDay, 0);
+      const flowsDiagSum = flows.reduce((sum, f) => sum + f.diagBytesPerDay, 0);
+      const flowsLogsSum = flows.reduce((sum, f) => sum + f.logsBytesPerDay, 0);
+      const otherBytesPerDay = otherSystemBytesPerDay + otherLogsBytesPerDay;
+      const totalBytesPerDay = connectivitySum + flowTagWritesBytesPerDay + flowsDiagSum + flowsLogsSum + otherBytesPerDay;
+
+      return {
+        calculatedAt: capacityEstimate?.calculated_at || null,
+        rateWindowHours: windowHours,
+        connectivityDrivers,
+        flowTagWrites: {
+          name: 'Flow tag writes (all flows combined)',
+          bytesPerDay: flowTagWritesBytesPerDay,
+        },
+        flows,
+        other: {
+          name: 'Host & other diagnostics (CPU/memory/disk/network) + recently-stopped flows\' residual data',
+          bytesPerDay: otherBytesPerDay,
+        },
+        totalBytesPerDay,
+      };
+    } catch (err) {
+      app.log.error({ err }, 'Failed to compute capacity breakdown');
+      return reply.code(500).send({ error: 'internal_error' });
+    }
   });
 
   // Get detailed service status (connectivity only - ingestor deprecated)

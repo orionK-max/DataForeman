@@ -12,15 +12,20 @@ import {
   Chip,
   Grid,
   Paper,
-  Divider
+  Divider,
+  Tooltip,
+  IconButton
 } from '@mui/material';
 import {
   Speed as SpeedIcon,
   Memory as MemoryIcon,
   Timer as TimerIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Storage as StorageIcon,
+  InfoOutlined as InfoOutlinedIcon
 } from '@mui/icons-material';
 import ChartLoader from '../chart/ChartLoader';
+import { LineChart } from '@mui/x-charts/LineChart';
 import { apiClient } from '../../services/api';
 
 /**
@@ -44,6 +49,16 @@ function formatMemory(mb) {
 }
 
 /**
+ * Format an estimated bytes/day figure into a compact MB or GB per day string
+ */
+function formatBytesPerDay(bytes) {
+  const mbPerDay = (bytes || 0) / 1024 / 1024;
+  if (mbPerDay < 1) return `${(mbPerDay * 1024).toFixed(0)} KB/day`;
+  if (mbPerDay < 1024) return `${mbPerDay.toFixed(1)} MB/day`;
+  return `${(mbPerDay / 1024).toFixed(2)} GB/day`;
+}
+
+/**
  * Get severity color for warnings
  */
 function getSeverityColor(severity) {
@@ -57,13 +72,20 @@ function getSeverityColor(severity) {
 /**
  * Memoized metric card to prevent unnecessary re-renders
  */
-const MetricCard = memo(({ icon, title, value, subtitle, color = 'primary.main' }) => (
-  <Paper sx={{ p: 2 }}>
-    <Box display="flex" alignItems="center" mb={1}>
-      {React.cloneElement(icon, { sx: { mr: 1, color } })}
-      <Typography variant="subtitle2">{title}</Typography>
+const MetricCard = memo(({ icon, title, value, subtitle, color = 'primary.main', hint }) => (
+  <Paper sx={{ p: 1.25 }}>
+    <Box display="flex" alignItems="center" mb={0.5}>
+      {React.cloneElement(icon, { sx: { mr: 0.75, fontSize: '1.1rem', color } })}
+      <Typography variant="caption" sx={{ fontWeight: 600 }}>{title}</Typography>
+      {hint && (
+        <Tooltip title={hint} placement="top" arrow>
+          <IconButton size="small" sx={{ p: 0, ml: 0.5 }}>
+            <InfoOutlinedIcon sx={{ fontSize: '0.85rem', color: 'text.secondary' }} />
+          </IconButton>
+        </Tooltip>
+      )}
     </Box>
-    <Typography variant={title === 'CPU Time' ? 'h5' : 'h6'}>
+    <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
       {value}
     </Typography>
     <Typography variant="caption" color="text.secondary">
@@ -83,6 +105,33 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
   const [chartId, setChartId] = useState(null);
   const [loadingChart, setLoadingChart] = useState(false);
   const setupInProgressRef = useRef(false);
+
+  // Client-side-only rolling buffer of recent samples, used as a live preview chart when
+  // "Save usage/diagnostic history" is off (nothing is persisted, so ChartLoader has nothing to
+  // show). Resets whenever the modal is reopened or a different flow is viewed - this is
+  // intentionally ephemeral, not a substitute for real history.
+  const MAX_LIVE_SAMPLES = 60; // ~5 minutes at the hook's default 5s poll interval
+  const liveBufferRef = useRef([]);
+  const [liveBuffer, setLiveBuffer] = useState([]);
+
+  useEffect(() => {
+    liveBufferRef.current = [];
+    setLiveBuffer([]);
+  }, [flowId, open]);
+
+  useEffect(() => {
+    if (!open || !resourceData || resourceData.saveUsageData !== false) return;
+    const sample = {
+      t: Date.now(),
+      scanEfficiencyPercent: resourceData.scanEfficiencyPercent || 0,
+      cyclesPerSecond: resourceData.cyclesPerSecond || 0,
+      memoryAvgMb: resourceData.memoryAvgMb || 0,
+      scanDurationAvgMs: resourceData.scanDurationAvgMs || 0,
+    };
+    const next = [...liveBufferRef.current, sample].slice(-MAX_LIVE_SAMPLES);
+    liveBufferRef.current = next;
+    setLiveBuffer(next);
+  }, [open, resourceData]);
 
   // Fetch (or create, once) the chart for flow resource metrics
   useEffect(() => {
@@ -136,9 +185,18 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
 
         {resourceData && (
           <>
+            {/* Diagnostics saving off - historical chart below has nothing to show */}
+            {resourceData.saveUsageData === false && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Usage diagnostics aren't being saved for this flow right now. The values below are live,
+                but no trend is being recorded - the chart shows a temporary live preview instead (lost
+                on refresh). Open Flow Settings to turn "Save usage/diagnostic history" back on.
+              </Alert>
+            )}
+
             {/* Warnings */}
             {hasWarnings && (
-              <Box mb={3}>
+              <Box mb={2}>
                 <Typography variant="subtitle2" gutterBottom>
                   Warnings
                 </Typography>
@@ -157,9 +215,9 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
             )}
 
             {/* Resource Metrics */}
-            <Grid container spacing={2}>
+            <Grid container spacing={1.5}>
               {/* Scan Efficiency */}
-              <Grid item xs={6}>
+              <Grid item xs={6} sm={4}>
                 <MetricCard
                   icon={<SpeedIcon />}
                   title="Scan Efficiency"
@@ -170,7 +228,7 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
               </Grid>
 
               {/* Cycles per Second */}
-              <Grid item xs={6}>
+              <Grid item xs={6} sm={4}>
                 <MetricCard
                   icon={<SpeedIcon />}
                   title="Cycles/Second"
@@ -181,7 +239,7 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
               </Grid>
 
               {/* Memory Usage */}
-              <Grid item xs={6}>
+              <Grid item xs={6} sm={4}>
                 <MetricCard
                   icon={<MemoryIcon />}
                   title="Memory Peak"
@@ -191,7 +249,7 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
                 />
               </Grid>
 
-              <Grid item xs={6}>
+              <Grid item xs={6} sm={4}>
                 <MetricCard
                   icon={<MemoryIcon />}
                   title="Memory Avg"
@@ -202,7 +260,7 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
               </Grid>
 
               {/* Scan Performance */}
-              <Grid item xs={6}>
+              <Grid item xs={6} sm={4}>
                 <MetricCard
                   icon={<TimerIcon />}
                   title="Scan Avg"
@@ -212,7 +270,7 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
                 />
               </Grid>
 
-              <Grid item xs={6}>
+              <Grid item xs={6} sm={4}>
                 <MetricCard
                   icon={<TimerIcon />}
                   title="Scan Max"
@@ -221,20 +279,39 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
                   color="info.main"
                 />
               </Grid>
+
+              {/* Estimated Data Volume - based on this flow's current write rate, resets on restart */}
+              <Grid item xs={12}>
+                <MetricCard
+                  icon={<StorageIcon />}
+                  title="Est. Data Volume"
+                  value={formatBytesPerDay(resourceData.estimatedTotalBytesPerDay)}
+                  subtitle={`${formatBytesPerDay(resourceData.estimatedDataBytesPerDay)} tag writes + ${formatBytesPerDay(resourceData.estimatedDiagBytesPerDay)} diagnostics, at current rate`}
+                  color="warning.main"
+                  hint={
+                    <>
+                      <strong>Tag writes</strong>: values this flow's "Tag Output" nodes are persisting to historian tags right now.{' '}
+                      <strong>Diagnostics</strong>: this flow's own scan-efficiency/memory/cycle metrics (shown above), written every scan cycle.
+                      <br /><br />
+                      To reduce: increase the <strong>Scan Rate</strong> (Flow Settings) to write less often, or set "Save to Database" to off on Tag Output nodes that don't need historian data.
+                    </>
+                  }
+                />
+              </Grid>
             </Grid>
 
-            <Divider sx={{ my: 2 }} />
+            <Divider sx={{ my: 1.5 }} />
 
             {/* Session Info */}
-            <Box mb={3}>
-              <Typography variant="caption" color="text.secondary" display="block">
+            <Box mb={2} sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              <Typography variant="caption" color="text.secondary">
                 Uptime: <strong>{formatDuration((resourceData.uptimeSeconds || 0) * 1000)}</strong>
               </Typography>
-              <Typography variant="caption" color="text.secondary" display="block">
+              <Typography variant="caption" color="text.secondary">
                 Scan Rate: <strong>{resourceData.scanRateMs || 1000}ms</strong>
               </Typography>
               {resourceData.lastScanAt && (
-                <Typography variant="caption" color="text.secondary" display="block">
+                <Typography variant="caption" color="text.secondary">
                   Last Scan: <strong>{new Date(resourceData.lastScanAt).toLocaleTimeString()}</strong>
                 </Typography>
               )}
@@ -244,11 +321,30 @@ const FlowResourceMonitor = memo(({ open, onClose, flowId, flowName, resourceDat
 
         {/* Historical Chart - always show if dialog is open */}
         {open && (
-          <Box mt={resourceData ? 3 : 0}>
+          <Box mt={resourceData ? 2 : 0}>
             <Typography variant="subtitle2" gutterBottom>
-              Historical Resource Usage
+              {resourceData?.saveUsageData === false ? 'Live Preview (not saved)' : 'Historical Resource Usage'}
             </Typography>
-            {loadingChart ? (
+            {resourceData?.saveUsageData === false ? (
+              liveBuffer.length < 2 ? (
+                <Alert severity="info">Collecting live samples...</Alert>
+              ) : (
+                <LineChart
+                  height={300}
+                  xAxis={[{
+                    data: liveBuffer.map((s) => s.t),
+                    scaleType: 'time',
+                    valueFormatter: (v) => new Date(v).toLocaleTimeString(),
+                  }]}
+                  series={[
+                    { data: liveBuffer.map((s) => s.scanEfficiencyPercent), label: 'Scan Efficiency (%)', color: '#1976d2' },
+                    { data: liveBuffer.map((s) => s.cyclesPerSecond), label: 'Cycles/Second', color: '#2e7d32' },
+                    { data: liveBuffer.map((s) => s.memoryAvgMb), label: 'Memory Avg (MB)', color: '#dc004e' },
+                    { data: liveBuffer.map((s) => s.scanDurationAvgMs), label: 'Scan Duration (ms)', color: '#ff9800' },
+                  ]}
+                />
+              )
+            ) : loadingChart ? (
               <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <LinearProgress sx={{ width: '50%' }} />
               </Box>

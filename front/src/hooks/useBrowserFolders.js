@@ -198,12 +198,23 @@ export function useBrowserFolders(folderType, items = [], onReload = null) {
     if (!movingItem) return;
     
     try {
-      await folderService.moveItemToFolder(
-        folderType,
-        movingItem.id,
-        folderId,
-        0
-      );
+      if (movingItem.isBulk) {
+        // Bulk move: movingItem is a synthetic placeholder ({ id: 'bulk', items: [...] }),
+        // not a real item - move each selected item individually instead of sending the
+        // literal 'bulk' placeholder id to the API (which fails as an invalid UUID).
+        await Promise.all(
+          (movingItem.items || []).map(item =>
+            folderService.moveItemToFolder(folderType, item.id, folderId, 0)
+          )
+        );
+      } else {
+        await folderService.moveItemToFolder(
+          folderType,
+          movingItem.id,
+          folderId,
+          0
+        );
+      }
       
       if (onReload) {
         await onReload();

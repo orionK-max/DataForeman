@@ -875,8 +875,18 @@ export class ScanExecutor {
       memoryPeakMb: 0,
       memorySamplesMb: [],
       scanDurations: [],
-      scanDurationMax: 0
+      scanDurationMax: 0,
+      dataWrites: 0           // Count of tag-output nodes that actually persisted a value (historian writes)
     };
+  }
+
+  /**
+   * Record that a node in this flow persisted a value to the historian (tag_values).
+   * Called via NodeExecutionContext#recordDataWrite() so nodes stay decoupled from
+   * the executor internals. Used to estimate this flow's disk/data footprint.
+   */
+  recordDataWrite() {
+    this.metrics.dataWrites += 1;
   }
   
   async start() {
@@ -984,7 +994,8 @@ export class ScanExecutor {
         },
         inputStateManager: this.inputStateManager,
         logBuffer: this.logBuffer, // Add logBuffer so nodes can use automatic logging
-        runtimeState: this.context.app.runtimeState
+        runtimeState: this.context.app.runtimeState,
+        scanExecutor: this // Lets NodeExecutionContext#recordDataWrite() report historian writes back to this flow's metrics
       };
       
       for (const nodeId of executionOrder) {
@@ -1306,6 +1317,11 @@ export class ScanExecutor {
       ? (avgScanDuration / scanRateMs) * 100
       : 0;
     
+    // Data writes/sec (historian writes from tag-output nodes) - used to estimate this flow's disk footprint
+    const dataWritesPerSecond = uptimeSeconds > 0
+      ? this.metrics.dataWrites / uptimeSeconds
+      : 0;
+
     return {
       scanEfficiencyPercent: Number(scanEfficiencyPercent.toFixed(1)),
       totalCycles: this.metrics.totalCycles,
@@ -1314,7 +1330,9 @@ export class ScanExecutor {
       memoryPeakMb: Number(this.metrics.memoryPeakMb.toFixed(2)),
       memoryAvgMb: Number(avgMemory.toFixed(2)),
       scanDurationAvgMs: Math.round(avgScanDuration),
-      scanDurationMaxMs: Math.round(this.metrics.scanDurationMax)
+      scanDurationMaxMs: Math.round(this.metrics.scanDurationMax),
+      dataWritesTotal: this.metrics.dataWrites,
+      dataWritesPerSecond: Number(dataWritesPerSecond.toFixed(3))
     };
   }
 }

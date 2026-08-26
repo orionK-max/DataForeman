@@ -31,25 +31,38 @@ export default async function cleanupFlowLogs(db) {
     
     console.log(`[Log Cleanup] Processing ${flowsResult.rows.length} flows with logging enabled...`);
     
+    const BATCH_SIZE = 20000;
+    
     // Process each flow
     for (const flow of flowsResult.rows) {
       try {
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - flow.logs_retention_days);
         
-        const deleteResult = await db.query(`
-          DELETE FROM flow_execution_logs
-          WHERE flow_id = $1
-            AND timestamp < $2
-        `, [flow.id, cutoffDate]);
+        // Delete in bounded batches instead of one unbounded DELETE - a flow that's had logging on
+        // for months (e.g. a fast-scanning flow) can have tens of millions of rows past its
+        // retention cutoff, and a single DELETE for all of them can run long enough to hit a
+        // statement/request timeout, which previously meant NOTHING got cleaned up for that flow.
+        let flowDeleted = 0;
+        for (;;) {
+          const deleteResult = await db.query(`
+            DELETE FROM flow_execution_logs
+            WHERE ctid IN (
+              SELECT ctid FROM flow_execution_logs
+              WHERE flow_id = $1 AND timestamp < $2
+              LIMIT $3
+            )
+          `, [flow.id, cutoffDate, BATCH_SIZE]);
+          const deletedCount = deleteResult.rowCount || 0;
+          flowDeleted += deletedCount;
+          if (deletedCount < BATCH_SIZE) break;
+        }
+        totalDeleted += flowDeleted;
         
-        const deletedCount = deleteResult.rowCount || 0;
-        totalDeleted += deletedCount;
-        
-        if (deletedCount > 0) {
+        if (flowDeleted > 0) {
           console.log(
             `[Log Cleanup] Flow "${flow.name}" (${flow.id}): ` +
-            `Deleted ${deletedCount} logs older than ${flow.logs_retention_days} days`
+            `Deleted ${flowDeleted} logs older than ${flow.logs_retention_days} days`
           );
         }
       } catch (error) {

@@ -194,10 +194,10 @@ export default async function flowRoutes(app) {
     }
 
     const result = await db.query(`
-      INSERT INTO flows (name, description, owner_user_id, definition, static_data, execution_mode)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO flows (name, description, owner_user_id, definition, static_data, execution_mode, logs_retention_days)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
-    `, [name, description || null, userId, definition, static_data || {}, execution_mode || 'continuous']);
+    `, [name, description || null, userId, definition, static_data || {}, execution_mode || 'continuous', 1]);
 
     reply.send({ flow: result.rows[0] });
   });
@@ -511,7 +511,8 @@ export default async function flowRoutes(app) {
       logs_retention_days,
       scan_rate_ms,
       execution_mode,
-      live_values_use_scan_rate
+      live_values_use_scan_rate,
+      save_usage_data
     } = req.body;
 
     // Verify ownership and get current state
@@ -633,6 +634,10 @@ export default async function flowRoutes(app) {
       updates.push(`live_values_use_scan_rate = $${paramCount++}`);
       values.push(live_values_use_scan_rate);
     }
+    if (save_usage_data !== undefined) {
+      updates.push(`save_usage_data = $${paramCount++}`);
+      values.push(save_usage_data);
+    }
 
     updates.push(`updated_at = now()`);
     values.push(id);
@@ -645,6 +650,12 @@ export default async function flowRoutes(app) {
     `, values);
 
     const flow = result.rows[0];
+
+    // Push settings that a running flow session can apply live, without a restart
+    // (e.g. save_usage_data - see FlowSession#updateSettings)
+    if (save_usage_data !== undefined) {
+      app.flowExecutorManager.updateFlowSettings(id, { save_usage_data: flow.save_usage_data });
+    }
 
     // Log test mode changes
     if (test_mode !== undefined && test_mode !== previousTestMode) {
@@ -733,6 +744,31 @@ export default async function flowRoutes(app) {
     }
 
     reply.send({ flow });
+  });
+
+  // POST /api/flows/:id/clear-usage-history - Delete this flow's saved diagnostic/usage
+  // history (system_metrics rows + flow.<id>.* tags) without touching the flow itself.
+  // Used when a user switches "Save usage data" off and chooses to discard existing history
+  // (tags are recreated automatically next time the flow runs with saving enabled).
+  app.post('/api/flows/:id/clear-usage-history', async (req, reply) => {
+    const userId = req.user?.sub;
+    if (!(await checkPermission(userId, 'update', reply))) return;
+
+    const { id: flowId } = req.params;
+
+    const flowResult = await db.query('SELECT id, name FROM flows WHERE id = $1', [flowId]);
+    if (flowResult.rows.length === 0) {
+      return reply.code(404).send({ error: 'flow not found' });
+    }
+
+    try {
+      const job = await app.jobs.enqueue('flow_metrics_cleanup', { flowId });
+      req.log.info({ flowId, jobId: job.id }, 'Flow usage history clear job enqueued');
+      reply.send({ success: true, jobId: job.id });
+    } catch (error) {
+      req.log.error({ error, flowId }, 'Failed to enqueue usage history cleanup job');
+      reply.code(500).send({ error: 'failed to enqueue cleanup job' });
+    }
   });
 
   // DELETE /api/flows/:id - Delete flow
@@ -1839,14 +1875,24 @@ export default async function flowRoutes(app) {
 
       const result = await db.query(query, params);
 
-      // Get total count for pagination
-      let countQuery = `SELECT COUNT(*) as total FROM flow_execution_logs WHERE flow_id = $1`;
-      const countParams = [id];
-      const countResult = await db.query(countQuery, countParams);
+      // Get total count for pagination. An exact COUNT(*) can take 10+ seconds on a flow with
+      // tens of millions of log rows (e.g. logging left on for months on a fast-scanning flow),
+      // since flow_id alone isn't enough to avoid a large scan. Use the query planner's row
+      // estimate instead (near-instant, from table statistics) - good enough for a pagination total.
+      let total = 0;
+      try {
+        const explainResult = await db.query(
+          `EXPLAIN (FORMAT JSON) SELECT 1 FROM flow_execution_logs WHERE flow_id = $1`,
+          [id]
+        );
+        total = Math.round(Number(explainResult.rows[0]?.['QUERY PLAN']?.[0]?.Plan?.['Plan Rows']) || 0);
+      } catch {
+        total = result.rows.length; // fallback: at least reflect what we actually fetched
+      }
 
       reply.send({
         logs: result.rows,
-        total: parseInt(countResult.rows[0].total),
+        total,
         limit: parseInt(limit),
         offset: parseInt(offset)
       });
@@ -1920,17 +1966,16 @@ export default async function flowRoutes(app) {
         return reply.code(403).send({ error: 'only owner can clear logs' });
       }
 
-      // Delete logs
-      const result = await db.query(
-        'DELETE FROM flow_execution_logs WHERE flow_id = $1',
-        [id]
-      );
+      // Delete logs in the background (batched) - a single DELETE can be tens of millions of rows
+      // for a flow that's had logging on a long time, which would blow past any reasonable
+      // request timeout. See jobs.js 'flow_logs_clear'.
+      const job = await app.jobs.enqueue('flow_logs_clear', { flowId: id });
+      req.log.info({ flowId: id, jobId: job.id }, 'Flow logs clear job enqueued');
 
-      req.log.info({ flowId: id, deletedCount: result.rowCount }, 'Flow logs cleared');
-
-      reply.send({ 
-        success: true, 
-        deletedCount: result.rowCount 
+      reply.send({
+        success: true,
+        jobId: job.id,
+        background: true,
       });
     } catch (error) {
       req.log.error({ err: error, flowId: id }, 'Failed to clear logs');

@@ -85,6 +85,42 @@ export class FlowSession {
   }
 
   /**
+   * Apply settings changes to this already-running session in place, so toggles like
+   * "save_usage_data" take effect on the very next scan cycle instead of requiring a
+   * flow restart. Only fields that make sense to change live should be passed here.
+   *
+   * @param {Object} patch - Partial flow fields to update (e.g. { save_usage_data: false }).
+   *   May also include `_refreshResourceTags: true` (not persisted to the flow record) to force
+   *   re-fetching/re-creating this flow's resource tags even if a cached copy already exists -
+   *   used after a background job (e.g. "clear usage history") deletes them out from under a
+   *   running session, so the cache doesn't keep pointing at now-deleted tag_ids.
+   */
+  async updateSettings(patch) {
+    if (!patch) return;
+    const { _refreshResourceTags, ...flowPatch } = patch;
+    Object.assign(this.flow, flowPatch);
+
+    if (this.flow.save_usage_data === false) {
+      // Diagnostics disabled - drop any cached tag ids. This also covers the case where tags
+      // were just deleted (e.g. "Delete History") while save_usage_data itself didn't change:
+      // clearing the cache here forces a fresh ensureFlowResourceTags() call below the next
+      // time saving is turned back on, instead of trusting stale (possibly deleted) tag_ids.
+      this.flowResourceTagIds = null;
+      return;
+    }
+
+    // Saving is enabled: (re)create resource tags if we don't have a cached copy, or if the
+    // caller explicitly asked for a refresh (tags may have been deleted since we last cached them).
+    if (!this.flowResourceTagIds || _refreshResourceTags) {
+      try {
+        this.flowResourceTagIds = await ensureFlowResourceTags(this.app, this.flow);
+      } catch (error) {
+        this.log.error({ error }, 'Failed to refresh flow resource tags on live settings update');
+      }
+    }
+  }
+
+  /**
    * Stop the flow session gracefully
    */
   async stop(reason = 'stopped') {

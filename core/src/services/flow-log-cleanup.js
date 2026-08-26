@@ -2,61 +2,41 @@ import cleanupFlowLogs from '../jobs/log-cleanup-job.js';
 
 /**
  * Flow Log Retention Scheduler
- * Runs the log cleanup job daily at 2 AM (configurable via env)
+ * Runs the log cleanup job shortly after startup, then periodically (every
+ * FLOW_LOG_CLEANUP_INTERVAL_HOURS, default 24h).
+ *
+ * Previously this only ran once per calendar day at 2 AM (production) via a single setTimeout
+ * computed from `next2AM - now` at startup. That's fragile in exactly the way it played out here:
+ * every core restart recomputes "wait until next 2 AM" from scratch, so on a dev box restarted
+ * often (or a host that sleeps overnight, pausing the timer) the job could go a very long time -
+ * observed: 8+ months of un-pruned flow_execution_logs - without ever actually firing. Running
+ * once shortly after startup (like log-retention.js already does for file logs) closes that gap.
  */
-
 export function startFlowLogCleanupScheduler(logger, db) {
   const log = logger || console;
-  
-  // Run daily at 2 AM by default, or use env variable for custom interval
+
   const intervalHours = Math.max(1, Number(process.env.FLOW_LOG_CLEANUP_INTERVAL_HOURS || 24));
   const intervalMs = intervalHours * 60 * 60 * 1000;
-  
-  // Calculate delay until next 2 AM (or run immediately if in dev mode)
-  const isDev = process.env.NODE_ENV === 'development';
-  const now = new Date();
-  let initialDelay;
-  
-  if (isDev) {
-    // In development, run after 30 seconds
-    initialDelay = 30_000;
-  } else {
-    // In production, calculate time until 2 AM
-    const next2AM = new Date();
-    next2AM.setHours(2, 0, 0, 0);
-    
-    // If 2 AM already passed today, schedule for tomorrow
-    if (next2AM <= now) {
-      next2AM.setDate(next2AM.getDate() + 1);
-    }
-    
-    initialDelay = next2AM - now;
-  }
-  
-  log.info({ 
-    intervalHours, 
+  const initialDelay = 30_000; // run shortly after startup, regardless of environment or time of day
+
+  log.info({
+    intervalHours,
     initialDelayMs: initialDelay,
     nextRun: new Date(Date.now() + initialDelay).toISOString()
   }, 'flow log cleanup scheduler initialized');
-  
-  // Run initial cleanup after delay
-  setTimeout(async () => {
+
+  const runOnce = async () => {
     try {
       const result = await cleanupFlowLogs(db);
       log.info(result, 'flow log cleanup completed');
     } catch (error) {
       log.error({ err: error }, 'flow log cleanup failed');
     }
-    
-    // Schedule periodic cleanup
-    setInterval(async () => {
-      try {
-        const result = await cleanupFlowLogs(db);
-        log.info(result, 'flow log cleanup completed');
-      } catch (error) {
-        log.error({ err: error }, 'flow log cleanup failed');
-      }
-    }, intervalMs).unref();
-    
+  };
+
+  setTimeout(() => {
+    runOnce();
+    setInterval(runOnce, intervalMs).unref();
   }, initialDelay).unref();
 }
+
