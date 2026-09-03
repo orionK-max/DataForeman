@@ -735,12 +735,17 @@ export const ChartComposerProvider = ({ children }) => {
       return;
     }
     
-    const visibleTags = chartConfig.tagConfigs.filter(t => !t.hidden);
+    // NOTE: include hidden tags too - hidden tags aren't just cosmetically suppressed line
+    // series, they're also used as State/Event overlay sourceTagId data (see temp/States and
+    // Events.md). Filtering them out here meant overlay bands/markers went blank after
+    // reloading a saved chart (data was never fetched for them), even though the manual Query
+    // button's tag list (QueryControls.jsx) never filtered hidden tags and worked fine.
+    const allTags = chartConfig.tagConfigs;
     
     // Check if all tags have connection_id (metadata loaded)
-    const allHaveConnectionId = visibleTags.every(t => t.connection_id);
+    const allHaveConnectionId = allTags.every(t => t.connection_id);
     
-    if (visibleTags.length > 0 && allHaveConnectionId) {
+    if (allTags.length > 0 && allHaveConnectionId) {
       // Clear the flag immediately to prevent re-querying
       setNeedsAutoQuery(false);
       
@@ -749,7 +754,7 @@ export const ChartComposerProvider = ({ children }) => {
       
       // Group tags by connection_id and query each connection separately
       const tagsByConnection = new Map();
-      visibleTags.forEach(tag => {
+      allTags.forEach(tag => {
         const connId = tag.connection_id;
         if (!tagsByConnection.has(connId)) {
           tagsByConnection.set(connId, []);

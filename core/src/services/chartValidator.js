@@ -14,7 +14,6 @@ import {
   LEGEND_POSITIONS,
   AXIS_ORIENTATIONS,
   INTERPOLATION_TYPES,
-  STROKE_TYPES,
   OVERLAY_TYPES,
   OVERLAY_STATE_PRESETS,
   OVERLAY_EVENT_PRESETS,
@@ -393,7 +392,7 @@ function validateTags(tags) {
     }
     
     if ('strokeType' in tag) {
-      if (STROKE_TYPES.includes(tag.strokeType)) {
+      if (typeof tag.strokeType === 'string' && tag.strokeType.trim()) {
         validTag.strokeType = tag.strokeType;
       } else {
         validTag.strokeType = 'solid';
@@ -564,7 +563,7 @@ function validateGridLineStyle(style) {
   }
   
   if ('dash' in style) {
-    if (STROKE_TYPES.includes(style.dash)) {
+    if (typeof style.dash === 'string' && style.dash.trim()) {
       value.dash = style.dash;
     } else {
       warnings.push(`invalid dash style: ${style.dash}`);

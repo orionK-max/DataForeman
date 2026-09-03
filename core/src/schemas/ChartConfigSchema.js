@@ -303,11 +303,10 @@ export const ChartOptionsSchema = {
             description: 'Line thickness'
           },
           strokeType: {
-            type: 'enum',
+            type: 'string',
             required: false,
-            values: STROKE_TYPES,
             default: 'solid',
-            description: 'Line style'
+            description: 'Dash pattern (e.g., "4 4" or "solid"/"dashed"/"dotted")'
           },
           yAxisId: {
             type: 'string',
@@ -404,10 +403,9 @@ export const ChartOptionsSchema = {
                 description: 'Grid line thickness (0 hides the line)'
               },
               dash: {
-                type: 'enum',
+                type: 'string',
                 required: false,
-                values: STROKE_TYPES,
-                description: 'Grid line style (solid, dashed, dotted)'
+                description: 'Dash pattern (e.g., "4 4" or "solid"/"dashed"/"dotted")'
               }
             }
           }
@@ -909,10 +907,9 @@ export const ChartOptionsSchema = {
           description: 'Grid line thickness (0 hides the line)'
         },
         dash: {
-          type: 'enum',
+          type: 'string',
           required: false,
-          values: STROKE_TYPES,
-          description: 'Grid line style (solid, dashed, dotted)'
+          description: 'Dash pattern (e.g., "4 4" or "solid"/"dashed"/"dotted")'
         }
       }
     },
